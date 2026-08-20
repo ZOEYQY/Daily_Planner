@@ -435,6 +435,9 @@ button:hover,
     font-weight: 700;
     text-decoration: none;
     color: var(--text-main);
+    background: transparent;
+    font-family: inherit;
+    cursor: pointer;
 }
 
 .edit-btn:hover{ border-color: var(--border-strong); }
@@ -509,6 +512,9 @@ button:hover,
     font-weight: 700;
     text-decoration: none;
     color: var(--text-main);
+    background: transparent;
+    font-family: inherit;
+    cursor: pointer;
 }
 
 .chip-btn:hover{ border-color: var(--border-strong); }
@@ -677,6 +683,9 @@ button:hover,
     color: var(--text-main);
     font-size: 12px;
     font-weight: 700;
+    background: transparent;
+    font-family: inherit;
+    cursor: pointer;
 }
 
 .budget-icon-btn:hover{ border-color: var(--border-strong); }

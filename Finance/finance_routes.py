@@ -290,7 +290,7 @@ def view_financial():
 # ================= DELETE =================
 # ================= 删除记录 =================
 
-@finance_bp.route("/delete/<int:idx>")
+@finance_bp.route("/delete/<int:idx>", methods=["POST"])
 def delete_financial(idx):
     records = load_data(f_expense, [])
 
@@ -529,7 +529,7 @@ def edit_budget(category):
 # ================= DELETE BUDGET =================
 # ================= 删除预算 =================
 
-@finance_bp.route("/delete_budget/<category>")
+@finance_bp.route("/delete_budget/<category>", methods=["POST"])
 def delete_budget(category):
     budgets = load_data(f_budget, [])
     budgets = [b for b in budgets if b["category"] != category]
@@ -883,7 +883,7 @@ def goals():
 # ================= DELETE GOALS =================
 # ================= 删除目标 =================
 
-@finance_bp.route("/delete_goal/<int:goal_id>")
+@finance_bp.route("/delete_goal/<int:goal_id>", methods=["POST"])
 def delete_goal(goal_id):
     goals_list = load_data(f_goals, [])
     goals_list = [g for g in goals_list if g.get("id") != goal_id]
@@ -893,7 +893,7 @@ def delete_goal(goal_id):
 # ================= REOPEN GOAL =================
 # ================= 重新开启目标 =================
 
-@finance_bp.route("/reopen_goal/<int:goal_id>")
+@finance_bp.route("/reopen_goal/<int:goal_id>", methods=["POST"])
 def reopen_goal(goal_id):
     goals_list = load_data(f_goals, [])
     for g in goals_list:
@@ -907,7 +907,7 @@ def reopen_goal(goal_id):
 # ================= QUICK STATUS ACTIONS =================
 # ================= 快速状态操作 =================
 
-@finance_bp.route("/pause_goal/<int:goal_id>")
+@finance_bp.route("/pause_goal/<int:goal_id>", methods=["POST"])
 def pause_goal(goal_id):
     goals_list = load_data(f_goals, [])
     for g in goals_list:
@@ -917,7 +917,7 @@ def pause_goal(goal_id):
     save_data(f_goals, goals_list)
     return redirect(url_for("finance.goals"))
 
-@finance_bp.route("/resume_goal/<int:goal_id>")
+@finance_bp.route("/resume_goal/<int:goal_id>", methods=["POST"])
 def resume_goal(goal_id):
     goals_list = load_data(f_goals, [])
     for g in goals_list:
@@ -927,7 +927,7 @@ def resume_goal(goal_id):
     save_data(f_goals, goals_list)
     return redirect(url_for("finance.goals"))
 
-@finance_bp.route("/cancel_goal/<int:goal_id>")
+@finance_bp.route("/cancel_goal/<int:goal_id>", methods=["POST"])
 def cancel_goal(goal_id):
     goals_list = load_data(f_goals, [])
     for g in goals_list:
@@ -937,7 +937,7 @@ def cancel_goal(goal_id):
     save_data(f_goals, goals_list)
     return redirect(url_for("finance.goals"))
 
-@finance_bp.route("/complete_goal/<int:goal_id>")
+@finance_bp.route("/complete_goal/<int:goal_id>", methods=["POST"])
 def complete_goal(goal_id):
     goals_list = load_data(f_goals, [])
     for g in goals_list:
@@ -1069,7 +1069,7 @@ def edit_account(name):
     return render_template("edit_account.html", account=account, error=error)
 
 
-@finance_bp.route("/delete_account/<name>")
+@finance_bp.route("/delete_account/<name>", methods=["POST"])
 def delete_account(name):
     accounts_data = load_data(f_accounts, [])
     accounts_data = [a for a in accounts_data if a.get("name") != name]
