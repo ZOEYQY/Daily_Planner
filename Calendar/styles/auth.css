@@ -1,0 +1,54 @@
+/* ---------- Topbar account button ---------- */
+.account-avatar {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--color-active);
+  color: var(--color-on-dark);
+  font-size: 10.5px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ---------- Form field errors — distinct from toasts, stay visible until fixed ---------- */
+.field-error {
+  font-size: 12.5px;
+  color: var(--color-danger);
+  line-height: 1.4;
+}
+
+/* ---------- Mock email-verification code callout ---------- */
+.verify-code-callout {
+  border: 1px dashed var(--color-border-strong);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+  font-size: 12.5px;
+  color: var(--color-ink-secondary);
+  line-height: 1.5;
+  background: var(--color-surface-alt);
+}
+.verify-code-callout-code {
+  display: block;
+  margin-top: 4px;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: var(--color-ink);
+}
+
+/* ---------- Profile modal ---------- */
+.profile-verified-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  align-self: flex-start;
+  padding: 4px 10px;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--color-success) 12%, var(--color-surface));
+  border: 1px solid color-mix(in srgb, var(--color-success) 35%, var(--color-border));
+  color: var(--color-success);
+  font-size: 12px;
+  font-weight: 600;
+}

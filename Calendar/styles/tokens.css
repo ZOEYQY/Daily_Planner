@@ -1,0 +1,46 @@
+:root {
+  /* Surfaces */
+  --color-bg: #f9f9f7;
+  --color-surface: #ffffff;
+  --color-surface-alt: #fcfcfb;
+  --color-hover: #f1f0ec;
+  --color-active: #0b0b0b;
+
+  /* Ink */
+  --color-ink: #0b0b0b;
+  --color-ink-secondary: #52514e;
+  --color-muted: #898781;
+  --color-on-dark: #ffffff;
+
+  /* Borders */
+  --color-border: #e5e4dd;
+  --color-border-strong: rgba(11, 11, 11, 0.12);
+
+  /* Category accents (School / Personal / Home / Work) */
+  --accent-school: #2a78d6;
+  --accent-personal: #eb6834;
+  --accent-home: #147a3d;
+  --accent-work: #4a3aa7;
+
+  /* Status */
+  --color-success: #0a7a2f;
+  --color-danger: #c23b3b;
+
+  /* Radii */
+  --radius-xs: 4px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 18px;
+  --radius-pill: 999px;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 2px rgba(11, 11, 11, 0.05);
+  --shadow-md: 0 8px 24px rgba(11, 11, 11, 0.08);
+  --shadow-lg: 0 16px 48px rgba(11, 11, 11, 0.14);
+
+  /* Type */
+  --font-sans: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+
+  /* Layout */
+  --topbar-height: 56px;
+}
