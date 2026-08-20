@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Edit Account</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='finance.css') }}">
+</head>
+
+<body>
+<!-- ===== TOPBAR / 顶部栏 ===== -->
+<div class="topbar">
+    <div class="topbar-title">Accounts</div>
+    <div class="topbar-links">
+        <a href="/finance">Dashboard</a>
+        <a href="/add">Add</a>
+        <a href="/view">View</a>
+        <a href="/summary">Summary</a>
+        <a href="/budget">Budget</a>
+        <a href="/goals">Goals</a>
+        <a href="/accounts" class="active-link">Accounts</a>
+    </div>
+</div>
+
+<div class="summary-wrapper">
+    <div class="summary-card hover-card">
+
+        <div class="page-header">
+            <h1 class="summary-main-title">Edit Account</h1>
+            <p class="add-subtitle">Update the name or purpose of this account. All linked transactions will be updated automatically.</p>
+        </div>
+
+        {% if error %}
+        <div class="insight-box" style="margin-bottom:16px;">
+            <p class="negative">{{ error }}</p>
+        </div>
+        {% endif %}
+
+        <form method="POST" class="add-form">
+            <div class="form-grid">
+                <div class="form-group">
+                    <label>Account Name</label>
+                    <input type="text" name="name" value="{{ account.name }}" required>
+                </div>
+                <div class="form-group">
+                    <label>Purpose</label>
+                    <select name="purpose">
+                        <option value="spending" {% if account.purpose == 'spending' %}selected{% endif %}>Spending Account</option>
+                        <option value="savings"  {% if account.purpose == 'savings'  %}selected{% endif %}>Savings Account</option>
+                    </select>
+                </div>
+            </div>
+            <div class="action-buttons" style="margin-top:16px;">
+                <button type="submit" class="primary-btn">Save Changes</button>
+                <a href="/accounts" class="secondary-btn">Cancel</a>
+            </div>
+        </form>
+
+    </div>
+</div>
+</body>
+</html>

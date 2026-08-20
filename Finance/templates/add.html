@@ -1,0 +1,898 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <title>Add Record</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='finance.css') }}">
+</head>
+
+<body>
+
+<!-- ===== TOPBAR ===== -->
+
+<div class="topbar">
+
+    <div class="topbar-title">
+
+        Add Record
+
+    </div>
+
+    <div class="topbar-links">
+        <a href="/finance">Dashboard</a>
+        <a href="/add" class="active-link">Add</a>
+        <a href="/view">View</a>
+        <a href="/summary">Summary</a>
+        <a href="/budget">Budget</a>
+        <a href="/goals">Goals</a>
+        <a href="/accounts">Accounts</a>
+    </div>
+
+</div>
+
+<div class="summary-wrapper">
+
+    <!-- ================================================= -->
+    <!-- ===================== MAIN ====================== -->
+    <!-- ===================== 主区块 ====================== -->
+    <!-- ================================================= -->
+
+    <div class="summary-card hover-card">
+
+        <div class="add-header">
+
+            <div>
+
+                <h1 class="summary-main-title">
+
+                    New Financial Record
+
+                </h1>
+
+                <p class="add-subtitle">
+
+                    Add income, expenses, or savings
+                    into your finance workspace.
+
+                </p>
+
+            </div>
+
+        </div>
+
+        <!-- ===== SUCCESS ===== -->
+        <!-- ===== 成功提示 ===== -->
+
+        {% if success %}
+
+        <div class="insight-box">
+
+            <p class="positive">
+
+                {{ success }}
+
+            </p>
+
+        </div>
+
+        {% endif %}
+
+        <!-- ===== ERROR ===== -->
+        <!-- ===== 错误提示 ===== -->
+
+        {% if error %}
+
+        <div class="insight-box">
+
+            <p class="negative">
+
+                {{ error }}
+
+            </p>
+
+        </div>
+
+        {% endif %}
+
+        <!-- ===== FORM ===== -->
+        <!-- ===== 表单 ===== -->
+
+        <form
+        method="POST"
+        class="add-form"
+        enctype="multipart/form-data"
+        id="addForm"
+        >
+
+            <!-- ROW 1 -->
+            <!-- 第一行 -->
+
+            <div class="summary-grid">
+
+                <!-- DATE -->
+                <!-- 日期 -->
+
+                <div>
+
+                    <label>
+
+                        Date
+
+                    </label>
+
+                    <input
+                        type="date"
+                        name="date"
+                        value="{{ form_data.date if form_data else '' }}"
+                        required
+                    >
+
+                </div>
+
+                <!-- TYPE -->
+                <!-- 类型 -->
+
+                <div>
+
+                    <label>
+
+                        Type
+
+                    </label>
+
+                    <select
+                    name="type"
+                    id="typeSelect"
+                    required
+                    >
+
+                        <option value="">
+
+                            -- Select Type --
+
+                        </option>
+
+                        <option
+                        value="income"
+                        {{ 'selected' if form_data and form_data.type == 'income' else '' }}
+                        >
+
+                            Income
+
+                        </option>
+
+                        <option
+                        value="expense"
+                        {{ 'selected' if form_data and form_data.type == 'expense' else '' }}
+                        >
+
+                            Expense
+
+                        </option>
+
+                        <option
+                        value="saving"
+                        {{ 'selected' if form_data and form_data.type == 'saving' else '' }}
+                        >
+
+                            Saving
+                        </option>
+
+                        <option
+                        value="transfer"
+                        {{ 'selected' if form_data and form_data.type == 'transfer' else '' }}
+                        >
+                            Transfer
+                        </option>
+
+                    </select>
+
+                </div>
+
+            </div>
+
+            <!-- ROW 2 -->
+            <!-- 第二行 -->
+
+            <div class="summary-grid">
+
+                <div id="categoryBlock">
+
+                    <label>
+                        Category
+                    </label>
+
+                    <select
+                        name="category"
+                        id="categorySelect"
+                        required
+                        data-selected="{{ form_data.category if form_data else '' }}"
+                    >
+
+                        <option value="">
+                            -- Select Category --
+                        </option>
+
+                    </select>
+
+                </div>
+
+                <div>
+
+                    <label>
+                        Account
+                    </label>
+
+                    <select
+                    name="account"
+                    id="accountSelect"
+                    required
+                    >
+
+                        <option value="">
+                            -- Select Account --
+                        </option>
+
+                        {% for acc in accounts %}
+
+                        <option
+                        value="{{ acc.name }}"
+                        {% if form_data and form_data.account == acc.name %}
+                        selected
+                        {% endif %}
+                        >
+
+                            {{ acc.name }}
+
+                        </option>
+
+                        {% endfor %}
+
+                        <option value="__new__">
+                            Create New Account
+                        </option>
+
+                    </select>
+
+                </div>
+
+            </div>
+
+                <!-- TRANSFER TO -->
+                <!-- 转账到 -->
+
+                <div
+                id="transferSection"
+                style="display:none;"
+                >
+
+                    <label>
+                        Transfer To
+                    </label>
+
+                    <select
+                        name="to_account"
+                        id="toAccountSelect"
+                    >
+
+                        <option value="">
+                            -- Select Account --
+                        </option>
+
+                        {% for acc in accounts %}
+
+                        <option value="{{ acc.name }}">
+                            {{ acc.name }}
+                        </option>
+
+                        {% endfor %}
+
+                    </select>
+
+                </div>
+
+            <div
+            id="newAccountSection"
+            style="display:none;"
+            >
+
+                <label>
+
+                    New Account Name
+
+                </label>
+
+                <input
+                    type="text"
+                    id="newAccountInput"
+                    name="new_account"
+                    value="{{ form_data.new_account if form_data else '' }}"
+                    placeholder="Enter account name"
+                >
+
+                <label>
+
+                    Account Purpose
+
+                </label>
+
+                <select name="purpose">
+
+                    <option value="spending">
+
+                        Spending Account
+
+                    </option>
+
+                    <option value="savings">
+
+                        Savings Account
+
+                    </option>
+
+                </select>
+
+            </div>
+
+            <!-- ITEM -->
+            <!-- 项目 -->
+
+            <div id="itemBlock">
+                <label>
+
+                    Item
+
+                </label>
+
+                <input
+                    type="text"
+                    name="item"
+                    value="{{ form_data.item if form_data else '' }}"
+                    placeholder="Example: Lunch, Salary, Grab..."
+                >
+            </div>
+
+            <!-- AMOUNT -->
+            <!-- 金额 -->
+
+            <div class="amount-card">
+
+                <p>
+                    Amount (RM)
+                </p>
+
+                <div id="amountDisplay">
+                    {{ form_data.amount if form_data else '0.00' }}
+                </div>
+
+                <input
+                    type="hidden"
+                    id="amountInput"
+                    name="amount"
+                    value="{{ form_data.amount if form_data else '0.00' }}"
+                >
+
+                <small
+                    id="amountError"
+                    class="negative"
+                    style="display:none;"
+                >
+                    Please enter an amount greater than RM 0.00
+                </small>
+
+            </div>
+
+            <!-- RECEIPT -->
+            <!-- 收据 -->
+
+            <div class="receipt-card">
+
+                <p>Receipt (Optional)</p>
+
+                <div class="receipt-upload-row">
+
+                    <label
+                        class="receipt-label"
+                        for="receiptInput"
+                    >
+                        Attach Image
+                    </label>
+
+                    <span
+                        class="receipt-filename"
+                        id="receiptFilename"
+                    >
+                        No file chosen
+                    </span>
+
+                </div>
+
+                <input
+                    type="file"
+                    id="receiptInput"
+                    name="receipt"
+                    accept="image/*"
+                    class="receipt-input"
+                >
+
+            </div>
+
+            <!-- BUTTON -->
+            <!-- 按钮 -->
+
+            <div class="add-button-row">
+
+                <button type="submit">
+
+                    Add Record
+
+                </button>
+
+            </div>
+
+        </form>
+
+    </div>
+
+</div>
+
+<!-- ================================================= -->
+<!-- ================= SAFE JSON ===================== -->
+<!-- ================= 安全 JSON 数据 ================== -->
+<!-- categories 是后端 Python 算好的 {类型: [分类,...]} 字典，  -->
+<!-- 用 tojson 转成 JSON 文本，塞进这个 <script type="application/json"> -->
+<!-- 标签里 —— 这样浏览器不会把它当成要执行的代码，只是安全地存了一份数据， -->
+<!-- 下面的 JS 再用 JSON.parse 把它读出来用。                    -->
+<!-- categories is a dict of {type: [category, ...]} computed on the -->
+<!-- Python backend, converted to JSON text via `tojson` and placed inside -->
+<!-- this <script type="application/json"> tag — the browser won't try to -->
+<!-- execute it as code, it's just safely stored data that the JS below -->
+<!-- reads back out with JSON.parse. -->
+<!-- ================================================= -->
+
+<script id="categories-data" type="application/json">
+
+{{ categories | tojson if categories else '{}' }}
+
+</script>
+
+<script>
+
+document.addEventListener("DOMContentLoaded", function () {
+
+    // ================= CATEGORY =================
+    // ================= 分类 =================
+
+    let categories = {};
+
+    try {
+
+        // 把上面 <script id="categories-data"> 标签里的 JSON 文字
+        // 解析成一个真正的 JavaScript 对象。
+        // Parses the JSON text sitting inside the <script id="categories-data">
+        // tag above into a real JavaScript object.
+        categories = JSON.parse(
+            document.getElementById("categories-data").textContent
+        );
+
+    } catch {
+
+        // 万一这段 JSON 是空的或者格式有问题，就退回一个空对象，
+        // 而不是让整个页面因为报错而卡住。
+        // If the JSON turns out to be empty or malformed, fall back to an
+        // empty object instead of letting the whole page break with an error.
+        categories = {};
+    }
+
+    const typeSelect =
+        document.getElementById("typeSelect");
+
+    const accountSelect =
+        document.getElementById(
+            "accountSelect"
+        );
+
+    const newAccountSection =
+        document.getElementById(
+            "newAccountSection"
+        );
+
+    const categorySelect =
+        document.getElementById("categorySelect");
+
+    // 编辑失败重新渲染这个页面时（比如金额填错了），要记住用户
+    // 之前选过的分类，等分类下拉框重新填好选项后再把它选回去。
+    // When this page re-renders after a failed submission (e.g. a bad
+    // amount), remember which category the user had already picked so it
+    // can be re-selected once the category dropdown is repopulated below.
+    let selectedCategory =
+        categorySelect.getAttribute("data-selected") || "";
+
+    function updateCategory() {
+
+        // 每次"类型"下拉框改变时，分类下拉框的选项要跟着换一套——
+        // 先清空成只剩"-- Select Category --"这一个选项。
+        // Every time the "type" dropdown changes, the category dropdown's
+        // options need to be swapped out — first reset it down to just the
+        // "-- Select Category --" placeholder option.
+        const type = typeSelect.value;
+
+        categorySelect.innerHTML =
+        '<option value="">-- Select Category --</option>';
+
+        if (categories[type]) {
+
+            // 根据选中的类型（income/expense/saving/transfer），
+            // 从 categories 字典里取出对应的那组分类名称列表，
+            // 逐个建立 <option> 标签加进下拉框。
+            // Based on the selected type (income/expense/saving/transfer),
+            // pulls the matching list of category names out of the
+            // categories dict and builds an <option> tag for each one.
+            categories[type].forEach(cat => {
+
+                const option =
+                    document.createElement("option");
+
+                option.value = cat;
+
+                option.textContent = cat;
+
+                if (cat === selectedCategory) {
+
+                    option.selected = true;
+                }
+
+                categorySelect.appendChild(option);
+
+            });
+        }
+    }
+
+    function updateItemRequired() {
+
+        // "Item"（项目名称）这一栏只有在类型是"支出"时才强制必填——
+        // 收入/储蓄/转账不一定需要写具体项目名称。
+        // The "Item" field is only made required when the type is
+        // "expense" — income/saving/transfer don't necessarily need a
+        // specific item name.
+        const itemInput =
+            document.querySelector("input[name='item']");
+
+        const type = typeSelect.value;
+
+        if (type === "expense") {
+
+            itemInput.setAttribute(
+                "required",
+                "required"
+            );
+
+        }
+
+        else {
+
+            itemInput.removeAttribute("required");
+        }
+    }
+
+    function updateTransferUI() {
+
+        // 选了"转账"类型时，要换一套完全不同的表单：显示"转到哪个账户"，
+        // 隐藏"分类"和"项目"这两栏（因为转账不需要分类/项目），
+        // 并且把隐藏起来的栏位的 required 属性去掉——不然浏览器会因为
+        // 看不见的必填栏而拒绝提交表单。
+        // Picking the "transfer" type swaps in a different form shape: show
+        // "transfer to which account", hide the "category" and "item"
+        // fields (a transfer doesn't need either), and remove the
+        // `required` attribute from the now-hidden fields — otherwise the
+        // browser would refuse to submit the form over invisible required
+        // fields it can't let the user fill in.
+        const transferSection =
+            document.getElementById("transferSection");
+
+        const type =
+            typeSelect.value;
+
+        const categoryBlock =
+            document.getElementById("categoryBlock");
+
+        const itemBlock =
+            document.getElementById("itemBlock");
+
+        const categorySelect =
+            document.getElementById("categorySelect");
+
+        const itemInput =
+            document.querySelector("input[name='item']");
+
+        if (type === "transfer") {
+
+            transferSection.style.display = "block";
+
+            categoryBlock.style.display = "none";
+
+            itemBlock.style.display = "none";
+
+            categorySelect.removeAttribute("required");
+
+            itemInput.removeAttribute("required");
+
+        }
+
+        else {
+
+            transferSection.style.display = "none";
+
+            categoryBlock.style.display = "block";
+
+            itemBlock.style.display = "block";
+
+            categorySelect.setAttribute(
+                "required",
+                "required"
+            );
+        }
+    }
+
+    function updateAccountUI() {
+
+        if (!accountSelect) return;
+
+        // 账户下拉框里选了"Create New Account"这个特殊选项时，
+        // 才展开"新账户名称/用途"这两个额外栏位，并且让新账户名称变成必填。
+        // Only expands the extra "new account name / purpose" fields, and
+        // makes the new account name required, when the account dropdown's
+        // special "Create New Account" option is selected.
+        const isNew = accountSelect.value === "__new__";
+
+        newAccountSection.style.display = isNew ? "block" : "none";
+
+        const newAccountInput = document.getElementById("newAccountInput");
+
+        if (isNew) {
+            newAccountInput.setAttribute("required", "required");
+        } else {
+            newAccountInput.removeAttribute("required");
+        }
+    }
+
+    typeSelect.addEventListener("change", function () {
+
+        // 换了类型之后，之前记住的"选中分类"就不适用了
+        // （不同类型的分类清单是不一样的），所以要清空。
+        // Once the type changes, the previously remembered "selected
+        // category" no longer applies (each type has its own category
+        // list), so it gets cleared here.
+        selectedCategory = "";
+
+        updateCategory();
+
+        updateItemRequired();
+
+        updateTransferUI();
+
+        updateAccountUI();
+    });
+
+    accountSelect.addEventListener(
+        "change",
+        updateAccountUI
+    );
+
+    // 页面刚加载时也要跑一遍这几个函数，让表单初始状态
+    // （分类清单/必填标记/转账栏位显示与否）跟当前已选中的类型保持一致。
+    // These also run once when the page first loads, so the form's initial
+    // state (category list / required markers / whether the transfer
+    // fields show) matches whatever type is already selected.
+
+    updateCategory();
+
+    updateItemRequired();
+
+    updateTransferUI();
+
+    updateAccountUI();
+
+    // ================= RECEIPT FILENAME =================
+    // ================= 收据文件名 =================
+
+    document.getElementById("receiptInput")
+        .addEventListener("change", function () {
+
+        // this.files[0]：用户选中的第一个文件（这个 input 只允许单选）；
+        // 如果用户取消了选择，就显示回"No file chosen"的提示文字。
+        // this.files[0]: the first file the user picked (this input only
+        // allows a single file); if the user cancels the picker, fall back
+        // to showing "No file chosen" again.
+        const name = this.files[0]
+            ? this.files[0].name
+            : "No file chosen";
+
+        document.getElementById("receiptFilename")
+            .textContent = name;
+    });
+
+    // ================= AMOUNT DISPLAY =================
+    // ================= 金额输入 =================
+    // 这个金额输入框不是普通的 <input>，而是一个可以获得焦点的 <div>
+    // （见下面 tabindex），行为更像计算器：每按一个数字键，就把当前金额
+    // （以"分"为单位的整数）乘以 10 再加上这个数字，Backspace 则是
+    // 整数除以 10 并向下取整——这样可以避免直接操作带小数点的字符串，
+    // 天然保证显示出来的金额永远是"整数.两位小数"的格式，不会出现
+    // 输入了多个小数点这种奇怪情况。
+    // This amount field isn't a normal <input> — it's a focusable <div>
+    // (see tabindex below) that behaves more like a calculator: each digit
+    // key multiplies the current amount (stored as an integer number of
+    // cents) by 10 and adds the digit, while Backspace divides by 10 and
+    // rounds down. Working in integer cents instead of directly editing a
+    // decimal string guarantees the displayed amount is always exactly
+    // "whole number . two decimal places", with no risk of someone typing
+    // multiple decimal points.
+
+    const amountInput =
+        document.getElementById("amountInput");
+
+    const amountDisplay =
+        document.getElementById("amountDisplay");
+
+    // parseFloat(...) * 100：把 "12.50" 这样的金额字符串转换成
+    // 1250（以分为单位的整数），后续所有计算都基于这个整数进行，
+    // 避免了直接对浮点数做加减乘除可能出现的精度误差。
+    // parseFloat(...) * 100: converts an amount string like "12.50" into
+    // 1250 (an integer number of cents). All further math is done on this
+    // integer, avoiding the rounding/precision quirks that can happen when
+    // adding/subtracting floating-point numbers directly.
+    let value = Math.round(
+        parseFloat(amountInput.value || "0") * 100
+    );
+
+    function updateAmount() {
+
+        // 把"分"换算回带两位小数的金额字符串（比如 1250 -> "12.50"），
+        // 同时更新隐藏的真实表单字段（提交给后端用）和页面上显示的文字。
+        // Converts cents back into a 2-decimal amount string (e.g.
+        // 1250 -> "12.50"), updating both the hidden real form field (sent
+        // to the backend) and the visible display text.
+        const formatted =
+            (value / 100).toFixed(2);
+
+        amountInput.value =
+            formatted;
+
+        amountDisplay.textContent =
+            formatted;
+    }
+
+    updateAmount();
+
+    // tabindex="0"：让这个原本不能获得焦点的 <div> 也能像普通输入框
+    // 一样被 Tab 键切换到、被点击聚焦，才能正常接收键盘事件。
+    // tabindex="0": lets this otherwise non-focusable <div> receive focus
+    // via Tab or a click just like a normal input, which is required for
+    // it to receive keyboard events at all.
+    amountDisplay.setAttribute(
+        "tabindex",
+        "0"
+    );
+
+    amountDisplay.addEventListener(
+        "keydown",
+        function(e) {
+
+            if (
+                e.key >= "0"
+                &&
+                e.key <= "9"
+            ) {
+
+                // 字符串比较 "0" <= e.key <= "9" 能筛选出数字键，
+                // 是因为数字字符的 Unicode 编码本来就是连续递增的。
+                // The string comparison "0" <= e.key <= "9" correctly
+                // filters to just the digit keys because digit characters'
+                // Unicode code points are already consecutive/increasing.
+                value =
+                    value * 10 +
+                    parseInt(e.key);
+
+            }
+
+            else if (
+                e.key === "Backspace"
+            ) {
+
+                // Math.floor(value / 10)：去掉最后一位数字
+                // （相当于普通输入框里"删掉最后一个字符"的效果）。
+                // Math.floor(value / 10): drops the last digit (the
+                // equivalent of "delete the last character" in a normal
+                // text input).
+                value =
+                    Math.floor(
+                        value / 10
+                    );
+
+            }
+
+            else {
+
+                // 数字和 Backspace 以外的按键（字母、符号等）一律忽略，
+                // 直接 return 让浏览器走默认行为（这里其实就是什么都不做）。
+                // Any key other than a digit or Backspace is ignored —
+                // return early and let the browser's default behavior
+                // happen (which, for this non-editable div, is effectively
+                // nothing).
+                return;
+            }
+
+            // 数字/退格键已经被这里手动处理过了，阻止浏览器的默认行为，
+            // 避免出现意料之外的副作用（比如页面滚动、字符被插入等）。
+            // The digit/backspace keys have already been handled manually
+            // above, so prevent the browser's default behavior to avoid
+            // unexpected side effects (like page scrolling or stray
+            // character insertion).
+            e.preventDefault();
+
+            updateAmount();
+
+        }
+    );
+
+    amountDisplay.addEventListener(
+        "click",
+        function() {
+
+            amountDisplay.focus();
+
+        }
+    );
+
+    function validateAmount() {
+
+        const amount =
+            parseFloat(
+                document.getElementById("amountInput").value
+            );
+
+        const amountError =
+            document.getElementById("amountError");
+
+        if (amount <= 0) {
+
+            amountError.style.display = "block";
+
+            // 自动滚动到金额输入框所在位置，让用户立刻看到
+            // 是哪里出了问题，不用自己在长表单里到处找。
+            // Auto-scrolls to where the amount field sits, so the user
+            // immediately sees what needs fixing instead of having to hunt
+            // for it in a long form.
+            amountDisplay.scrollIntoView({
+                behavior: "smooth",
+                block: "center"
+            });
+
+            return false;
+        }
+
+        amountError.style.display = "none";
+
+        return true;
+    }
+
+    document.getElementById("addForm")
+        .addEventListener("submit", function(e) {
+            if (!validateAmount()) {
+                // 金额不合法时阻止表单真正提交出去，
+                // 让用户先看到错误提示、把金额改对再重新提交。
+                // Blocks the form from actually submitting when the amount
+                // is invalid, so the user sees the error and fixes the
+                // amount before resubmitting.
+                e.preventDefault();
+            }
+        });
+
+});
+
+
+</script>
+</body>
+</html>
