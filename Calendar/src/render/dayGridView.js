@@ -3,7 +3,8 @@ import {
   formatHourLabel, formatTime, formatFullDate, minutesFromMidnight, minutesToHHMM, daysBetweenISO,
 } from "../dateUtils.js";
 import {
-  eventsOnDate, scheduledTasksOnDate, specialDaysOnDate, getWeekUnscheduledTasks, getDayUnscheduledTasks, resolveOccurrence, isRepeating,
+  eventsOnDate, scheduledTasksOnDate, specialDaysOnDate, getWeekUnscheduledTasks, getWeekUnscheduledEvents,
+  getDayUnscheduledTasks, getDayUnscheduledEvents, resolveOccurrence, isRepeating,
 } from "../selectors.js";
 import { icons } from "../icons.js";
 import { esc } from "../utils.js";
@@ -92,7 +93,7 @@ function rescheduleBadgeHTML(task, todayISO) {
 
 function quickAddTask(actions, state, dueDate) {
   const created = actions.addTask({
-    title: "New Task",
+    title: "",
     categoryId: state.categories[0]?.id || "",
     colorId: state.categories[0]?.colors[0]?.id || "",
     dueDate,
@@ -128,7 +129,10 @@ export function renderDayGridView(root, state, actions, currentUser) {
     days = [...state.customDates].sort().map(parseISODate);
   }
 
-  const weekTasks = getWeekUnscheduledTasks(state);
+  const weekItems = [
+    ...getWeekUnscheduledTasks(state).map((t) => ({ item: t, kind: "task" })),
+    ...getWeekUnscheduledEvents(state).map((e) => ({ item: e, kind: "event" })),
+  ];
 
   // Every store update (including just opening a modal) re-renders this whole view
   // from scratch, which would otherwise snap the scroll position back to 7am each
@@ -172,11 +176,11 @@ export function renderDayGridView(root, state, actions, currentUser) {
           ? `<div class="week-tray">
         <div class="week-tray-title">Week</div>
         <div class="week-tray-chips">
-          ${weekTasks
+          ${weekItems
             .slice(0, WEEK_TRAY_VISIBLE)
-            .map((task) => weekTrayChip(task, todayISO))
+            .map(({ item, kind }) => weekTrayChip(item, todayISO, kind))
             .join("")}
-          ${weekTasks.length > WEEK_TRAY_VISIBLE ? `<div class="unscheduled-more">+${weekTasks.length - WEEK_TRAY_VISIBLE} more</div>` : ""}
+          ${weekItems.length > WEEK_TRAY_VISIBLE ? `<div class="unscheduled-more">+${weekItems.length - WEEK_TRAY_VISIBLE} more</div>` : ""}
         </div>
         <button type="button" class="tray-add-btn tray-add-btn-floating" id="week-add-btn" aria-label="Add a task for sometime this week">${icons.plusSmall}</button>
       </div>`
@@ -256,12 +260,22 @@ export function renderDayGridView(root, state, actions, currentUser) {
     return { zone: "none" };
   }
 
+  // commitOccurrencePatch only ever writes an *exception* — for a repeating item
+  // that's correct (exceptions are how one occurrence diverges from its pattern),
+  // but for a non-repeating item it's a silent no-op: occurrencesOnDate's
+  // non-repeating branch never looks at `exceptions`/`movedTo` at all, it only
+  // ever checks the master's own date field. So the gate here has to be
+  // isRepeating(item), never occurrenceKey/item.occurrenceDate truthiness —
+  // resolveOccurrence sets occurrenceDate on every resolved item, repeating or
+  // not, so that would always take the exception branch and silently do nothing
+  // for the common (non-repeating) case. This was the bug behind "dragging a Day
+  // tray task/event onto the calendar does nothing."
   function applyTaskDrop(task, target) {
     if (target.zone === "none") return;
-    const isOccurrence = !!task.occurrenceDate;
+    const repeating = isRepeating(task);
 
     if (target.zone === "week") {
-      if (isOccurrence) {
+      if (repeating) {
         showToast("Recurring tasks can't be fully unscheduled — delete this occurrence instead", { variant: "danger" });
         return;
       }
@@ -270,15 +284,44 @@ export function renderDayGridView(root, state, actions, currentUser) {
     }
 
     if (target.zone === "day") {
-      if (isOccurrence) commitOccurrencePatch(actions, "task", task, "dueDate", { dueDate: target.date, startTime: "", endTime: "", scheduled: false });
+      if (repeating) commitOccurrencePatch(actions, "task", task, "dueDate", { dueDate: target.date, startTime: "", endTime: "", scheduled: false });
       else actions.updateTask(task.id, computeReschedulePatch(task, target.date, "", "", { scheduled: false }));
       return;
     }
 
     const startTime = minutesToHHMM(target.startMin);
     const endTime = minutesToHHMM(target.startMin + 60);
-    if (isOccurrence) commitOccurrencePatch(actions, "task", task, "dueDate", { dueDate: target.date, startTime, endTime, scheduled: true });
+    if (repeating) commitOccurrencePatch(actions, "task", task, "dueDate", { dueDate: target.date, startTime, endTime, scheduled: true });
     else actions.updateTask(task.id, computeReschedulePatch(task, target.date, startTime, endTime, { scheduled: true }));
+  }
+
+  // Dragging an unscheduled event chip (Week or Day tray) somewhere else — mirrors
+  // applyTaskDrop exactly, minus the reschedule-tracking fields events don't have.
+  // Gated on isRepeating(), not occurrence-key truthiness — see the comment above
+  // applyTaskDrop for why.
+  function applyEventDrop(event, target) {
+    if (target.zone === "none") return;
+    const repeating = isRepeating(event);
+
+    if (target.zone === "week") {
+      if (repeating) {
+        showToast("Recurring events can't be fully unscheduled — delete this occurrence instead", { variant: "danger" });
+        return;
+      }
+      actions.updateEvent(event.id, { date: "", startTime: "", endTime: "" });
+      return;
+    }
+
+    if (target.zone === "day") {
+      if (repeating) commitOccurrencePatch(actions, "event", event, "date", { date: target.date, startTime: "", endTime: "" });
+      else actions.updateEvent(event.id, { date: target.date, startTime: "", endTime: "" });
+      return;
+    }
+
+    const startTime = minutesToHHMM(target.startMin);
+    const endTime = minutesToHHMM(target.startMin + 60);
+    if (repeating) commitOccurrencePatch(actions, "event", event, "date", { date: target.date, startTime, endTime });
+    else actions.updateEvent(event.id, { date: target.date, startTime, endTime });
   }
 
   function createFromRange(date, startMin, endMin) {
@@ -291,7 +334,7 @@ export function renderDayGridView(root, state, actions, currentUser) {
     actions.setPendingCreate(null);
     if (type === "task") {
       const created = actions.addTask({
-        title: "New Task",
+        title: "",
         categoryId,
         colorId,
         dueDate: date,
@@ -301,7 +344,7 @@ export function renderDayGridView(root, state, actions, currentUser) {
       });
       actions.openModal({ type: "edit", itemType: "task", id: created.id, isDraft: true });
     } else {
-      const created = actions.addEvent({ title: "New Event", categoryId, colorId, date, startTime, endTime });
+      const created = actions.addEvent({ title: "", categoryId, colorId, date, startTime, endTime });
       actions.openModal({ type: "edit", itemType: "event", id: created.id, isDraft: true });
     }
   }
@@ -466,27 +509,46 @@ export function renderDayGridView(root, state, actions, currentUser) {
           const cx = finalRect.left + finalRect.width / 2;
           const cy = finalRect.top + finalRect.height / 2;
 
-          // A scheduled task dragged back onto the Week/Day tray loses its confirmed
-          // time (Week: fully unscheduled, Day: keeps the date, drops the time) —
-          // events have no such unscheduled state, so this only applies to tasks. A
-          // recurring occurrence can't go to the Week tray specifically — it would
-          // have no date left to be found by again, so that drop is rejected instead.
-          if (kind === "task") {
+          // A scheduled task or event dragged back onto the Week tray loses its date
+          // AND time (fully unscheduled). Dragged onto the Day tray instead, it keeps
+          // that day's date but loses its time — events have no rescheduleCount/
+          // overdue tracking the way tasks do, so they skip computeReschedulePatch
+          // and just set the fields directly. Only the Week zone rejects a recurring
+          // occurrence (isRepeating(), not occurrenceKey — occurrenceKey is set for
+          // every timeline item regardless of whether it actually repeats): it would
+          // have no date left to be found by again. The Day zone allows one, same as
+          // any other date move, via commitOccurrencePatch.
+          if (kind === "task" || kind === "event") {
             const wt = ctx.weekTrayRect;
-            if (wt && cy >= wt.top && cy <= wt.bottom && cx >= wt.left && cx <= wt.right) {
+            const onWeekTray = wt && cy >= wt.top && cy <= wt.bottom && cx >= wt.left && cx <= wt.right;
+            const dayCol = ctx.dayTrayCols.find((c) => cx >= c.rect.left && cx < c.rect.right && cy >= c.rect.top && cy <= c.rect.bottom);
+
+            if (onWeekTray) {
               card.remove();
               if (isRepeating(ctx.item)) {
-                showToast("Recurring tasks can't be fully unscheduled — delete this occurrence instead", { variant: "danger" });
-              } else {
+                showToast(`Recurring ${kind === "task" ? "tasks" : "events"} can't be fully unscheduled — delete this occurrence instead`, { variant: "danger" });
+              } else if (kind === "task") {
                 actions.updateTask(id, { dueDate: "", startTime: "", endTime: "", scheduled: false });
+              } else {
+                actions.updateEvent(id, { date: "", startTime: "", endTime: "" });
               }
               return;
             }
-            const dayCol = ctx.dayTrayCols.find((c) => cx >= c.rect.left && cx < c.rect.right && cy >= c.rect.top && cy <= c.rect.bottom);
             if (dayCol) {
               card.remove();
-              if (occurrenceKey) commitOccurrencePatch(actions, kind, ctx.item, "dueDate", { dueDate: dayCol.date, startTime: "", endTime: "", scheduled: false });
-              else actions.updateTask(id, computeReschedulePatch(ctx.item, dayCol.date, "", "", { scheduled: false }));
+              // isRepeating(ctx.item), not occurrenceKey — occurrenceKey is set for
+              // every timeline item regardless of whether it repeats, and
+              // commitOccurrencePatch is a silent no-op for a non-repeating one
+              // (see the comment above applyTaskDrop).
+              const repeating = isRepeating(ctx.item);
+              if (kind === "event") {
+                if (repeating) commitOccurrencePatch(actions, kind, ctx.item, "date", { date: dayCol.date, startTime: "", endTime: "" });
+                else actions.updateEvent(id, { date: dayCol.date, startTime: "", endTime: "" });
+              } else if (repeating) {
+                commitOccurrencePatch(actions, kind, ctx.item, "dueDate", { dueDate: dayCol.date, startTime: "", endTime: "", scheduled: false });
+              } else {
+                actions.updateTask(id, computeReschedulePatch(ctx.item, dayCol.date, "", "", { scheduled: false }));
+              }
               return;
             }
           }
@@ -497,11 +559,13 @@ export function renderDayGridView(root, state, actions, currentUser) {
           card.remove();
           const startTime = minutesToHHMM(startMin);
           const endTime = minutesToHHMM(startMin + ctx.duration);
+          // Same isRepeating() vs occurrenceKey distinction as above.
+          const repeating = isRepeating(ctx.item);
 
           if (kind === "event") {
-            if (occurrenceKey) commitOccurrencePatch(actions, kind, ctx.item, "date", { date, startTime, endTime });
+            if (repeating) commitOccurrencePatch(actions, kind, ctx.item, "date", { date, startTime, endTime });
             else actions.updateEvent(id, { date, startTime, endTime });
-          } else if (occurrenceKey) {
+          } else if (repeating) {
             commitOccurrencePatch(actions, kind, ctx.item, "dueDate", { dueDate: date, startTime, endTime, scheduled: true });
           } else {
             actions.updateTask(id, computeReschedulePatch(ctx.item, date, startTime, endTime, { scheduled: true }));
@@ -554,16 +618,18 @@ export function renderDayGridView(root, state, actions, currentUser) {
 
   // ---- Week / Day tray chips: click to edit, drag to reschedule between week / day / timeline ----
   root.querySelectorAll(".unscheduled-chip, .day-tray-chip:not(.special-day-tray-chip)").forEach((chip) => {
+    const kind = chip.dataset.kind || "task";
+    const dateField = kind === "task" ? "dueDate" : "date";
     chip.addEventListener("pointerdown", (e) => {
       if (e.target.closest(".timegrid-task-checkbox")) return;
       startPointerInteraction(e, {
         onStart: () => {
-          const master = state.tasks.find((x) => x.id === chip.dataset.id);
+          const master = (kind === "task" ? state.tasks : state.events).find((x) => x.id === chip.dataset.id);
           if (!master) return null;
           const occurrenceKey = chip.dataset.occurrence || null;
-          const task = occurrenceKey ? resolveOccurrence(master, occurrenceKey, "dueDate") : master;
+          const item = occurrenceKey ? resolveOccurrence(master, occurrenceKey, dateField) : master;
           const ctx = {
-            task,
+            item,
             origRect: chip.getBoundingClientRect(),
             columns: columnsSnapshot(),
             dayTrayCols: dayTrayColsSnapshot(),
@@ -597,11 +663,12 @@ export function renderDayGridView(root, state, actions, currentUser) {
           const cy = finalRect.top + finalRect.height / 2;
           chip.remove();
           const target = resolveDropTarget(cx, cy, ctx);
-          applyTaskDrop(ctx.task, target);
+          if (kind === "task") applyTaskDrop(ctx.item, target);
+          else applyEventDrop(ctx.item, target);
         },
         onClick: (ev, { ctx }) => {
           if (!ctx) return;
-          handleOccurrenceClick(ctx.task, "task", ctx.task.occurrenceDate || null, actions);
+          handleOccurrenceClick(ctx.item, kind, ctx.item.occurrenceDate || null, actions);
         },
       });
     });
@@ -664,21 +731,24 @@ function dayColumn(date, state, todayISO) {
 
 function dayTrayCol(date, state, todayISO) {
   const iso = toISODate(date);
-  const tasks = getDayUnscheduledTasks(state, iso);
+  const items = [
+    ...getDayUnscheduledTasks(state, iso).map((t) => ({ item: t, kind: "task" })),
+    ...getDayUnscheduledEvents(state, iso).map((e) => ({ item: e, kind: "event" })),
+  ];
   const specialDays = specialDaysOnDate(state, iso);
 
-  // Special Days share the tray's fixed-height row with unscheduled tasks, so
-  // they compete for the same small slot budget rather than adding to it
+  // Special Days share the tray's fixed-height row with unscheduled tasks/events,
+  // so they compete for the same small slot budget rather than adding to it
   // unbounded — otherwise a day with several markers would overflow the row.
   const specialSlots = Math.min(specialDays.length, DAY_TRAY_VISIBLE);
   const visibleSpecial = specialDays.slice(0, specialSlots);
-  const visibleTasks = tasks.slice(0, DAY_TRAY_VISIBLE - specialSlots);
-  const overflow = specialDays.length - visibleSpecial.length + (tasks.length - visibleTasks.length);
+  const visibleItems = items.slice(0, DAY_TRAY_VISIBLE - specialSlots);
+  const overflow = specialDays.length - visibleSpecial.length + (items.length - visibleItems.length);
 
   return `
     <div class="day-tray-col" data-date="${iso}">
       ${visibleSpecial.map((d) => specialDayTrayChip(d)).join("")}
-      ${visibleTasks.map((t) => dayTrayChip(t, todayISO)).join("")}
+      ${visibleItems.map(({ item, kind }) => dayTrayChip(item, todayISO, kind)).join("")}
       ${overflow > 0 ? `<div class="unscheduled-more">+${overflow} more</div>` : ""}
       <button type="button" class="tray-add-btn day-tray-add-btn tray-add-btn-floating" data-date="${iso}" aria-label="Add a task for this day">${icons.plusSmall}</button>
     </div>
@@ -696,25 +766,35 @@ function specialDayTrayChip(d) {
   `;
 }
 
-function weekTrayChip(t, todayISO) {
-  const severity = rescheduleSeverityClass(t.rescheduleCount || 0);
+// Tasks get their done-checkbox and reschedule badge; events have neither (no
+// completion state, no reschedule tracking), so those are gated on kind here
+// rather than needing a whole separate chip renderer.
+function weekTrayChip(item, todayISO, kind = "task") {
+  const isTask = kind === "task";
+  const severity = isTask ? rescheduleSeverityClass(item.rescheduleCount || 0) : "";
+  const prefix = isTask && item.rescheduleCount ? (item.rescheduleCount >= 3 || item.overdueReschedule ? "⚠ " : "↻ ") : "";
+  const dragHint = isTask ? "Drag onto a day or the timeline" : "Drag onto the timeline to schedule";
   return `
-    <div class="unscheduled-chip ${t.done ? "is-done" : ""} ${severity}" style="--chip-color:${t.color}" data-id="${t.id}" data-occurrence="${t.occurrenceDate || ""}" title="${esc(t.title)} · Drag onto a day or the timeline${t.rescheduleCount ? `\n${esc(rescheduleHistoryText(t))}` : ""}">
-      <button type="button" class="timegrid-task-checkbox" data-id="${t.id}" data-occurrence="${t.occurrenceDate || ""}" aria-label="Toggle done"></button>
-      <span class="unscheduled-chip-label">${t.rescheduleCount ? (t.rescheduleCount >= 3 || t.overdueReschedule ? "⚠ " : "↻ ") : ""}${esc(t.title)}</span>
+    <div class="unscheduled-chip ${isTask && item.done ? "is-done" : ""} ${severity}" style="--chip-color:${item.color}" data-id="${item.id}" data-kind="${kind}" data-occurrence="${item.occurrenceDate || ""}" title="${esc(item.title)} · ${dragHint}${isTask && item.rescheduleCount ? `\n${esc(rescheduleHistoryText(item))}` : ""}">
+      ${isTask ? `<button type="button" class="timegrid-task-checkbox" data-id="${item.id}" data-occurrence="${item.occurrenceDate || ""}" aria-label="Toggle done"></button>` : ""}
+      <span class="unscheduled-chip-label">${prefix}${esc(item.title)}</span>
     </div>
   `;
 }
 
-function dayTrayChip(t, todayISO) {
-  const overdue = isOverdue(t, todayISO);
-  const severity = rescheduleSeverityClass(t.rescheduleCount || 0);
-  const prefix = overdue ? "⚠ " : t.rescheduleCount ? (t.rescheduleCount >= 3 || t.overdueReschedule ? "⚠ " : "↻ ") : "";
-  const historyLine = overdue || t.rescheduleCount ? `\n${esc(rescheduleHistoryText(t))}` : "";
+// Overdue/reschedule tracking, done-checkbox — all task-only concepts (events
+// have no dueDate/done fields to check), so those are gated on kind here rather
+// than needing a whole separate chip renderer, same approach as weekTrayChip.
+function dayTrayChip(item, todayISO, kind = "task") {
+  const isTask = kind === "task";
+  const overdue = isTask && isOverdue(item, todayISO);
+  const severity = isTask ? rescheduleSeverityClass(item.rescheduleCount || 0) : "";
+  const prefix = overdue ? "⚠ " : isTask && item.rescheduleCount ? (item.rescheduleCount >= 3 || item.overdueReschedule ? "⚠ " : "↻ ") : "";
+  const historyLine = isTask && (overdue || item.rescheduleCount) ? `\n${esc(rescheduleHistoryText(item))}` : "";
   return `
-    <div class="day-tray-chip ${t.done ? "is-done" : ""} ${overdue ? "is-overdue" : severity}" style="--chip-color:${t.color}" data-id="${t.id}" data-occurrence="${t.occurrenceDate || ""}" title="${esc(t.title)} · Drag onto the timeline to set a time${historyLine}">
-      <button type="button" class="timegrid-task-checkbox" data-id="${t.id}" data-occurrence="${t.occurrenceDate || ""}" aria-label="Toggle done"></button>
-      <span class="unscheduled-chip-label">${prefix}${esc(t.title)}</span>
+    <div class="day-tray-chip ${isTask && item.done ? "is-done" : ""} ${overdue ? "is-overdue" : severity}" style="--chip-color:${item.color}" data-id="${item.id}" data-kind="${kind}" data-occurrence="${item.occurrenceDate || ""}" title="${esc(item.title)} · Drag onto the timeline to set a time${historyLine}">
+      ${isTask ? `<button type="button" class="timegrid-task-checkbox" data-id="${item.id}" data-occurrence="${item.occurrenceDate || ""}" aria-label="Toggle done"></button>` : ""}
+      <span class="unscheduled-chip-label">${prefix}${esc(item.title)}</span>
     </div>
   `;
 }
@@ -731,7 +811,7 @@ function extraInfoHTML(item, state) {
     if (item[f.key]) rows.push({ label: f.label, value: item[f.key] });
   });
   Object.entries(item.customFields || {}).forEach(([key, value]) => {
-    if (value) rows.push({ label: labels[key] || "Field", value });
+    if (value) rows.push({ label: labels[key] || "Detail", value });
   });
   if (item.notes) rows.push({ label: "Notes", value: item.notes });
   const todoItems = (item.todoList || []).filter((t) => t.text);

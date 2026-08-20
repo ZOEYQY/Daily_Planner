@@ -196,6 +196,14 @@
   flex-direction: column;
   gap: 16px;
 }
+/* Each tab's fields need the same flex/gap layout .modal-body gives its direct
+   children — they're one level deeper now, nested inside a tab panel instead of
+   sitting directly in .modal-body (see the two #tab-panel-* divs in addModal.js). */
+.add-modal-tab-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
 #f-extra-fields-inputs {
   display: flex;
   flex-direction: column;
@@ -1002,13 +1010,15 @@
   color: var(--color-danger);
 }
 
-.settings-tabs {
+.settings-tabs,
+.add-modal-tabs {
   display: flex;
   gap: 4px;
   padding: 0 20px;
   border-bottom: 1px solid var(--color-border);
 }
-.settings-tab {
+.settings-tab,
+.add-modal-tab {
   border: none;
   background: transparent;
   padding: 10px 4px;
@@ -1017,8 +1027,10 @@
   font-weight: 600;
   color: var(--color-muted);
   border-bottom: 2px solid transparent;
+  cursor: pointer;
 }
-.settings-tab.active {
+.settings-tab.active,
+.add-modal-tab.active {
   color: var(--color-ink);
   border-bottom-color: var(--color-ink);
 }

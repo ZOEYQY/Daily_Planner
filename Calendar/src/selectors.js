@@ -153,8 +153,16 @@ function occurrencesOnDate(items, iso, dateField) {
   return out;
 }
 
+// Only events that actually have a time show on the hourly timeline — one
+// dragged onto the Day tray (see applyEventDrop in dayGridView.js) keeps its
+// date but loses its time, same as a day-tray task, so it drops out of here and
+// into getDayUnscheduledEvents below instead.
 export function eventsOnDate(state, iso) {
-  return occurrencesOnDate(getVisibleEvents(state), iso, "date").sort((a, b) => a.startTime.localeCompare(b.startTime));
+  return occurrencesOnDate(
+    getVisibleEvents(state).filter((e) => e.startTime),
+    iso,
+    "date"
+  ).sort((a, b) => a.startTime.localeCompare(b.startTime));
 }
 
 export function specialDaysOnDate(state, iso) {
@@ -173,6 +181,24 @@ export function scheduledTasksOnDate(state, iso) {
 // before it can repeat, so this list never contains recurring items by construction.
 export function getWeekUnscheduledTasks(state) {
   return getVisibleTasks(state).filter((t) => !t.scheduled && !t.dueDate);
+}
+
+// Fully unscheduled: no date, no time — "sometime this week". Same construction
+// note as tasks re: an event needs a date before it can repeat, so this list
+// never contains recurring items either.
+export function getWeekUnscheduledEvents(state) {
+  return getVisibleEvents(state).filter((e) => !e.date);
+}
+
+// Day-scoped but time-unscheduled: has a date, no time yet — same shape as
+// getDayUnscheduledTasks below, since an event dropped on the Day tray behaves
+// exactly like a task dropped there (see applyEventDrop in dayGridView.js).
+export function getDayUnscheduledEvents(state, iso) {
+  return occurrencesOnDate(
+    getVisibleEvents(state).filter((e) => !e.startTime && e.date),
+    iso,
+    "date"
+  );
 }
 
 // Day-scoped but time-unscheduled: has a date, no time yet (e.g. an exam

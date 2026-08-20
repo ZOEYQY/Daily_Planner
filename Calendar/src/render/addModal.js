@@ -11,6 +11,12 @@ import { uid } from "../seed.js";
 
 let localType = "task";
 
+// Which of the two tabs is showing — collapsing Notes/Extra Fields into their
+// own tab was specifically to declutter the form (it used to be one long
+// scrolling page); defaults back to "basic" whenever the modal fully closes so
+// the next item you open always starts there.
+let activeAddModalTab = "basic";
+
 // Adding a custom field commits to the store, which triggers a full app re-render —
 // renderAddModal runs again from scratch with entirely new closures, so the *old*
 // call's local variables (state, editingItem, the checklist DOM it already patched)
@@ -80,12 +86,14 @@ export function closeAddOrEditModal(state, actions) {
       }
       pendingCustomFieldKeys = [];
       fieldsChecklistOpen = false;
+      activeAddModalTab = "basic";
       actions.closeModal();
     });
     return;
   }
   pendingCustomFieldKeys = [];
   fieldsChecklistOpen = false;
+  activeAddModalTab = "basic";
   actions.closeModal();
 }
 
@@ -262,99 +270,113 @@ export function renderAddModal(root, state, actions) {
           <h2>${isEdit ? `Edit ${localType === "task" ? "Task" : "Event"}` : "Add"}</h2>
           <button class="modal-close" id="close-btn">${icons.close}</button>
         </div>
+        <div class="add-modal-tabs">
+          <button type="button" class="add-modal-tab ${activeAddModalTab === "basic" ? "active" : ""}" data-tab="basic">Basic Info</button>
+          <button type="button" class="add-modal-tab ${activeAddModalTab === "details" ? "active" : ""}" data-tab="details">Notes &amp; Details</button>
+        </div>
         <div class="modal-body">
-          ${
-            isEdit
-              ? ""
-              : `<div class="type-toggle" id="type-toggle">
-                  <button data-type="task" class="${localType === "task" ? "active" : ""}">Task</button>
-                  <button data-type="event" class="${localType === "event" ? "active" : ""}">Event</button>
-                </div>`
-          }
+          <div class="add-modal-tab-panel" id="tab-panel-basic" style="${activeAddModalTab === "basic" ? "" : "display:none;"}">
+            ${
+              isEdit
+                ? ""
+                : `<div class="type-toggle" id="type-toggle">
+                    <button data-type="task" class="${localType === "task" ? "active" : ""}">Task</button>
+                    <button data-type="event" class="${localType === "event" ? "active" : ""}">Event</button>
+                  </div>`
+            }
 
-          <div class="field">
-            <label>Title</label>
-            <input type="text" id="f-title" placeholder="${localType === "task" ? "e.g. Finish reading" : "e.g. Mathematics"}" value="${esc(editingItem?.title || "")}" />
-          </div>
-
-          <div class="field">
-            <label>Category</label>
-            <div class="category-select" id="f-category">
-              ${state.categories
-                .filter((c) => !c.archived || c.id === defaultCategoryId)
-                .map(
-                  (c) => `
-                <button type="button" class="category-pill" data-id="${c.id}">${esc(c.name)}</button>`
-                )
-                .join("")}
-              <button type="button" class="category-pill pill-add" id="f-add-category-btn">${icons.plusSmall}<span>Add Category</span></button>
-            </div>
-          </div>
-
-          <div class="field">
-            <label>Color</label>
-            <div class="named-color-list" id="f-color">
-              ${colorSwatchesHTML(defaultCategory, defaultColorId)}
-            </div>
-          </div>
-
-          <div class="field" id="f-date-wrap">
-            <label>Date${isTaskForm ? " (leave empty to keep unscheduled)" : ""}</label>
-            <div style="display:flex; gap:8px; align-items:center;">
-              <input type="date" id="f-date" value="${defaultDate}" style="flex:1 1 auto;" />
-              ${
-                isTaskForm && defaultDate
-                  ? `<button type="button" class="btn btn-ghost" id="clear-date-btn" style="flex:0 0 auto; padding:8px 12px;">Unschedule</button>`
-                  : ""
-              }
-            </div>
-          </div>
-
-          ${
-            isTaskForm
-              ? `<label class="checkbox-field" id="f-has-time-wrap" style="${defaultDate ? "" : "display:none;"}">
-                  <input type="checkbox" id="f-has-time" ${hasTimeInitially ? "checked" : ""} />
-                  <span>Give it a specific time</span>
-                </label>`
-              : ""
-          }
-
-          <div class="field-row" id="f-time-wrap" style="${localType === "event" || (isTaskForm && hasTimeInitially && defaultDate) ? "" : "display:none;"}">
             <div class="field">
-              <label>Start</label>
-              <input type="time" id="f-start" value="${prefillTime || "09:00"}" />
+              <label>Title</label>
+              <input type="text" id="f-title" placeholder="${localType === "task" ? "e.g. Finish reading" : "e.g. Mathematics"}" value="${esc(editingItem?.title || "")}" />
             </div>
+
             <div class="field">
-              <label>End</label>
-              <input type="time" id="f-end" value="${prefillEndTime || (prefillTime ? plusOneHour(prefillTime) : "10:00")}" />
+              <label>Category</label>
+              <div class="category-select" id="f-category">
+                ${state.categories
+                  .filter((c) => !c.archived || c.id === defaultCategoryId)
+                  .map(
+                    (c) => `
+                  <button type="button" class="category-pill" data-id="${c.id}">${esc(c.name)}</button>`
+                  )
+                  .join("")}
+                <button type="button" class="category-pill pill-add" id="f-add-category-btn">${icons.plusSmall}<span>Add Category</span></button>
+              </div>
             </div>
-          </div>
 
-          ${
-            isOccurrenceScope
-              ? ""
-              : `<div class="field" id="f-repeat-wrap" style="${defaultDate ? "" : "display:none;"}">
-                  <label>Repeat</label>
-                  <div class="repeat-rule-list" id="f-repeat-list"></div>
-                </div>`
-          }
-
-          <div class="field">
-            <label>Notes (optional)</label>
-            <textarea id="f-notes" placeholder="Add notes…">${esc(editingItem?.notes || "")}</textarea>
-          </div>
-
-          <div class="field">
-            <div class="field-label-row">
-              <label>Extra Fields</label>
-              <button type="button" class="icon-btn-small ${fieldsChecklistOpen ? "rotated" : ""}" id="f-toggle-fields-btn" aria-label="${fieldsChecklistOpen ? "Hide extra fields" : "Show extra fields"}" aria-expanded="${fieldsChecklistOpen}">${icons.plusSmall}</button>
+            <div class="field">
+              <label>Color</label>
+              <div class="named-color-list" id="f-color">
+                ${colorSwatchesHTML(defaultCategory, defaultColorId)}
+              </div>
             </div>
-            <div class="default-field-pill-row" id="f-fields-checklist" style="${fieldsChecklistOpen ? "" : "display:none;"}">${extraFieldsChecklistHTML(state, initialEnabledFields)}</div>
+
+            <div class="field" id="f-date-wrap">
+              <label>Date${isTaskForm ? " (leave empty to keep unscheduled)" : ""}</label>
+              <div style="display:flex; gap:8px; align-items:center;">
+                <input type="date" id="f-date" value="${defaultDate}" style="flex:1 1 auto;" />
+                ${
+                  isTaskForm && defaultDate
+                    ? `<button type="button" class="btn btn-ghost" id="clear-date-btn" style="flex:0 0 auto; padding:8px 12px;">Unschedule</button>`
+                    : ""
+                }
+              </div>
+            </div>
+
+            ${
+              isTaskForm
+                ? `<label class="checkbox-field" id="f-has-time-wrap" style="${defaultDate ? "" : "display:none;"}">
+                    <input type="checkbox" id="f-has-time" ${hasTimeInitially ? "checked" : ""} />
+                    <span>Give it a specific time</span>
+                  </label>`
+                : ""
+            }
+
+            <div class="field-row" id="f-time-wrap" style="${localType === "event" || (isTaskForm && hasTimeInitially && defaultDate) ? "" : "display:none;"}">
+              <div class="field">
+                <label>Start</label>
+                <input type="time" id="f-start" value="${prefillTime || "09:00"}" />
+              </div>
+              <div class="field">
+                <label>End</label>
+                <input type="time" id="f-end" value="${prefillEndTime || (prefillTime ? plusOneHour(prefillTime) : "10:00")}" />
+              </div>
+            </div>
+
+            ${
+              isOccurrenceScope
+                ? ""
+                : `<div class="field" id="f-repeat-wrap" style="${defaultDate ? "" : "display:none;"}">
+                    <label>Repeat</label>
+                    <div class="repeat-rule-list" id="f-repeat-list"></div>
+                  </div>`
+            }
           </div>
-          <div id="f-extra-fields-inputs">${extraFieldInputsHTML(state, initialEnabledFields, editingItem, todoItems)}</div>
+
+          <div class="add-modal-tab-panel" id="tab-panel-details" style="${activeAddModalTab === "details" ? "" : "display:none;"}">
+            <div class="field">
+              <label>Notes (optional)</label>
+              <textarea id="f-notes" placeholder="Add notes…">${esc(editingItem?.notes || "")}</textarea>
+            </div>
+
+            <div class="field">
+              <div class="field-label-row">
+                <label>Extra Details</label>
+                <button type="button" class="icon-btn-small ${fieldsChecklistOpen ? "rotated" : ""}" id="f-toggle-fields-btn" aria-label="${fieldsChecklistOpen ? "Hide extra details" : "Show extra details"}" aria-expanded="${fieldsChecklistOpen}">${icons.plusSmall}</button>
+              </div>
+              <div class="default-field-pill-row" id="f-fields-checklist" style="${fieldsChecklistOpen ? "" : "display:none;"}">${extraFieldsChecklistHTML(state, initialEnabledFields)}</div>
+            </div>
+            <div id="f-extra-fields-inputs">${extraFieldInputsHTML(state, initialEnabledFields, editingItem, todoItems)}</div>
+          </div>
         </div>
         <div class="modal-footer">
-          ${isEdit ? `<button class="btn btn-danger-ghost" id="delete-btn">Delete</button><div class="modal-footer-spacer"></div>` : ""}
+          ${
+            isEdit
+              ? `<button class="btn btn-danger-ghost" id="delete-btn">Delete</button>
+                 ${localType === "event" ? `<button class="btn btn-ghost" id="duplicate-btn">Duplicate</button>` : ""}
+                 <div class="modal-footer-spacer"></div>`
+              : ""
+          }
           <button class="btn btn-secondary" id="cancel-btn">Cancel</button>
           <button class="btn btn-primary" id="save-btn">${isEdit ? "Save Changes" : `Save ${localType === "task" ? "Task" : "Event"}`}</button>
         </div>
@@ -461,9 +483,9 @@ export function renderAddModal(root, state, actions) {
     root.querySelector("#f-add-field-btn")?.addEventListener("click", () => {
       const snapshot = captureFormSnapshot(root);
       openFormPopup({
-        title: "Add Custom Field",
+        title: "Add Custom Detail",
         submitLabel: "Add",
-        bodyHTML: `<div class="field"><label>Field Name</label><input type="text" id="new-field-label" placeholder="e.g. Budget" /></div>`,
+        bodyHTML: `<div class="field"><label>Detail Name</label><input type="text" id="new-field-label" placeholder="e.g. Budget" /></div>`,
         onSubmit: ({ panel, close }) => {
           const labelInput = panel.querySelector("#new-field-label");
           const label = labelInput.value.trim();
@@ -480,7 +502,7 @@ export function renderAddModal(root, state, actions) {
           const field = actions.addCustomFieldDef(label);
           pendingCustomFieldKeys = [...pendingCustomFieldKeys, field.key];
           fieldsChecklistOpen = true;
-          showToast("Field added");
+          showToast("Detail added");
           restoreFormSnapshot(root, snapshot);
         },
       });
@@ -517,7 +539,7 @@ export function renderAddModal(root, state, actions) {
     fieldsChecklistWrap.style.display = fieldsChecklistOpen ? "" : "none";
     toggleFieldsBtn.classList.toggle("rotated", fieldsChecklistOpen);
     toggleFieldsBtn.setAttribute("aria-expanded", String(fieldsChecklistOpen));
-    toggleFieldsBtn.setAttribute("aria-label", fieldsChecklistOpen ? "Hide extra fields" : "Show extra fields");
+    toggleFieldsBtn.setAttribute("aria-label", fieldsChecklistOpen ? "Hide extra details" : "Show extra details");
   });
 
   if (initialEnabledFields.includes(TODO_LIST_KEY)) wireTodoList();
@@ -617,6 +639,17 @@ export function renderAddModal(root, state, actions) {
   root.querySelector("#close-btn").addEventListener("click", () => closeAddOrEditModal(state, actions));
   root.querySelector("#cancel-btn").addEventListener("click", () => closeAddOrEditModal(state, actions));
 
+  // Just toggles which panel is visible — never re-renders the modal — so
+  // switching tabs can't lose anything the user already typed on the other one.
+  root.querySelectorAll(".add-modal-tab").forEach((tab) => {
+    tab.addEventListener("click", () => {
+      activeAddModalTab = tab.dataset.tab;
+      root.querySelectorAll(".add-modal-tab").forEach((t) => t.classList.toggle("active", t === tab));
+      root.querySelector("#tab-panel-basic").style.display = activeAddModalTab === "basic" ? "" : "none";
+      root.querySelector("#tab-panel-details").style.display = activeAddModalTab === "details" ? "" : "none";
+    });
+  });
+
   if (isEdit) {
     root.querySelector("#delete-btn").addEventListener("click", () => {
       // The this/series choice was already made once, when this occurrence was
@@ -641,6 +674,17 @@ export function renderAddModal(root, state, actions) {
         showToast(`${localType === "task" ? "Task" : "Event"} deleted`, { variant: "danger" });
       });
     });
+
+    // Events only for now (tasks weren't asked for). Always makes a plain
+    // one-off copy — never repeating, even if the original series is — since
+    // duplicating a whole recurring series from a single occurrence would be
+    // surprising, and there's no clear "which occurrence" answer for the master.
+    root.querySelector("#duplicate-btn")?.addEventListener("click", () => {
+      const { id, exceptions, repeat, occurrenceDate, isRecurring, ...rest } = structuredClone(editingItem);
+      actions.addEvent({ ...rest, repeat: [] });
+      actions.closeModal();
+      showToast("Event duplicated");
+    });
   } else {
     root.querySelector("#type-toggle").addEventListener("click", (e) => {
       const btn = e.target.closest("button");
@@ -654,6 +698,7 @@ export function renderAddModal(root, state, actions) {
     const title = root.querySelector("#f-title").value.trim();
     if (!title) {
       root.querySelector("#f-title").focus();
+      showToast(`${localType === "task" ? "Task" : "Event"} needs a title before it can be saved`, { variant: "danger" });
       return;
     }
     const notes = root.querySelector("#f-notes").value.trim();
@@ -728,4 +773,5 @@ export function resetAddModalType() {
   localType = "task";
   pendingCustomFieldKeys = [];
   fieldsChecklistOpen = false;
+  activeAddModalTab = "basic";
 }

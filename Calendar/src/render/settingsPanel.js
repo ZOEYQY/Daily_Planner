@@ -125,7 +125,7 @@ function renderCategoriesTab(body, state, actions) {
       <div class="settings-section-title">Categories</div>
       <p style="font-size:12px; color:var(--color-muted); line-height:1.5; margin:-2px 0 10px;">
         Each category keeps its own set of subcategories (a named color inside that category). A subcategory
-        inherits its category's default fields automatically — add extras only where a subcategory genuinely needs them.
+        inherits its category's default details automatically — add extras only where a subcategory genuinely needs them.
       </p>
       <div class="category-color-list" id="cat-list">
         ${
@@ -178,8 +178,8 @@ function customFieldKeysFor(category, color) {
 function subcatSummary(category, color, state) {
   const inherited = inheritedFieldKeys(category);
   const custom = customFieldKeysFor(category, color);
-  if (inherited.length === 0 && custom.length === 0) return "No fields";
-  if (custom.length === 0) return "Using default fields";
+  if (inherited.length === 0 && custom.length === 0) return "No details";
+  if (custom.length === 0) return "Using default details";
   return `${inherited.length} inherited · ${custom.length} custom`;
 }
 
@@ -240,7 +240,7 @@ function categoryBlock(cat, state) {
         <button type="button" class="remove-btn cat-remove-btn" aria-label="Remove category">${icons.trash}</button>
       </div>
 
-      <div class="settings-field-label">Default Fields</div>
+      <div class="settings-field-label">Default Details</div>
       ${defaultFieldsPillsHTML(cat, state)}
 
       <div class="settings-field-label-row">
@@ -303,11 +303,11 @@ function subcatDetail(cat, col, state) {
         <button type="button" class="remove-btn color-remove-btn" aria-label="Remove subcategory">${icons.trash}</button>
       </div>
 
-      <div class="settings-field-label">Fields</div>
+      <div class="settings-field-label">Details</div>
       ${
         inherited.length || custom.length
           ? `<div class="inherited-field-list">${inheritedRows}${customRows}</div>`
-          : `<div class="empty-hint" style="margin:0 0 4px;">No fields yet</div>`
+          : `<div class="empty-hint" style="margin:0 0 4px;">No details yet</div>`
       }
 
       <div class="subcat-detail-actions">
@@ -318,11 +318,11 @@ function subcatDetail(cat, col, state) {
       ${
         editingOpen
           ? `
-        <div class="settings-field-label">Add a Field</div>
+        <div class="settings-field-label">Add a Detail</div>
         ${
           addableKeys.length
             ? addableFieldPillsHTML(state, addableKeys, col.id)
-            : `<div class="empty-hint" style="margin:0;">All fields already added</div>`
+            : `<div class="empty-hint" style="margin:0;">All details already added</div>`
         }
       `
           : ""
@@ -393,9 +393,9 @@ function wireCategoryList(body, state, actions) {
     });
     catFieldsWrap.querySelector(".default-field-pill.is-create-toggle")?.addEventListener("click", () => {
       openFormPopup({
-        title: "Add Field",
+        title: "Add Detail",
         submitLabel: "Add",
-        bodyHTML: `<div class="field"><label>Field Name</label><input type="text" id="new-field-label" placeholder="e.g. Budget" /></div>`,
+        bodyHTML: `<div class="field"><label>Detail Name</label><input type="text" id="new-field-label" placeholder="e.g. Budget" /></div>`,
         onSubmit: ({ panel, close }) => {
           const labelInput = panel.querySelector("#new-field-label");
           const label = labelInput.value.trim();
@@ -407,7 +407,7 @@ function wireCategoryList(body, state, actions) {
           const field = actions.addCustomFieldDef(label);
           category.enabledFields = [...(category.enabledFields || []), field.key];
           rerender(body, state, actions);
-          showToast("Field added");
+          showToast("Detail added");
         },
       });
     });
@@ -460,7 +460,7 @@ function wireCategoryList(body, state, actions) {
 
       // These dashed pills only ever offer fields not already on (see addableKeys
       // in subcatDetail) — clicking one always adds. Removing an already-custom
-      // field happens by clicking its row in the Fields list above instead (next
+      // one happens by clicking its row in the Details list above instead (next
       // handler down), not here.
       detail.querySelectorAll(".default-field-pill.is-unselected").forEach((pill) => {
         pill.addEventListener("click", () => {
