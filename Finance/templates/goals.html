@@ -1,0 +1,749 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <title>Financial Goals</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='finance.css') }}">
+</head>
+
+<body>
+<!-- ================================================= -->
+<!-- ==================== TOPBAR ===================== -->
+<!-- ==================== 顶部栏 ======================= -->
+<!-- ================================================= -->
+
+<div class="topbar">
+
+    <div class="topbar-title">
+        Financial Goals
+    </div>
+
+    <div class="topbar-links">
+        <a href="/finance">Dashboard</a>
+        <a href="/add">Add</a>
+        <a href="/view">View</a>
+        <a href="/summary">Summary</a>
+        <a href="/budget">Budget</a>
+        <a href="/goals" class="active-link">Goals</a>
+        <a href="/accounts">Accounts</a>
+    </div>
+
+</div>
+
+<!-- ================================================= -->
+<!-- ===================== MAIN ====================== -->
+<!-- ===================== 主区块 ====================== -->
+<!-- ================================================= -->
+
+<div class="summary-wrapper">
+
+    <!-- ================= CREATE GOAL ================= -->
+    <!-- ================= 新增目标 ===================== -->
+
+    <div class="summary-card hover-card">
+
+        <h1 class="summary-main-title">Create Financial Goal</h1>
+
+        <p class="goal-subtitle">Track your savings progress and achieve your targets.</p>
+
+        <form method="POST" class="goal-form">
+
+            <input type="hidden" name="action" value="create">
+
+            <div class="summary-grid">
+
+                <!-- GOAL NAME / 目标名称 -->
+                <div>
+                    <label>Goal Name</label>
+                    <input type="text" name="name" placeholder="Example: Japan Trip" required>
+                </div>
+
+                <!-- GOAL TYPE / 目标类型 -->
+                <div>
+                    <label>Goal Type</label>
+                    <select name="type" required>
+                        <option value="">Select Goal Type</option>
+                        <option value="short">Short-Term</option>
+                        <option value="long">Long-Term</option>
+                    </select>
+                </div>
+
+                <!-- PRIORITY / 优先级 -->
+                <div>
+                    <label>Priority</label>
+                    <select name="priority">
+                        <option value="medium">Medium</option>
+                        <option value="high">High</option>
+                        <option value="low">Low</option>
+                    </select>
+                </div>
+
+                <!-- TARGET DATE / 目标日期 -->
+                <div>
+                    <label>Target Date (Optional)</label>
+                    <input type="date" name="target_date">
+                </div>
+
+            </div>
+
+            <br>
+
+            <label>Target Amount (RM)</label>
+            <input type="text" id="amountInput" name="target" value="0.00" readonly required>
+
+            <br><br>
+
+            <label>Notes (Optional)</label>
+            <textarea
+                name="notes"
+                placeholder="Example: Flight + Hotel + Food"
+                rows="2"
+                style="resize:none;"
+            ></textarea>
+
+            <br><br>
+
+            <button type="submit">Create Goal</button>
+
+        </form>
+
+    </div>
+
+    <!-- ================= SHORT GOALS ================= -->
+    <!-- ================= 短期目标 ====================== -->
+
+    <div class="summary-card hover-card">
+
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+            <h2 class="goal-section-title" style="margin:0;">Short-Term Goals</h2>
+            <div style="display:flex;align-items:center;gap:8px;">
+                <span style="font-size:13px;color:var(--text-muted);white-space:nowrap;">Sort:</span>
+                <select id="shortSortSelect" onchange="syncSort(this.value)" style="width:auto;padding:5px 10px;border-radius:8px;font-size:13px;">
+                    <option value="default">Default</option>
+                    <option value="priority">Priority (High → Low)</option>
+                    <option value="progress_desc">Progress (Highest → Lowest)</option>
+                    <option value="progress_asc">Progress (Lowest → Highest)</option>
+                    <option value="date_asc">Target Date (Nearest First)</option>
+                    <option value="date_desc">Target Date (Latest First)</option>
+                    <option value="remaining_asc">Amount Remaining (Lowest First)</option>
+                    <option value="remaining_desc">Amount Remaining (Highest First)</option>
+                    <option value="name">Goal Name (A → Z)</option>
+                </select>
+            </div>
+        </div>
+
+        {% if short_goals %}
+
+        <div class="summary-grid" id="short-goals-grid">
+
+            {% for g in short_goals %}
+
+            <div class="goal-card hover-card"
+                 data-priority="{{ {'high':0,'medium':1,'low':2}.get(g.priority, 1) }}"
+                 data-percent="{{ g.percent }}"
+                 data-remaining="{{ g.remaining }}"
+                 data-date="{{ g.target_date or '9999-12-31' }}"
+                 data-name="{{ g.name }}">
+
+                <div class="budget-card-top">
+                    <div>
+                        <h3>{{ g.name }}</h3>
+                        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;">
+                            <small class="pill{% if g.status == 'In Progress' %} pill-solid{% endif %}">
+                                {% if g.status == 'Completed' %}Completed
+                                {% elif g.status == 'Paused' %}Paused
+                                {% elif g.status == 'Cancelled' %}Cancelled
+                                {% else %}In Progress{% endif %}
+                            </small>
+                            <small class="pill">
+                                {% if g.priority == 'high' %}High Priority
+                                {% elif g.priority == 'low' %}Low Priority
+                                {% else %}Medium Priority{% endif %}
+                            </small>
+                        </div>
+                    </div>
+                    <div class="action-buttons">
+                        <a href="/edit_goal/{{ g.id }}" class="edit-btn">Edit</a>
+                        <a href="/delete_goal/{{ g.id }}" class="delete-btn">Delete</a>
+                    </div>
+                </div>
+
+                <h2>RM {{ "%.2f"|format(g.saved) }}</h2>
+                <p>Target: RM {{ "%.2f"|format(g.target) }}</p>
+
+                <!-- MILESTONES -->
+                <div style="display:flex;gap:6px;margin:8px 0;">
+                    {% for pct, reached in [('25%', g.milestone_25), ('50%', g.milestone_50), ('75%', g.milestone_75), ('100%', g.milestone_100)] %}
+                    <span class="milestone{% if reached %} milestone-reached{% endif %}">
+                        {{ pct }}
+                    </span>
+                    {% endfor %}
+                </div>
+
+                <!-- PROGRESS -->
+                <div class="progress-container">
+                    <div class="progress-bar {% if g.percent >= 100 %}safe{% elif g.percent >= 80 %}warning{% else %}safe{% endif %}"
+                        style="--width: {{ g.display_percent }}%;"></div>
+                </div>
+
+                <div class="goal-footer">
+                    <span>{{ "%.0f"|format(g.percent) }}% Complete</span>
+                    <span>RM {{ "%.2f"|format(g.remaining) }} left</span>
+                </div>
+
+                <!-- TARGET DATE & TIME REMAINING -->
+                {% if g.target_date %}
+                <div class="inset-box">
+                    <div>Target: <strong>{{ g.target_date }}</strong></div>
+                    {% if g.overdue %}
+                    <div class="text-alert" style="margin-top:4px;">Overdue</div>
+                    {% else %}
+                    <div style="margin-top:4px;"><strong>{{ g.days_remaining }}</strong> days left ({{ g.months_remaining }} months)</div>
+                    {% endif %}
+                </div>
+                {% endif %}
+
+                <!-- REQUIRED SAVINGS RATE -->
+                {% if g.target_date and not g.overdue and g.remaining > 0 %}
+                <div class="inset-box">
+                    Need <strong>RM {{ "%.2f"|format(g.required_daily) }}/day</strong>
+                    &nbsp;·&nbsp; RM {{ "%.2f"|format(g.required_weekly) }}/week
+                    &nbsp;·&nbsp; RM {{ "%.2f"|format(g.required_monthly) }}/month
+                </div>
+                {% endif %}
+
+                <!-- NOTES -->
+                {% if g.notes %}
+                <div style="margin-top:8px;font-size:15px;color:var(--text-muted);">
+                    {{ g.notes }}
+                </div>
+                {% endif %}
+
+                <!-- QUICK STATUS ACTIONS -->
+                <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;">
+                    {% if g.status == 'Paused' %}
+                    <a href="/resume_goal/{{ g.id }}" class="chip-btn">Resume</a>
+                    {% else %}
+                    <a href="/pause_goal/{{ g.id }}" class="chip-btn">Pause</a>
+                    {% endif %}
+                    <a href="/complete_goal/{{ g.id }}" class="chip-btn">Mark Complete</a>
+                    <a href="/cancel_goal/{{ g.id }}" onclick="return confirm('Cancel this goal?')" class="chip-btn">Cancel</a>
+                </div>
+
+                <!-- ADD SAVINGS FORM -->
+                <form method="POST" style="margin-top:12px;">
+                    <input type="hidden" name="action" value="save">
+                    <input type="hidden" name="goal_name" value="{{ g.name }}">
+                    <input type="hidden" name="goal_id" value="{{ g.id }}">
+                    <div class="goal-add-savings-row">
+                        <select name="account" class="goal-account-select" required>
+                            <option value="">Select Account</option>
+                            {% for account in accounts %}
+                            <option value="{{ account.name }}">{{ account.name }}</option>
+                            {% endfor %}
+                        </select>
+                        <input type="number" name="amount" class="goal-amount-input" placeholder="0.00" step="0.01" min="0.01" required>
+                    </div>
+                    <br>
+                    <button type="submit">Add Savings</button>
+                </form>
+
+                <!-- CONTRIBUTION HISTORY BUTTON -->
+                {% if g.contributions %}
+                <button type="button"
+                    onclick='openContributions({{ g.contributions | tojson }}, "{{ g.name }}")'
+                    class="contrib-history-btn">
+                    Contributions ({{ g.contributions|length }})
+                </button>
+                {% endif %}
+
+            </div>
+
+            {% endfor %}
+
+        </div>
+
+        {% else %}
+
+        <div class="empty-card"><h3>No short-term goals yet</h3></div>
+
+        {% endif %}
+
+    </div>
+
+    <!-- ================= LONG GOALS ================= -->
+    <!-- ================= 长期目标 ===================== -->
+
+    <div class="summary-card hover-card">
+
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+            <h2 class="goal-section-title" style="margin:0;">Long-Term Goals</h2>
+            <div style="display:flex;align-items:center;gap:8px;">
+                <span style="font-size:13px;color:var(--text-muted);white-space:nowrap;">Sort:</span>
+                <select id="longSortSelect" onchange="syncSort(this.value)" style="width:auto;padding:5px 10px;border-radius:8px;font-size:13px;">
+                    <option value="default">Default</option>
+                    <option value="priority">Priority (High → Low)</option>
+                    <option value="progress_desc">Progress (Highest → Lowest)</option>
+                    <option value="progress_asc">Progress (Lowest → Highest)</option>
+                    <option value="date_asc">Target Date (Nearest First)</option>
+                    <option value="date_desc">Target Date (Latest First)</option>
+                    <option value="remaining_asc">Amount Remaining (Lowest First)</option>
+                    <option value="remaining_desc">Amount Remaining (Highest First)</option>
+                    <option value="name">Goal Name (A → Z)</option>
+                </select>
+            </div>
+        </div>
+
+        {% if long_goals %}
+
+        <div class="summary-grid" id="long-goals-grid">
+
+            {% for g in long_goals %}
+
+            <div class="goal-card hover-card"
+                 data-priority="{{ {'high':0,'medium':1,'low':2}.get(g.priority, 1) }}"
+                 data-percent="{{ g.percent }}"
+                 data-remaining="{{ g.remaining }}"
+                 data-date="{{ g.target_date or '9999-12-31' }}"
+                 data-name="{{ g.name }}">
+
+                <div class="budget-card-top">
+                    <div>
+                        <h3>{{ g.name }}</h3>
+                        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;">
+                            <small class="pill{% if g.status == 'In Progress' %} pill-solid{% endif %}">
+                                {% if g.status == 'Completed' %}Completed
+                                {% elif g.status == 'Paused' %}Paused
+                                {% elif g.status == 'Cancelled' %}Cancelled
+                                {% else %}In Progress{% endif %}
+                            </small>
+                            <small class="pill">
+                                {% if g.priority == 'high' %}High Priority
+                                {% elif g.priority == 'low' %}Low Priority
+                                {% else %}Medium Priority{% endif %}
+                            </small>
+                        </div>
+                    </div>
+                    <div class="action-buttons">
+                        <a href="/edit_goal/{{ g.id }}" class="edit-btn">Edit</a>
+                        <a href="/delete_goal/{{ g.id }}" class="delete-btn">Delete</a>
+                    </div>
+                </div>
+
+                <h2>RM {{ "%.2f"|format(g.saved) }}</h2>
+                <p>Target: RM {{ "%.2f"|format(g.target) }}</p>
+
+                <!-- MILESTONES -->
+                <div style="display:flex;gap:6px;margin:8px 0;">
+                    {% for pct, reached in [('25%', g.milestone_25), ('50%', g.milestone_50), ('75%', g.milestone_75), ('100%', g.milestone_100)] %}
+                    <span class="milestone{% if reached %} milestone-reached{% endif %}">
+                        {{ pct }}
+                    </span>
+                    {% endfor %}
+                </div>
+
+                <!-- PROGRESS -->
+                <div class="progress-container">
+                    <div class="progress-bar {% if g.percent >= 100 %}safe{% elif g.percent >= 80 %}warning{% else %}safe{% endif %}"
+                        style="--width: {{ g.display_percent }}%;"></div>
+                </div>
+
+                <div class="goal-footer">
+                    <span>{{ "%.0f"|format(g.percent) }}% Complete</span>
+                    <span>RM {{ "%.2f"|format(g.remaining) }} left</span>
+                </div>
+
+                <!-- TARGET DATE & TIME REMAINING -->
+                {% if g.target_date %}
+                <div class="inset-box">
+                    <div>Target: <strong>{{ g.target_date }}</strong></div>
+                    {% if g.overdue %}
+                    <div class="text-alert" style="margin-top:4px;">Overdue</div>
+                    {% else %}
+                    <div style="margin-top:4px;"><strong>{{ g.days_remaining }}</strong> days left ({{ g.months_remaining }} months)</div>
+                    {% endif %}
+                </div>
+                {% endif %}
+
+                <!-- REQUIRED SAVINGS RATE -->
+                {% if g.target_date and not g.overdue and g.remaining > 0 %}
+                <div class="inset-box">
+                    Need <strong>RM {{ "%.2f"|format(g.required_daily) }}/day</strong>
+                    &nbsp;·&nbsp; RM {{ "%.2f"|format(g.required_weekly) }}/week
+                    &nbsp;·&nbsp; RM {{ "%.2f"|format(g.required_monthly) }}/month
+                </div>
+                {% endif %}
+
+                <!-- NOTES -->
+                {% if g.notes %}
+                <div style="margin-top:8px;font-size:15px;color:var(--text-muted);">
+                    {{ g.notes }}
+                </div>
+                {% endif %}
+
+                <!-- QUICK STATUS ACTIONS -->
+                <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;">
+                    {% if g.status == 'Paused' %}
+                    <a href="/resume_goal/{{ g.id }}" class="chip-btn">Resume</a>
+                    {% else %}
+                    <a href="/pause_goal/{{ g.id }}" class="chip-btn">Pause</a>
+                    {% endif %}
+                    <a href="/complete_goal/{{ g.id }}" class="chip-btn">Mark Complete</a>
+                    <a href="/cancel_goal/{{ g.id }}" onclick="return confirm('Cancel this goal?')" class="chip-btn">Cancel</a>
+                </div>
+
+                <!-- ADD SAVINGS FORM -->
+                <form method="POST" style="margin-top:12px;">
+                    <input type="hidden" name="action" value="save">
+                    <input type="hidden" name="goal_name" value="{{ g.name }}">
+                    <input type="hidden" name="goal_id" value="{{ g.id }}">
+                    <div class="goal-add-savings-row">
+                        <select name="account" class="goal-account-select" required>
+                            <option value="">Select Account</option>
+                            {% for account in accounts %}
+                            <option value="{{ account.name }}">{{ account.name }}</option>
+                            {% endfor %}
+                        </select>
+                        <input type="number" name="amount" class="goal-amount-input" placeholder="0.00" step="0.01" min="0.01" required>
+                    </div>
+                    <br>
+                    <button type="submit">Add Savings</button>
+                </form>
+
+                <!-- CONTRIBUTION HISTORY BUTTON -->
+                {% if g.contributions %}
+                <button type="button"
+                    onclick='openContributions({{ g.contributions | tojson }}, "{{ g.name }}")'
+                    class="contrib-history-btn">
+                    Contributions ({{ g.contributions|length }})
+                </button>
+                {% endif %}
+
+            </div>
+
+            {% endfor %}
+
+        </div>
+
+        {% else %}
+
+        <div class="empty-card"><h3>No long-term goals yet</h3></div>
+
+        {% endif %}
+
+    </div>
+
+    <!-- ================= COMPLETED GOALS ================= -->
+    <!-- ================= 已完成目标 ======================= -->
+
+    {% if completed_goals %}
+
+    <div class="summary-card hover-card">
+
+        <h2 class="goal-section-title">Completed Goals</h2>
+
+        <div class="summary-grid">
+
+            {% for g in completed_goals %}
+
+            <div class="goal-card hover-card">
+
+                <div class="budget-card-top">
+                    <div>
+                        <h3>{{ g.name }}</h3>
+                        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;">
+                            <small class="pill pill-solid">
+                                {{ g.status }}
+                            </small>
+                            <small class="pill">
+                                {% if g.priority == 'high' %}High Priority
+                                {% elif g.priority == 'low' %}Low Priority
+                                {% else %}Medium Priority{% endif %}
+                            </small>
+                            <small class="pill">
+                                {% if g.goal_type == 'short' %}Short-Term{% else %}Long-Term{% endif %}
+                            </small>
+                        </div>
+                    </div>
+                    <div class="action-buttons">
+                        <a href="/edit_goal/{{ g.id }}" class="edit-btn">Edit</a>
+                        <a href="/delete_goal/{{ g.id }}" class="delete-btn">Delete</a>
+                    </div>
+                </div>
+
+                <h2>RM {{ "%.2f"|format(g.saved) }}</h2>
+                <p>Target: RM {{ "%.2f"|format(g.target) }}</p>
+
+                <div class="progress-container">
+                    <div class="progress-bar safe" style="--width: 100%;"></div>
+                </div>
+
+                <div class="goal-footer">
+                    <span>100% Complete</span>
+                    <span>Goal Achieved</span>
+                </div>
+
+                {% if g.completion_date %}
+                <div class="inset-box">
+                    Completed on {{ g.completion_date }}
+                </div>
+                {% endif %}
+
+                {% if g.notes %}
+                <div style="margin-top:8px;font-size:14px;color:var(--text-muted);">
+                    {{ g.notes }}
+                </div>
+                {% endif %}
+
+                <div style="margin-top:12px;">
+                    <a href="/reopen_goal/{{ g.id }}" class="chip-btn">
+                        Reopen Goal
+                    </a>
+                </div>
+
+            </div>
+
+            {% endfor %}
+
+        </div>
+
+    </div>
+
+    {% endif %}
+
+</div>
+
+<!-- ================= CONTRIBUTIONS MODAL ================= -->
+<!-- ================= 存款记录弹窗 ========================== -->
+<div id="contribModal" onclick="if(event.target===this)closeContributions()"
+    style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1000;align-items:center;justify-content:center;">
+    <div class="contrib-modal-inner">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+            <h3 id="contribModalTitle" style="margin:0;font-size:16px;">Contributions</h3>
+            <button onclick="closeContributions()" class="contrib-modal-close">✕</button>
+        </div>
+        <div id="contribModalBody"></div>
+    </div>
+</div>
+
+<script>
+
+// ================= SORT DROPDOWNS =================
+// ================= 排序下拉框 =================
+// 短期/长期两个目标区块各有自己的排序下拉框，但排序规则是共用的——
+// 选了一个下拉框之后，把另一个下拉框也同步改成一样的选项，
+// 让两个区块用同一套排序规则，视觉上更一致。
+// The short-term/long-term goal sections each have their own sort
+// dropdown, but they share the same sort rule — picking one dropdown
+// syncs the other one to match, so both sections stay sorted the same
+// way for visual consistency.
+
+function syncSort(value) {
+    ['shortSortSelect', 'longSortSelect'].forEach(function(id) {
+        const el = document.getElementById(id);
+        if (el) el.value = value;
+    });
+    sortGoals(value);
+}
+
+// ================= CONTRIBUTIONS MODAL =================
+// ================= 存款记录弹窗 =================
+
+function openContributions(contributions, goalName) {
+    document.getElementById('contribModalTitle').textContent = '' + goalName + ' — Contributions';
+    const body = document.getElementById('contribModalBody');
+    if (!contributions.length) {
+        body.innerHTML = '<p style="color:var(--text-muted);text-align:center;padding:16px 0;">No contributions yet.</p>';
+    } else {
+        // .map(...).join('')：把每一笔存款记录（contributions 数组里的
+        // 每个 c）都转换成一段 HTML 字符串，再把这些字符串全部拼接起来，
+        // 一次性设置成弹窗内容——比逐个用 DOM API 创建元素更简洁，
+        // 但要注意这里直接把数据拼进了 HTML 字符串里，只适合信任的、
+        // 已经是数字/固定格式的数据（这里的 date/account/amount 都是
+        // 后端算好的，不是用户可以自由输入任意文字的地方）。
+        // .map(...).join(''): converts each contribution record (each `c`
+        // in the array) into an HTML string, then joins them all together
+        // and sets the modal's content in one go — more concise than
+        // building elements one-by-one via the DOM API, but note this
+        // splices data directly into an HTML string, which is only safe
+        // for trusted, already-formatted data (date/account/amount here
+        // all come from the backend, not free-form user text).
+        body.innerHTML = contributions.map(function(c) {
+            return '<div class="contrib-row">' +
+                '<div>' +
+                    '<div style="font-size:13px;font-weight:600;">' + c.date + '</div>' +
+                    '<div style="font-size:12px;color:var(--text-muted);">' + c.account + '</div>' +
+                '</div>' +
+                '<div style="display:flex;align-items:center;gap:12px;">' +
+                    '<span style="font-size:14px;font-weight:700;">+RM ' + Number(c.amount).toFixed(2) + '</span>' +
+                    '<a href="/update/' + c.edit_idx + '?source=goal" title="Edit" style="text-decoration:none;font-size:13px;font-weight:700;">Edit</a>' +
+                    '<a href="/delete/' + c.delete_idx + '" title="Delete" style="text-decoration:none;font-size:13px;font-weight:700;" onclick="return confirm(\'Delete this contribution?\')">✕</a>' +
+                '</div>' +
+            '</div>';
+        }).join('');
+    }
+    document.getElementById('contribModal').style.display = 'flex';
+}
+
+function closeContributions() {
+    document.getElementById('contribModal').style.display = 'none';
+}
+
+// ================= SORTING LOGIC =================
+// ================= 排序逻辑 =================
+
+function sortGoals(sortBy) {
+    ['short-goals-grid', 'long-goals-grid'].forEach(function(gridId) {
+        const grid = document.getElementById(gridId);
+        if (!grid) return;
+        // Array.from(...)：把 querySelectorAll 返回的"类数组对象"
+        // 转换成一个真正的数组，这样才能用数组自带的 .sort() 方法。
+        // Array.from(...): converts the "array-like" result of
+        // querySelectorAll into a real array, so the array's built-in
+        // .sort() method can be used on it.
+        const cards = Array.from(grid.querySelectorAll('.goal-card'));
+        cards.sort(function(a, b) {
+            // 每张卡片的排序用数据都存在 data-* 属性里（在 Jinja 模板里
+            // 用 g.priority/g.percent 等算好塞进去的），JS 这边直接
+            // 读 dataset 就能拿到，不用重新计算一次。
+            // sort() 的比较函数：返回负数表示 a 排在 b 前面，
+            // 正数表示 a 排在 b 后面，0 表示顺序不变。
+            // Each card's sortable data is stashed in data-* attributes
+            // (computed once in the Jinja template from g.priority/
+            // g.percent/etc.), so the JS side just reads .dataset instead
+            // of recalculating anything.
+            // sort()'s compare function: a negative return means a sorts
+            // before b, positive means a sorts after b, 0 means keep their
+            // relative order unchanged.
+            switch (sortBy) {
+                case 'priority':
+                    return parseInt(a.dataset.priority) - parseInt(b.dataset.priority);
+                case 'progress_desc':
+                    return parseFloat(b.dataset.percent) - parseFloat(a.dataset.percent);
+                case 'progress_asc':
+                    return parseFloat(a.dataset.percent) - parseFloat(b.dataset.percent);
+                case 'date_asc':
+                    return a.dataset.date.localeCompare(b.dataset.date);
+                case 'date_desc':
+                    return b.dataset.date.localeCompare(a.dataset.date);
+                case 'remaining_asc':
+                    return parseFloat(a.dataset.remaining) - parseFloat(b.dataset.remaining);
+                case 'remaining_desc':
+                    return parseFloat(b.dataset.remaining) - parseFloat(a.dataset.remaining);
+                case 'name':
+                    return a.dataset.name.localeCompare(b.dataset.name);
+                default:
+                    // 'default' 排序不做任何改动，保持后端渲染出来的原始顺序。
+                    // The 'default' sort makes no changes, keeping the
+                    // original order the backend rendered the cards in.
+                    return 0;
+            }
+        });
+        // appendChild 对一个已经在页面上的元素调用时，会把它从原本的
+        // 位置"移动"到新位置（而不是复制一份），所以按排序后的顺序
+        // 依次重新 appendChild，就能让卡片在页面上重新排列。
+        // Calling appendChild on an element that's already in the page
+        // *moves* it to the new position (rather than duplicating it), so
+        // re-appending each card in sorted order re-arranges them visually
+        // on the page.
+        cards.forEach(function(card) { grid.appendChild(card); });
+    });
+}
+
+
+// ================= AMOUNT INPUTS (calculator-style entry) =================
+// ================= 金额输入框（计算器式数字输入） =================
+// 这一页有好几个金额输入框：新增目标的"Target Amount"，还有每个目标卡片
+// 底下"Add Savings"表单里的金额栏。它们全都用同一套技巧：把金额存成
+// "分"的整数（避免小数精度问题），数字键按一下就 ×10 再加上这个数字，
+// Backspace 就整除 10 去掉最后一位——跟 add.html 新增记录页面里
+// 金额输入框的原理完全一样。
+// This page has several amount fields: the "Target Amount" on the create
+// form, plus the amount field in each goal card's "Add Savings" form. They
+// all use the same trick: store the amount as an integer number of cents
+// (avoiding decimal precision issues), each digit key multiplies by 10 and
+// adds the digit, Backspace divides by 10 to drop the last digit — the
+// exact same approach as the amount field on the add.html record form.
+
+document.addEventListener("DOMContentLoaded", function () {
+
+    // 一次性选中页面上"所有"金额输入框（新增目标的 + 每个目标卡片
+    // 存款表单里各自的），然后用 forEach 给每一个都单独装上同一套逻辑。
+    // Selects *every* amount field on the page in one go (the create-goal
+    // one, plus each goal card's own savings-contribution one), then
+    // forEach wires up the same behavior individually on each.
+    const tngInputs = document.querySelectorAll(
+        "#amountInput, input[name='amount']"
+    );
+
+    tngInputs.forEach(function(amountInput) {
+
+        let value = Math.round(
+
+            parseFloat(amountInput.value || "0") * 100
+
+        ) || 0;
+
+        // 因为按键事件是绑定在整个 document 上（这样一份代码就能同时
+        // 处理页面上所有的金额输入框，不用给每个输入框单独绑一次
+        // keydown），所以需要一个 "active" 标记来记录"现在光标究竟在
+        // 哪一个输入框里"——只有当前聚焦的那个输入框，才应该响应按键。
+        // Because the keydown listener is attached to the whole document
+        // (so one piece of code can serve every amount field on the page,
+        // instead of binding keydown separately per field), an "active"
+        // flag is needed to track "which specific field currently has
+        // focus" — only the currently focused field should react to key
+        // presses.
+        let active = false;
+
+        amountInput.addEventListener(
+            "focus",
+            () => active = true
+        );
+
+        amountInput.addEventListener(
+            "blur",
+            () => active = false
+        );
+
+        document.addEventListener(
+            "keydown",
+            function(e) {
+
+                if (!active) return;
+
+                if (e.key >= "0" && e.key <= "9") {
+
+                    value =
+                    value * 10 + parseInt(e.key);
+
+                }
+
+                else if (e.key === "Backspace") {
+
+                    value =
+                    Math.floor(value / 10);
+
+                }
+
+                else {
+
+                    return;
+                }
+
+                e.preventDefault();
+
+                amountInput.value =
+                (value / 100).toFixed(2);
+
+            }
+        );
+
+    });
+
+});
+
+</script>
+</body>
+</html>

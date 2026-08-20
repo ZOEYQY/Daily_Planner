@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Accounts</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='finance.css') }}">
+</head>
+
+<body>
+<!-- ===== TOPBAR / 顶部栏 ===== -->
+<div class="topbar">
+    <div class="topbar-title">Accounts</div>
+    <div class="topbar-links">
+        <a href="/finance">Dashboard</a>
+        <a href="/add">Add</a>
+        <a href="/view">View</a>
+        <a href="/summary">Summary</a>
+        <a href="/budget">Budget</a>
+        <a href="/goals">Goals</a>
+        <a href="/accounts" class="active-link">Accounts</a>
+    </div>
+</div>
+
+<div class="summary-wrapper">
+
+    <!-- ADD ACCOUNT / 新增账户 -->
+    <div class="summary-card hover-card">
+        <div class="page-header">
+            <h1 class="summary-main-title">Accounts</h1>
+            <p class="add-subtitle">Manage your spending and savings accounts.</p>
+        </div>
+
+        <form method="POST" class="add-form" style="margin-top:16px;">
+            <div class="summary-grid">
+                <div>
+                    <label>Account Name</label>
+                    <input type="text" name="name" placeholder="e.g. Maybank, TnG, CIMB" required>
+                </div>
+                <div>
+                    <label>Purpose</label>
+                    <select name="purpose">
+                        <option value="spending">Spending Account</option>
+                        <option value="savings">Savings Account</option>
+                    </select>
+                </div>
+            </div>
+            <div class="budget-button-row">
+                <button type="submit">+ Add Account</button>
+            </div>
+        </form>
+    </div>
+
+    <!-- ACCOUNT LIST / 账户列表 -->
+    <div class="summary-card hover-card">
+        <h2 class="budget-section-title">Your Accounts</h2>
+
+        {% if account_list %}
+        <div class="budget-grid">
+            {% for acc in account_list %}
+            <div class="budget-modern hover-card">
+
+                <!-- HEADER -->
+                <div class="budget-card-top">
+                    <div>
+                        <h3>{{ acc.name }}</h3>
+                        <div style="display:flex;gap:6px;align-items:center;margin-top:6px;">
+                            <span class="acc-purpose-pill acc-purpose-{{ acc.purpose }}">
+                                {% if acc.purpose == 'savings' %}Savings{% else %}Spending{% endif %}
+                            </span>
+                        </div>
+                    </div>
+                    <div class="budget-actions">
+                        <a href="/edit_account/{{ acc.name }}" class="budget-icon-btn" title="Edit">Edit</a>
+                        <a href="/delete_account/{{ acc.name }}" class="budget-icon-btn budget-icon-del" title="Delete"
+                           onclick="return confirm('Delete account {{ acc.name }}? This will not delete its transactions.')">✕</a>
+                    </div>
+                </div>
+
+                <!-- BALANCE -->
+                <div class="acc-balance-row">
+                    <div class="acc-balance-label">Balance</div>
+                    <div class="acc-balance-val {% if acc.balance < 0 %}acc-bal-neg{% endif %}">
+                        RM {{ "%.2f"|format(acc.balance) }}
+                    </div>
+                </div>
+
+                <!-- STATS -->
+                <div style="display:flex;gap:0;margin:10px 0;">
+                    <div style="flex:1;padding:8px 12px;border-right:1px solid var(--border);">
+                        <div style="font-size:11px;color:var(--text-muted);margin-bottom:3px;">Transactions</div>
+                        <div style="font-weight:700;font-size:15px;">{{ acc.txn_count }}</div>
+                    </div>
+                    <div style="flex:1;padding:8px 12px;">
+                        <div style="font-size:11px;color:var(--text-muted);margin-bottom:3px;">Last Activity</div>
+                        <div style="font-weight:600;font-size:14px;white-space:nowrap;">
+                            {% if acc.last_txn %}{{ acc.last_txn }}{% else %}—{% endif %}
+                        </div>
+                    </div>
+                </div>
+
+                <!-- VIEW TRANSACTIONS -->
+                <a href="/view?account={{ acc.name }}" class="acc-view-btn">View Transactions →</a>
+
+            </div>
+            {% endfor %}
+        </div>
+
+        {% else %}
+        <div class="empty-card">
+            <h3>No accounts yet</h3>
+            <p>Add your first account above.</p>
+        </div>
+        {% endif %}
+
+    </div>
+
+</div>
+</body>
+</html>

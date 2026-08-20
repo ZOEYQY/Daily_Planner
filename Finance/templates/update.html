@@ -1,0 +1,684 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <title>Update Record</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='finance.css') }}">
+</head>
+
+<body>
+<!-- ================================================= -->
+<!-- ==================== TOPBAR ===================== -->
+<!-- ==================== 顶部栏 ======================= -->
+<!-- ================================================= -->
+
+<div class="topbar">
+
+    <div class="topbar-title">
+
+        Update Record
+
+    </div>
+
+    <div class="topbar-links">
+        <a href="/finance">Dashboard</a>
+        <a href="/add">Add</a>
+        <a href="/view">View</a>
+        <a href="/summary">Summary</a>
+        <a href="/budget">Budget</a>
+        <a href="/goals">Goals</a>
+        <a href="/accounts">Accounts</a>
+    </div>
+
+</div>
+
+<div class="summary-wrapper">
+
+    <!-- ================================================= -->
+    <!-- ===================== MAIN ====================== -->
+    <!-- ===================== 主区块 ====================== -->
+    <!-- ================================================= -->
+
+    <div class="summary-card hover-card">
+
+        <!-- ===== HEADER ===== -->
+        <!-- ===== 头部 ===== -->
+
+        <div class="add-header">
+
+            <div>
+
+                <h1 class="summary-main-title">
+
+                    Update Financial Record
+
+                </h1>
+
+                <p class="add-subtitle">
+
+                    Edit and manage your financial transaction.
+
+                </p>
+
+            </div>
+
+        </div>
+
+        <!-- ===== ERROR ===== -->
+        <!-- ===== 错误提示 ===== -->
+
+        {% if error %}
+
+        <div class="insight-box">
+
+            <p class="negative">
+
+                {{ error }}
+
+            </p>
+
+        </div>
+
+        {% endif %}
+
+        <!-- ===== SUCCESS ===== -->
+        <!-- ===== 成功提示 ===== -->
+
+        {% if success %}
+
+        <div class="insight-box">
+
+            <p class="positive">
+
+                {{ success }}
+
+            </p>
+
+        </div>
+
+        {% endif %}
+
+        <!-- ===== FORM ===== -->
+        <!-- ===== 表单 ===== -->
+
+        <form
+        method="POST"
+        class="add-form"
+        enctype="multipart/form-data"
+        >
+
+            <input type="hidden" name="source" value="{{ source }}">
+
+            <!-- ROW 1 -->
+
+            <div class="summary-grid">
+
+                <!-- DATE -->
+
+                <div>
+
+                    <label>
+
+                        Date
+
+                    </label>
+
+                    <input
+                        type="date"
+                        name="date"
+                        value="{{ record.date }}"
+                        required
+                    >
+
+                </div>
+
+                {% if source != 'goal' %}
+                <!-- TYPE -->
+
+                <div>
+
+                    <label>
+
+                        Type
+
+                    </label>
+
+                    <select
+                    name="type"
+                    id="typeSelect"
+                    required
+                    >
+
+                        <option
+                        value="income"
+                        {% if record.type=="income" %}
+                        selected
+                        {% endif %}
+                        >
+
+                            Income
+
+                        </option>
+
+                        <option
+                        value="expense"
+                        {% if record.type=="expense" %}
+                        selected
+                        {% endif %}
+                        >
+
+                            Expense
+
+                        </option>
+
+                        <option
+                        value="saving"
+                        {% if record.type=="saving" %}
+                        selected
+                        {% endif %}
+                        >
+
+                            Saving
+
+                        </option>
+
+                    </select>
+
+                </div>
+                {% endif %}
+
+            </div>
+
+            {% if source != 'goal' %}
+            <!-- ROW 2 -->
+
+            <div class="summary-grid">
+
+                <!-- CATEGORY -->
+
+                <div>
+
+                    <label>
+
+                        Category
+
+                    </label>
+
+                    <select
+                    name="category"
+                    id="categorySelect"
+                    required
+                    >
+
+                    </select>
+
+                </div>
+
+                <!-- ACCOUNT -->
+
+                <div>
+
+                    <label>
+
+                        Account
+
+                    </label>
+
+                    <select
+                    id="account"
+                    name="account"
+                    >
+
+                        <option value="">
+
+                            -- Select Account --
+
+                        </option>
+
+                        {% for acc in accounts %}
+
+                        <option
+                            value="{{ acc.name }}"
+                            {{ "selected" if record.account == acc.name else "" }}
+                        >
+
+                            {{ acc.name }}
+
+                        </option>
+
+                        {% endfor %}
+
+                        <option value="__new__">
+
+                            Create New Account
+
+                        </option>
+
+                    </select>
+
+                </div>
+
+            </div>
+
+            <!-- NEW ACCOUNT -->
+
+            <div
+            id="newAccountWrapper"
+            class="hidden-section"
+            >
+
+                <label>
+
+                    New Account Name
+
+                </label>
+
+                <input
+                    type="text"
+                    id="new_account"
+                    name="new_account"
+                    placeholder="Enter account name"
+                >
+
+                <label>
+
+                    Account Purpose
+
+                </label>
+
+                <select name="purpose">
+
+                    <option value="spending">
+
+                        Spending Account
+
+                    </option>
+
+                    <option value="savings">
+
+                        Savings Account
+
+                    </option>
+
+                </select>
+
+            </div>
+
+            <!-- ITEM -->
+
+            <label>
+
+                Item
+
+            </label>
+
+            <input
+                type="text"
+                name="item"
+                value="{{ record.item }}"
+                placeholder="Example: Coffee, Netflix, Salary..."
+            >
+
+            {% else %}
+            <!-- ACCOUNT (goal contribution) -->
+
+            <div>
+
+                <label>Account</label>
+
+                <select id="account" name="account">
+
+                    <option value="">-- Select Account --</option>
+
+                    {% for acc in accounts %}
+                    <option
+                        value="{{ acc.name }}"
+                        {{ "selected" if record.account == acc.name else "" }}
+                    >{{ acc.name }}</option>
+                    {% endfor %}
+
+                </select>
+
+            </div>
+
+            {% endif %}
+
+            <!-- AMOUNT -->
+
+            <div class="amount-card">
+
+                <p>
+
+                    Amount (RM)
+
+                </p>
+
+                <div id="amountDisplay" tabindex="0">{{ "%.2f"|format(record.amount) }}</div>
+
+                <input
+                    type="hidden"
+                    id="amountInput"
+                    name="amount"
+                    value="{{ "%.2f"|format(record.amount) }}"
+                >
+
+            </div>
+
+            {% if source != 'goal' %}
+            <!-- RECEIPT -->
+
+            <div class="receipt-card">
+
+                <p>Receipt (Optional)</p>
+
+                {% if record.receipt %}
+
+                <div class="receipt-current">
+
+                    <img
+                        src="{{ url_for('finance.receipt_image', filename=record.receipt) }}"
+                        class="receipt-thumb-preview"
+                    >
+
+                    <span class="receipt-soft-text">
+                        Current receipt — upload a new one to replace it
+                    </span>
+
+                </div>
+
+                {% endif %}
+
+                <div class="receipt-upload-row">
+
+                    <label
+                        class="receipt-label"
+                        for="receiptInput"
+                    >
+                        {% if record.receipt %}Replace{% else %}Attach{% endif %} Image
+                    </label>
+
+                    <span
+                        class="receipt-filename"
+                        id="receiptFilename"
+                    >
+                        No file chosen
+                    </span>
+
+                </div>
+
+                <input
+                    type="file"
+                    id="receiptInput"
+                    name="receipt"
+                    accept="image/*"
+                    class="receipt-input"
+                >
+
+            </div>
+            {% endif %}
+
+            <!-- BUTTONS -->
+
+            <div class="update-actions">
+
+                <button type="submit">
+
+                    Save Changes
+
+                </button>
+
+                <a
+                href="{{ '/goals' if source == 'goal' else '/view' }}"
+                class="secondary-btn"
+                >
+
+                    Back
+
+                </a>
+
+            </div>
+
+        </form>
+
+    </div>
+
+</div>
+
+<!-- ================================================= -->
+<!-- ==================== SCRIPT ===================== -->
+<!-- ==================== 脚本 ========================= -->
+<!-- ================================================= -->
+
+<script id="categories-data" type="application/json">
+
+{{ categories | tojson if categories else '{}' }}
+
+</script>
+
+<script>
+
+document.addEventListener("DOMContentLoaded", function () {
+
+    // ================= CATEGORY =================
+    // ================= 分类 =================
+    // 跟 add.html 里的分类逻辑是同一套做法：根据选中的类型，
+    // 动态生成对应的分类选项列表，并且把编辑前原本的分类重新选中。
+    // 分类列表从后端传来的 JSON 读取（跟 add.html 用的是同一份
+    // CATEGORY_MAP），而不是在这里单独写死一份 —— 避免两边的分类
+    // 列表以后改动时对不上，导致某些分类（比如 "Bills"）在编辑页
+    // 选不回来，必填校验一直不过，表单却又不提示任何错误信息。
+    // Same approach as the category logic in add.html: dynamically build
+    // the category option list based on the selected type, and re-select
+    // whichever category this record originally had. The category list is
+    // read from the same server-provided CATEGORY_MAP that add.html uses,
+    // instead of a separate hardcoded copy here — a hardcoded copy can
+    // silently drift out of sync (e.g. missing a category like "Bills"),
+    // which leaves the required <select> unable to reselect it and blocks
+    // submission via native validation with no visible error at all.
+
+    let categories = {};
+
+    try {
+        categories = JSON.parse(
+            document.getElementById("categories-data").textContent
+        );
+    } catch {
+        categories = {};
+    }
+
+    const typeSelect =
+        document.getElementById("typeSelect");
+
+    const categorySelect =
+        document.getElementById("categorySelect");
+
+    if (typeSelect && categorySelect) {
+
+        const selectedCategory =
+            "{{ record.category or '' }}";
+
+        function loadCategories() {
+
+            const type = typeSelect.value;
+
+            categorySelect.innerHTML =
+            '<option value="">-- Select Category --</option>';
+
+            if (categories[type]) {
+
+                categories[type].forEach(cat => {
+
+                    const option =
+                        document.createElement("option");
+
+                    option.value = cat;
+
+                    option.textContent = cat;
+
+                    if (cat === selectedCategory) {
+
+                        option.selected = true;
+                    }
+
+                    categorySelect.appendChild(option);
+
+                });
+
+            }
+
+        }
+
+        typeSelect.addEventListener(
+            "change",
+            loadCategories
+        );
+
+        loadCategories();
+
+    }
+
+    // ================= ACCOUNT =================
+    // ================= 账户 =================
+    // 选了"Create New Account"才展开新账户名称输入栏，
+    // 切回已有账户时清空刚才输入的新账户名称。
+    // Only expands the new-account-name field when "Create New Account"
+    // is selected; switching back to an existing account clears out
+    // whatever new-account name was typed.
+
+    const accountSelect =
+        document.getElementById("account");
+
+    const newAccountWrapper =
+        document.getElementById("newAccountWrapper");
+
+    if (accountSelect && newAccountWrapper) {
+
+        const newAccountInput =
+            document.getElementById("new_account");
+
+        function toggleNewAccount() {
+
+            if (accountSelect.value === "__new__") {
+
+                newAccountWrapper.classList.add("show");
+
+            }
+
+            else {
+
+                newAccountWrapper.classList.remove("show");
+
+                newAccountInput.value = "";
+
+            }
+
+        }
+
+        accountSelect.addEventListener(
+            "change",
+            toggleNewAccount
+        );
+
+        toggleNewAccount();
+
+    }
+
+    // ================= RECEIPT FILENAME =================
+    // ================= 收据文件名 =================
+
+    const receiptInput = document.getElementById("receiptInput");
+
+    if (receiptInput) {
+
+        receiptInput.addEventListener("change", function () {
+
+            const name = this.files[0]
+                ? this.files[0].name
+                : "No file chosen";
+
+            document.getElementById("receiptFilename")
+                .textContent = name;
+        });
+
+    }
+
+    // ================= AMOUNT INPUT (calculator-style entry) =================
+    // ================= 金额输入框（计算器式数字输入） =================
+    // 跟 add.html 金额栏用的是同一套"以分为单位的整数 + 数字键盘"技巧
+    // 加上同一个可聚焦的 <div>（而不是原生 <input>），因为闪烁光标
+    // 那条线是靠 ::after 伪元素画出来的，而 <input> 这类替换元素
+    // 不支持 ::before/::after，所以必须用 div 才能显示出光标效果。
+    // Same "integer cents + digit keypad" trick as add.html's amount
+    // field, using the same focusable <div> (instead of a native
+    // <input>) — the blinking caret bar is drawn with a ::after
+    // pseudo-element, and replaced elements like <input> can't render
+    // ::before/::after at all, so the div is required for the caret to
+    // show up here too.
+
+    const amountInput =
+        document.getElementById("amountInput");
+
+    const amountDisplay =
+        document.getElementById("amountDisplay");
+
+    let value = Math.round(
+        parseFloat(amountInput.value || "0") * 100
+    );
+
+    function updateAmount() {
+
+        const formatted =
+            (value / 100).toFixed(2);
+
+        amountInput.value =
+            formatted;
+
+        amountDisplay.textContent =
+            formatted;
+    }
+
+    amountDisplay.addEventListener(
+        "keydown",
+        function(e) {
+
+            if (e.key >= "0" && e.key <= "9") {
+
+                value =
+                    value * 10 + parseInt(e.key);
+
+            }
+
+            else if (e.key === "Backspace") {
+
+                value =
+                    Math.floor(value / 10);
+
+            }
+
+            else {
+
+                return;
+            }
+
+            e.preventDefault();
+
+            updateAmount();
+
+        }
+    );
+
+    amountDisplay.addEventListener(
+        "click",
+        function() {
+
+            amountDisplay.focus();
+
+        }
+    );
+
+});
+
+</script>
+</body>
+</html>

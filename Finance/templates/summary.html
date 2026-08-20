@@ -1,0 +1,661 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <title>Summary</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='finance.css') }}">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+
+<body>
+
+<!-- ===== TOPBAR ===== -->
+<!-- ===== 顶部栏 ===== -->
+
+<div class="topbar">
+
+    <div class="topbar-title">
+        Financial Summary
+    </div>
+
+    <div class="topbar-links">
+        <a href="/finance">Dashboard</a>
+        <a href="/add">Add</a>
+        <a href="/view">View</a>
+        <a href="/summary" class="active-link">Summary</a>
+        <a href="/budget">Budget</a>
+        <a href="/goals">Goals</a>
+        <a href="/accounts">Accounts</a>
+    </div>
+
+</div>
+
+<!-- ===== MAIN ===== -->
+<!-- ===== 主区块 ===== -->
+
+<div class="summary-wrapper">
+
+    <!-- ===== FILTER ===== -->
+    <!-- ===== 筛选 ===== -->
+
+    <div class="summary-card summary-hero hover-card">
+        <h1 class="summary-main-title">
+            Financial Summary —
+            {{ selected_month }}/{{ selected_year }}
+        </h1>
+
+        <form method="GET" class="filter-form">
+
+            <div>
+
+                <label>Month</label><br>
+
+                <select name="month">
+
+                    <option value="01"
+                    {% if selected_month == "01" %}selected{% endif %}>
+                        January
+                    </option>
+
+                    <option value="02"
+                    {% if selected_month == "02" %}selected{% endif %}>
+                        February
+                    </option>
+
+                    <option value="03"
+                    {% if selected_month == "03" %}selected{% endif %}>
+                        March
+                    </option>
+
+                    <option value="04"
+                    {% if selected_month == "04" %}selected{% endif %}>
+                        April
+                    </option>
+
+                    <option value="05"
+                    {% if selected_month == "05" %}selected{% endif %}>
+                        May
+                    </option>
+
+                    <option value="06"
+                    {% if selected_month == "06" %}selected{% endif %}>
+                        June
+                    </option>
+
+                    <option value="07"
+                    {% if selected_month == "07" %}selected{% endif %}>
+                        July
+                    </option>
+
+                    <option value="08"
+                    {% if selected_month == "08" %}selected{% endif %}>
+                        August
+                    </option>
+
+                    <option value="09"
+                    {% if selected_month == "09" %}selected{% endif %}>
+                        September
+                    </option>
+
+                    <option value="10"
+                    {% if selected_month == "10" %}selected{% endif %}>
+                        October
+                    </option>
+
+                    <option value="11"
+                    {% if selected_month == "11" %}selected{% endif %}>
+                        November
+                    </option>
+
+                    <option value="12"
+                    {% if selected_month == "12" %}selected{% endif %}>
+                        December
+                    </option>
+
+                </select>
+
+            </div>
+
+            <div>
+
+                <label>Year</label><br>
+
+                <select name="year">
+
+                    {% for y in range(2024, 2031) %}
+
+                    <option value="{{ y }}"
+                    {% if selected_year == y|string %}selected{% endif %}>
+
+                        {{ y }}
+
+                    </option>
+
+                    {% endfor %}
+
+                </select>
+
+            </div>
+
+            <button type="submit">
+                View
+            </button>
+
+        </form>
+
+    </div>
+
+    <!-- ===== EMPTY ===== -->
+    <!-- ===== 空状态 ===== -->
+
+    {% if income == 0 and expense == 0 %}
+
+    <div class="summary-card empty-card">
+
+        <h2>No Summary Yet</h2>
+
+        <p>
+            You haven’t added any financial records
+            for this period.
+        </p>
+
+        <a href="/add">
+
+            <button>
+                Add Your First Record
+            </button>
+
+        </a>
+
+    </div>
+
+    {% else %}
+
+    <!-- ===== SUMMARY GRID ===== -->
+    <!-- ===== 汇总网格 ===== -->
+
+<div class="summary-grid">
+
+    <!-- ===== MONTHLY OVERVIEW ===== -->
+    <!-- ===== 月度概览 ===== -->
+
+    <div class="summary-card hover-card">
+
+        <h2>
+            Monthly Overview
+        </h2>
+
+        <div class="overview-stats">
+
+            <div class="overview-box hover-card">
+
+                <p>Income</p>
+
+                <h3 class="income-text">
+                    RM {{ "%.2f"|format(income) }}
+                </h3>
+
+            </div>
+
+            <div class="overview-box hover-card">
+
+                <p>Expense</p>
+
+                <h3 class="expense-text">
+                    RM {{ "%.2f"|format(expense) }}
+                </h3>
+
+            </div>
+
+            <div class="overview-box hover-card">
+
+                <p>Balance</p>
+
+                <h3>
+                    RM {{ "%.2f"|format(balance) }}
+                </h3>
+
+            </div>
+
+            <div class="overview-box hover-card">
+
+                <p>Total Saved</p>
+
+                <h3 class="saving-text">
+                    RM {{ "%.2f"|format(saving) }}
+                </h3>
+
+            </div>
+
+        </div>
+
+        <br>
+
+        {% if balance >= 0 %}
+
+            <p class="positive">
+                Positive Balance
+            </p>
+
+        {% else %}
+
+            <p class="negative">
+                Negative Balance
+            </p>
+
+        {% endif %}
+
+    </div>
+
+    <!-- ===== YEARLY OVERVIEW ===== -->
+    <!-- ===== 年度概览 ===== -->
+
+    <div class="summary-card hover-card">
+
+        <h2>
+            {{ selected_year }} Yearly Overview
+        </h2>
+
+        <div class="overview-stats">
+
+            <div class="overview-box hover-card">
+
+                <p>Income</p>
+
+                <h3 class="income-text">
+                    RM {{ "%.2f"|format(year_income) }}
+                </h3>
+
+            </div>
+
+            <div class="overview-box hover-card">
+
+                <p>Expense</p>
+
+                <h3 class="expense-text">
+                    RM {{ "%.2f"|format(year_expense) }}
+                </h3>
+
+            </div>
+
+            <div class="overview-box hover-card">
+
+                <p>Balance</p>
+
+                <h3>
+                    RM {{ "%.2f"|format(year_balance) }}
+                </h3>
+
+            </div>
+
+            <div class="overview-box hover-card">
+
+                <p>Year</p>
+
+                <h3 class="saving-text">
+                    {{ selected_year }}
+                </h3>
+
+            </div>
+
+        </div>
+
+    </div>
+
+    <!-- ===== SPENDING ===== -->
+    <!-- ===== 消费行为 ===== -->
+
+    <div class="summary-card hover-card">
+
+        <h2>
+            Spending Behavior
+        </h2>
+
+        <p>
+
+            <strong>Daily Average:</strong>
+
+            RM {{ "%.2f"|format(daily_avg) }}
+
+            {% if daily_avg < 5 %}
+
+                <span class="spending-low">
+                    (Low)
+                </span>
+
+            {% elif daily_avg < 20 %}
+
+                <span class="spending-moderate">
+                    (Moderate)
+                </span>
+
+            {% else %}
+
+                <span class="spending-high">
+                    (High)
+                </span>
+
+            {% endif %}
+
+        </p>
+
+        <h3>
+            Top Categories
+        </h3>
+
+        {% if top_categories %}
+
+            <ol>
+
+                {% for cat, amt, percent in top_categories %}
+
+                <li>
+
+                    {{ cat }} —
+                    {{ "%.0f"|format(percent) }}%
+
+                </li>
+
+                {% endfor %}
+
+            </ol>
+
+            <canvas id="pieChart"></canvas>
+
+        {% else %}
+
+            <p>No category data</p>
+
+        {% endif %}
+
+        <h3>
+            Insight
+        </h3>
+
+        <p>
+            {{ insight }}
+        </p>
+
+    </div>
+
+    <!-- ===== BUDGET ===== -->
+    <!-- ===== 预算 ===== -->
+
+    <div class="summary-card hover-card">
+
+        <h2>
+            Budget Tracking
+        </h2>
+
+        {% if budget_usage %}
+
+            {% for b in budget_usage %}
+
+            <div class="budget-modern hover-card">
+
+                <div class="budget-top">
+
+                    <strong>
+                        {{ b.category }}
+                    </strong>
+
+                    <span>
+
+                        RM {{ "%.2f"|format(b.spent) }}
+                        /
+                        RM {{ "%.2f"|format(b.limit) }}
+
+                    </span>
+
+                </div>
+
+                <div class="progress-container">
+
+                    <div
+                        class="progress-bar {{ b.status }}"
+                        style="--width: {{ b.display_percent }}%;"
+                    ></div>
+
+                </div>
+
+                <small>
+
+                    {{ "%.0f"|format(b.percent) }}%
+
+                    {% if b.status == "over" %}
+
+                        Over budget
+
+                    {% elif b.status == "full" %}
+
+                        Reached limit
+
+                    {% elif b.status == "warning" %}
+
+                        Almost full
+
+                    {% else %}
+
+                        OK
+
+                    {% endif %}
+
+                    <br>
+
+                    Remaining:
+                    RM {{ "%.2f"|format(b.remaining) }}
+
+                </small>
+
+            </div>
+
+            <br>
+
+            {% endfor %}
+
+        {% else %}
+
+            <p>No budgets set yet</p>
+
+        {% endif %}
+
+    </div>
+
+    <!-- ===== GOALS ===== -->
+    <!-- ===== 目标 ===== -->
+
+    <div class="summary-card hover-card full-width-card">
+
+        <h2>
+            Financial Goals
+        </h2>
+
+        <p>
+            Track your financial progress
+        </p>
+
+        <br>
+
+        {% if short_goals or long_goals %}
+
+            {% for goal in all_goals %}
+
+            <div class="budget-modern hover-card">
+
+                <div class="budget-top">
+
+                    <strong>
+                        {{ goal.name }}
+                    </strong>
+
+                    <strong>
+                        RM {{ "%.2f"|format(goal.saved) }}
+                        /
+                        RM {{ "%.2f"|format(goal.target) }}
+                    </strong>
+
+                </div>
+
+                <div class="progress-container">
+
+                    <div
+                        class="progress-bar
+                        {% if goal.percent >= 100 %}
+                            safe
+                        {% elif goal.percent >= 80 %}
+                            warning
+                        {% else %}
+                            safe
+                        {% endif %}"
+
+                        style="
+                        --width:
+                        {{ goal.display_percent }}%;
+                        "
+                    ></div>
+
+                </div>
+
+                <p>
+
+                    {{ goal.percent|round(0) }}%
+
+                    {% if goal.goal_type == "short" %}
+
+                        Short Term
+
+                    {% else %}
+
+                        Long Term
+
+                    {% endif %}
+
+                </p>
+
+            </div>
+
+            <br>
+
+            {% endfor %}
+
+        {% else %}
+
+            <p>
+                No financial goals yet.
+            </p>
+
+        {% endif %}
+
+    </div>
+
+</div>
+
+{% endif %}
+
+<!-- ===== CHART ===== -->
+<!-- ===== 图表 ===== -->
+
+{% if top_categories %}
+
+<script id="chart-data" type="application/json">
+{{ top_categories | tojson }}
+</script>
+
+<script>
+
+// Renders the "spending by category" doughnut chart with Chart.js
+// (loaded via CDN in <head>), using a fixed grayscale palette.
+
+const rawData = JSON.parse(
+    document.getElementById("chart-data").textContent
+);
+
+const categories = rawData.map(x => x[0]);
+
+const amounts = rawData.map(x => x[1]);
+
+const total = amounts.reduce((a, b) => a + b, 0);
+
+new Chart(document.getElementById("pieChart"), {
+
+    type: 'doughnut',
+
+    data: {
+
+        labels: categories,
+
+        datasets: [{
+
+            borderColor: '#ffffff',
+
+            borderWidth: 3,
+
+            data: amounts,
+
+            backgroundColor: [
+                '#111111',
+                '#3d3d3d',
+                '#6b6b6b',
+                '#9a9a9a',
+                '#c7c7c7'
+            ]
+
+        }]
+
+    },
+
+    options: {
+        cutout: '72%',
+
+        responsive: true,
+
+        plugins: {
+
+            legend: {
+
+                position: 'bottom',
+
+                labels: {
+
+                    color: getComputedStyle(document.body)
+                    .getPropertyValue('--text-main'),
+
+                    padding: 20,
+
+                    font: {
+
+                        size: 14,
+
+                        weight: 'bold'
+                    }
+                }
+            },
+
+            tooltip: {
+
+                callbacks: {
+
+                    label: function(context) {
+
+                        return (
+                            context.label +
+                            ": RM " +
+                            context.raw.toFixed(2)
+                        );
+
+                    }
+                }
+            }
+        }
+
+    }
+
+});
+
+</script>
+
+{% endif %}
+
+</body>
+</html>
