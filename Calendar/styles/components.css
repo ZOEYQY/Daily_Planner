@@ -549,17 +549,6 @@
   color: var(--color-muted);
   text-decoration: line-through;
 }
-.todo-item-time {
-  flex: 0 0 auto;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  padding: 3px 5px;
-  font-size: 11.5px;
-  background: var(--color-surface);
-  color: var(--color-ink-secondary);
-  outline: none;
-  max-width: 90px;
-}
 .todo-item-remove {
   flex: 0 0 auto;
   width: 24px;
@@ -597,16 +586,51 @@
   flex: 0 0 auto;
   padding: 8px 12px;
 }
-.todo-add-row input[type="time"] {
+
+/* ---------- Target list (Add/Edit modal) — plain checkbox goals, sharing
+   .todo-list/.todo-add-row's row rhythm and add-row styling (see
+   targetListHTML in addModal.js). ---------- */
+.target-item-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 6px 4px;
+  border-bottom: 1px solid var(--color-border);
+}
+.target-item-row:last-child {
+  border-bottom: none;
+}
+.target-item-check {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--color-ink);
   flex: 0 0 auto;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  padding: 9px 8px;
-  font-size: 12.5px;
-  background: var(--color-surface);
+}
+.target-item-text {
+  flex: 1 1 auto;
+  font-size: 13px;
   color: var(--color-ink);
-  outline: none;
-  max-width: 110px;
+  overflow-wrap: anywhere;
+}
+.target-item-text.is-done {
+  color: var(--color-muted);
+  text-decoration: line-through;
+}
+.target-item-remove {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  color: var(--color-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.target-item-remove:hover {
+  background: rgba(194, 59, 59, 0.1);
+  color: var(--color-danger);
 }
 
 /* ---------- Settings: sections + Draft/Save footer ---------- */
@@ -623,6 +647,20 @@
   text-transform: uppercase;
   color: var(--color-muted);
   margin-bottom: 10px;
+}
+.settings-select {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 8px 11px;
+  font-size: 13.5px;
+  font-family: inherit;
+  background: var(--color-surface);
+  color: var(--color-ink);
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+.settings-select:focus {
+  border-color: var(--color-active);
 }
 .settings-field-label {
   font-size: 10.5px;
@@ -1298,6 +1336,93 @@
   flex-direction: column;
   gap: 8px;
   margin: 4px 0 14px;
+}
+
+/* ---------- Time picker: "clock" style (see timeInput.js) ---------- */
+.time-input-visible[data-time-style="clock"] {
+  cursor: pointer;
+}
+.clock-picker {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  padding: 4px 0;
+}
+.clock-picker-display {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 30px;
+  font-weight: 700;
+  color: var(--color-muted);
+}
+.clock-time-label {
+  cursor: pointer;
+  padding: 2px 7px;
+  border-radius: var(--radius-sm);
+  color: inherit;
+}
+.clock-time-label.is-active {
+  color: var(--color-ink);
+  background: color-mix(in srgb, var(--color-active) 12%, transparent);
+}
+.clock-period-group {
+  display: flex;
+  flex-direction: column;
+  margin-left: 10px;
+}
+.clock-period-btn {
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-ink-secondary);
+  padding: 2px 9px;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.clock-period-btn:first-child {
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  border-bottom: none;
+}
+.clock-period-btn:last-child {
+  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+}
+.clock-period-btn.is-selected {
+  background: var(--color-active);
+  border-color: var(--color-active);
+  color: var(--color-on-dark);
+}
+.clock-face {
+  position: relative;
+  width: 192px;
+  height: 192px;
+  border-radius: 50%;
+  background: var(--color-surface-alt);
+  border: 1px solid var(--color-border);
+}
+.clock-face-btn {
+  position: absolute;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  color: var(--color-ink);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.clock-face-btn:hover {
+  background: var(--color-hover);
+}
+.clock-face-btn.is-selected {
+  background: var(--color-active);
+  color: var(--color-on-dark);
 }
 .popup-choice-btn {
   width: 100%;

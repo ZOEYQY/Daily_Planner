@@ -3,13 +3,16 @@ import { authStore } from "./authStore.js";
 import { renderTopbar } from "./render/topbar.js";
 import { renderCalendarHeader } from "./render/calendarHeader.js";
 import { renderMonthView } from "./render/monthView.js";
-import { renderDayGridView } from "./render/dayGridView.js";
+import { renderDayGridView, getHoverTarget } from "./render/dayGridView.js";
 import { renderAddModal, closeAddOrEditModal } from "./render/addModal.js";
 import { renderSettingsPanel, resetSettingsDraft } from "./render/settingsPanel.js";
 import { renderCustomizeModal } from "./render/customizeModal.js";
 import { renderAddChooserModal } from "./render/addChooserModal.js";
 import { renderAuthModal } from "./render/authViews.js";
 import { renderProfileModal } from "./render/profileModal.js";
+import { showToast } from "./render/notify.js";
+import { resolveOccurrence, isRepeating } from "./selectors.js";
+import { minutesFromMidnight, minutesToHHMM } from "./dateUtils.js";
 
 const els = {
   topbar: document.getElementById("topbar"),
@@ -22,6 +25,9 @@ const els = {
 const actions = {
   setSearchOpen: (v) => store.setSearchOpen(v),
   setSearchQuery: (v) => store.setSearchQuery(v),
+  setCategoryFilterAll: () => store.setCategoryFilterAll(),
+  setCategoryFilterNone: () => store.setCategoryFilterNone(),
+  toggleCategoryFilterId: (id) => store.toggleCategoryFilterId(id),
   openModal: (m) => store.openModal(m),
   closeModal: () => store.closeModal(),
   setView: (v) => store.setView(v),
@@ -50,8 +56,18 @@ const actions = {
   addColorToCategory: (categoryId, color) => store.addColorToCategory(categoryId, color),
   setShowWeekTray: (v) => store.setShowWeekTray(v),
   setShowDayTray: (v) => store.setShowDayTray(v),
+  setWeekTrayCollapsed: (v) => store.setWeekTrayCollapsed(v),
+  setDayTrayCollapsed: (v) => store.setDayTrayCollapsed(v),
+  setShowTodoTargetTab: (v) => store.setShowTodoTargetTab(v),
+  setWeekStartsOn: (v) => store.setWeekStartsOn(v),
+  setDayStartHour: (v) => store.setDayStartHour(v),
+  setTodoDeadlineRequired: (v) => store.setTodoDeadlineRequired(v),
+  setTodoShowDetail: (v) => store.setTodoShowDetail(v),
+  setTodoUrgentThresholdHours: (v) => store.setTodoUrgentThresholdHours(v),
+  setTimePickerStyle: (v) => store.setTimePickerStyle(v),
   setCustomDates: (dates) => store.setCustomDates(dates),
   setPendingCreate: (v) => store.setPendingCreate(v),
+  setSelectedItem: (item) => store.setSelectedItem(item),
 };
 
 // Mock, front-end-only auth — see src/authStore.js. Kept as a separate actions
@@ -111,10 +127,134 @@ function render(state) {
   }
 }
 
+// ---- Selected-card clipboard (Ctrl+C/Ctrl+V/Delete) — see dayGridView.js's
+// click-to-select-first-then-click-to-open and getHoverTarget. Held in memory
+// only, not the store: copying isn't itself an undoable action, only what you
+// go on to do with it (paste, delete) is.
+let clipboardItem = null; // { kind, data } | null
+
+function selectedMaster() {
+  const sel = store.state.selectedItem;
+  if (!sel) return null;
+  const list = sel.kind === "task" ? store.state.tasks : store.state.events;
+  const master = list.find((x) => x.id === sel.id);
+  return master ? { master, sel } : null;
+}
+
+function resolvedSelectedItem() {
+  const found = selectedMaster();
+  if (!found) return null;
+  const { master, sel } = found;
+  const dateField = sel.kind === "task" ? "dueDate" : "date";
+  return sel.occurrenceDate ? resolveOccurrence(master, sel.occurrenceDate, dateField) : master;
+}
+
+function copySelected() {
+  const item = resolvedSelectedItem();
+  if (!item) return;
+  const kind = store.state.selectedItem.kind;
+  // Strip identity/series/completion-tracking fields — a paste is always a
+  // fresh, non-repeating, not-yet-done copy, same rule the Duplicate button in
+  // the Add/Edit modal follows.
+  const { id, exceptions, repeat, occurrenceDate, isRecurring, done, doneDates, rescheduleCount, rescheduleHistory, overdueReschedule, ...rest } =
+    structuredClone(item);
+  clipboardItem = { kind, data: rest };
+  showToast(`${kind === "task" ? "Task" : "Event"} copied`);
+}
+
+function pasteAtHover() {
+  if (!clipboardItem) return;
+  const target = getHoverTarget();
+  if (!target) {
+    showToast("Hover over the calendar to choose where to paste", { variant: "danger" });
+    return;
+  }
+  const { kind, data } = clipboardItem;
+  const duration = Math.max(15, minutesFromMidnight(data.endTime || "10:00") - minutesFromMidnight(data.startTime || "09:00"));
+  const startTime = minutesToHHMM(target.startMin);
+  const endTime = minutesToHHMM(Math.min(24 * 60, target.startMin + duration));
+  const patch = { ...data, repeat: [], startTime, endTime };
+  const created =
+    kind === "task"
+      ? store.addTask({ ...patch, dueDate: target.date, scheduled: true })
+      : store.addEvent({ ...patch, date: target.date });
+  store.setSelectedItem({ kind, id: created.id, occurrenceDate: null });
+  showToast(`${kind === "task" ? "Task" : "Event"} pasted`);
+}
+
+// A selected occurrence of a repeating item deletes just that occurrence (what
+// you clicked); anything else — a plain item, or the series itself with no
+// specific occurrence selected — deletes outright. No confirmation dialog, the
+// way the Delete button in the modal has one: Ctrl+Z is the safety net instead.
+function deleteSelected() {
+  const found = selectedMaster();
+  if (!found) return;
+  const { master, sel } = found;
+  if (sel.occurrenceDate && isRepeating(master)) {
+    if (sel.kind === "task") store.deleteTaskOccurrence(sel.id, sel.occurrenceDate);
+    else store.deleteEventOccurrence(sel.id, sel.occurrenceDate);
+  } else if (sel.kind === "task") {
+    store.removeTask(sel.id);
+  } else {
+    store.removeEvent(sel.id);
+  }
+  store.setSelectedItem(null);
+  showToast(`${sel.kind === "task" ? "Task" : "Event"} deleted`, { variant: "danger" });
+}
+
+function isEditableFocus() {
+  const el = document.activeElement;
+  if (!el) return false;
+  return el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable;
+}
+
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
     if (store.state.modal) closeAddOrEditModal(store.state, actions);
     else if (store.state.pendingCreate) store.setPendingCreate(null);
+    else if (store.state.selectedItem) store.setSelectedItem(null);
+    return;
+  }
+
+  const ctrlOrCmd = e.ctrlKey || e.metaKey;
+
+  // Undo/redo — outside text fields only, so native browser text-undo inside an
+  // input/textarea isn't hijacked by the app-level history. Works regardless of
+  // whether a modal happens to be open, per "the whole app should be undoable".
+  if (ctrlOrCmd && !isEditableFocus()) {
+    const key = e.key.toLowerCase();
+    if (key === "z" && !e.shiftKey) {
+      e.preventDefault();
+      store.undo();
+      return;
+    }
+    if (key === "y" || (key === "z" && e.shiftKey)) {
+      e.preventDefault();
+      store.redo();
+      return;
+    }
+  }
+
+  // Card copy/paste/delete — selection only exists on the bare calendar view,
+  // so these are gated on no modal being open, on top of the same
+  // not-in-a-text-field guard undo/redo uses.
+  if (store.state.modal || isEditableFocus()) return;
+
+  if (ctrlOrCmd && e.key.toLowerCase() === "c") {
+    if (store.state.selectedItem) {
+      e.preventDefault();
+      copySelected();
+    }
+  } else if (ctrlOrCmd && e.key.toLowerCase() === "v") {
+    if (clipboardItem) {
+      e.preventDefault();
+      pasteAtHover();
+    }
+  } else if (e.key === "Delete" || e.key === "Backspace") {
+    if (store.state.selectedItem) {
+      e.preventDefault();
+      deleteSelected();
+    }
   }
 });
 

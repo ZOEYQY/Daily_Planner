@@ -14,23 +14,24 @@ export const FIXED_FIELD_DEFS = [
   { key: "topic", label: "Topic", inputId: "f-topic", type: "text", placeholder: "" },
 ];
 
-export const TODO_LIST_KEY = "todoList";
-
 function customFieldDef(field) {
   return { key: field.key, label: field.label, inputId: `f-custom-${field.key}`, type: "text", placeholder: "", custom: true };
 }
 
-// All field definitions (fixed + custom), NOT including the To-Do List toggle —
-// that one gets its own checklist widget instead of a plain text input.
+// All field definitions (fixed + custom).
 export function allFieldDefs(state) {
   return [...FIXED_FIELD_DEFS, ...(state.customFieldDefs || []).map(customFieldDef)];
 }
 
-// Every toggleable key, including "todoList".
+// Every toggleable key. To-Do List and Target used to be here too (as
+// TODO_LIST_KEY) but aren't per-category/per-item toggles any more — every
+// task/event always has both, in their own modal tab (see addModal.js), gated
+// only by the single Settings feature switch rather than this enabled-fields
+// system.
 export function allFieldKeys(state) {
-  return [...allFieldDefs(state).map((f) => f.key), TODO_LIST_KEY];
+  return allFieldDefs(state).map((f) => f.key);
 }
 
 export function fieldLabels(state) {
-  return { ...Object.fromEntries(allFieldDefs(state).map((f) => [f.key, f.label])), [TODO_LIST_KEY]: "To-Do List" };
+  return Object.fromEntries(allFieldDefs(state).map((f) => [f.key, f.label]));
 }

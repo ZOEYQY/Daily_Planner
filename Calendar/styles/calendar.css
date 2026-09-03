@@ -1,12 +1,50 @@
 /* ---------- Calendar header (tabs + nav) ---------- */
-.cal-header {
+/* #calendar-header itself — was .cal-header directly, now wraps it plus the
+   category filter row underneath (see calendarHeader.js), so the flex-item/
+   margin-bottom that used to live on .cal-header moved up here. */
+.cal-header-wrap {
   flex: 0 0 auto;
+  margin-bottom: 12px;
+}
+.cal-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 12px;
   gap: 16px;
   flex-wrap: wrap;
+}
+/* Filtering to one category applies everywhere via getVisibleEvents/
+   getVisibleTasks/getVisibleSpecialDays (see selectors.js) — this row is
+   just what drives state.categoryFilterId. */
+.cal-category-filter {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+.cal-cat-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-ink-secondary);
+  cursor: pointer;
+  transition: background 0.14s ease, border-color 0.14s ease, color 0.14s ease;
+}
+.cal-cat-pill:hover {
+  border-color: var(--color-border-strong);
+  color: var(--color-ink);
+}
+.cal-cat-pill.is-active {
+  background: var(--color-active);
+  border-color: var(--color-active);
+  color: var(--color-on-dark);
 }
 
 .cal-header-left {
@@ -227,6 +265,25 @@
   opacity: 0.5;
   text-decoration: line-through;
 }
+/* Solid full-width banner instead of .event-chip's small pill+accent-bar —
+   a special day (birthday, exam, anniversary) reads as its own kind of
+   marker this way, not just "one more event" in the day's list. */
+.special-day-chip {
+  display: block;
+  background: var(--chip-color);
+  border: none;
+  color: #000000;
+  font-weight: 700;
+  text-align: center;
+  /* .event-chip's base rule truncates to one line with an ellipsis — wrap
+     instead so a longer title actually shows in full rather than getting
+     cut off ("LEADERSHIP QUI..."), same reasoning as the event card title on
+     the timeline. */
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  line-height: 1.3;
+}
 
 .task-chip-checkbox {
   flex: 0 0 auto;
@@ -335,8 +392,13 @@
 .timegrid-task-checkbox::after {
   content: "";
   position: absolute;
-  left: 3px;
-  top: -0.5px;
+  /* The checkmark's own box is 4x7px, so rotating it (around its own
+     center, the default transform-origin) keeps that center fixed at
+     (left+2, top+3.5) — centering that on the 13x13 checkbox itself (center
+     6.5,6.5) needs left ~4.5, top ~3, not the old left:3/top:-0.5 (which put
+     it visibly above and left of center). */
+  left: 4px;
+  top: 1.5px;
   width: 4px;
   height: 7px;
   border: solid #fff;
@@ -354,7 +416,13 @@
    their content — see .day-tray-row. */
 .week-tray {
   flex: 0 0 auto;
-  height: var(--tray-row-height, 78px);
+  /* Fits its actual content (however many chips there are) rather than
+     always reserving room for ~5 — height:auto with a cap, not a fixed
+     height, so 3 items make a tray about 3-items tall, not one padded out to
+     5-items tall with empty space underneath. */
+  height: auto;
+  max-height: var(--tray-row-height, 172px);
+  min-height: 56px;
   box-sizing: border-box;
   padding: 10px 14px;
   border-bottom: 1px solid var(--color-border);
@@ -363,6 +431,28 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
+}
+/* "Show all" (see the button below) — grows to fit every item instead of the
+   default ~5-item height, which otherwise leaves the rest reachable only by
+   scrolling within .week-tray-chips. */
+.week-tray.is-expanded {
+  max-height: none;
+}
+.tray-show-all-btn {
+  flex: 0 0 auto;
+  align-self: center;
+  border: none;
+  background: transparent;
+  padding: 2px 4px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--color-ink-secondary);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.tray-show-all-btn:hover {
+  color: var(--color-ink);
 }
 .week-tray-title {
   flex: 0 0 auto;
@@ -430,15 +520,6 @@
   flex-wrap: wrap;
   padding-bottom: 2px;
 }
-.unscheduled-more {
-  flex: 0 0 auto;
-  align-self: center;
-  font-size: 11.5px;
-  font-weight: 600;
-  color: var(--color-muted);
-  padding: 6px 8px;
-}
-
 .tray-add-btn {
   flex: 0 0 auto;
   width: 24px;
@@ -490,15 +571,65 @@
   color: var(--color-muted);
 }
 
+/* A selected to-do chip (see dayTrayChip/weekTrayChip in dayGridView.js) grows
+   from its usual single-line pill to fit a detail block underneath the title —
+   align-items:flex-start so the checkbox stays pinned to the title's own line
+   instead of stretching to the whole (now taller) chip's height, and a less
+   extreme radius since a tall pill-shaped chip looks odd. */
+.day-tray-chip.is-selected,
+.unscheduled-chip.is-selected {
+  align-items: flex-start;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+.day-tray-chip-body {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.todo-chip-detail {
+  margin-top: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 10.5px;
+  font-weight: 400;
+  opacity: 0.85;
+  white-space: normal;
+}
+.todo-chip-detail-row {
+  overflow-wrap: break-word;
+}
+.todo-chip-detail-label {
+  font-weight: 700;
+}
+.todo-chip-detail-label::after {
+  content: ":";
+  margin-right: 3px;
+}
+
 /* Day tray row: one cell per day, for tasks pinned to that date but with no
    time yet (e.g. an exam you know the day of). Shares --tray-row-height with the
    Week tray above so the two always match, whatever their content — see .week-tray. */
 .day-tray-row {
   display: flex;
-  height: var(--tray-row-height, 78px);
+  /* Fits whichever day column has the most content (however many chips that
+     is) rather than always reserving room for ~5 — same reasoning as
+     .week-tray above. */
+  height: auto;
+  max-height: var(--tray-row-height, 172px);
+  min-height: 56px;
   box-sizing: border-box;
   border-bottom: 1px solid var(--color-border);
   flex: 0 0 auto;
+}
+/* All day columns share one row height (a single CSS grid row can't vary per
+   column), so expanding any one column (see .day-tray-show-all-btn in
+   dayGridView.js) lifts the cap for the whole row rather than just that
+   column — the other, non-expanded columns just end up with extra breathing
+   room, still centered in it via .day-tray-col's own justify-content:center. */
+.day-tray-row:has(.day-tray-col.is-expanded) {
+  max-height: none;
 }
 .day-tray-gutter-label {
   display: flex;
@@ -517,7 +648,9 @@
 .day-tray-col {
   padding: 6px 24px 6px 6px;
   box-sizing: border-box;
-  height: 100%;
+  /* Not height:100% — .day-tray-row's own height is now content-driven (see
+     above), so a percentage here would be circular; grid's default
+     align-items:stretch already fills whatever height the row ends up with. */
   position: relative;
   display: flex;
   flex-direction: column;
@@ -539,6 +672,17 @@
   bottom: 4px;
   opacity: 0;
   transition: opacity 0.14s ease;
+}
+/* Sits to the left of the plain task-add button (also .tray-add-btn-floating,
+   anchored right:4px) rather than stacking on top of it — used in both the
+   Week tray and each Day tray column. */
+.tray-add-todo-btn {
+  right: 32px;
+}
+/* One slot further left again, same reasoning. */
+.tray-add-specialday-btn {
+  right: 60px;
+  font-size: 11px;
 }
 .week-tray:hover .tray-add-btn-floating,
 .week-tray:focus-within .tray-add-btn-floating,
@@ -581,10 +725,29 @@
 
 /* All-day marker chip (birthdays, holidays, ...) — same tray, but never
    draggable (there's no time to reschedule to), so a plain pointer instead
-   of the grab cursor the other tray chips use. */
+   of the grab cursor the other tray chips use. Solid fill + bold black text,
+   same treatment as its month-view counterpart (.special-day-chip), rather
+   than the same muted pill a task/to-do chip gets — it's a different kind
+   of marker and reads that way now instead of just carrying a small 🎉. */
 .special-day-tray-chip {
   cursor: pointer;
   touch-action: auto;
+  background: var(--chip-color);
+  border-color: var(--chip-color);
+  color: #000000;
+  font-weight: 700;
+  /* .day-tray-col's align-items:flex-start leaves every chip only as wide as
+     its own content by default — stretch just this one across the column's
+     full width instead, same reasoning as the month-view banner. */
+  align-self: stretch;
+  justify-content: center;
+}
+.special-day-tray-chip .unscheduled-chip-label {
+  max-width: none;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  text-align: center;
 }
 
 /* ---------- Reschedule awareness (never red, never an "error" look) ---------- */
@@ -617,6 +780,17 @@
 }
 .timegrid-task-block.is-overdue:not(.is-dragging) {
   box-shadow: 0 0 0 1.5px rgba(158, 108, 22, 0.4);
+}
+
+/* A to-do closing in on its own deadline (see isTodoUrgent in selectors.js,
+   threshold set in Settings) — actual red, unlike the muted-amber overdue
+   styling above, since red specifically was asked for here as a distinct,
+   more urgent signal than "this is late" — background stays untinted either
+   way, just the border/text carry the color. */
+.day-tray-chip.is-todo-urgent {
+  border-color: rgba(196, 30, 30, 0.55);
+  box-shadow: 0 0 0 1px rgba(196, 30, 30, 0.25);
+  color: #b31f1f;
 }
 
 .reschedule-badge {
@@ -670,6 +844,15 @@
   font-weight: 600;
   color: var(--color-muted);
 }
+/* The label centers on its gridline by shifting up 7px — fine everywhere
+   except the very first row (top:0), where that shift pushes it above
+   .timegrid-scroll's own top edge and gets clipped by its overflow-y:auto.
+   Never mattered before "Starts At" reordered the grid (see orderedHours in
+   dayGridView.js), since row 0 was always midnight, whose label is hidden
+   anyway — now it can be any hour, e.g. "7 AM", and needs to actually show. */
+.timegrid-hour-label.is-first {
+  transform: none;
+}
 
 .timegrid-body {
   flex: 1 1 auto;
@@ -710,6 +893,30 @@
   pointer-events: none;
 }
 
+/* First click on an empty hour cell marks it rather than creating right away
+   (see dayColumn/pendingSlot in dayGridView.js) — pointer-events:none so the
+   second click lands on the .timegrid-hourcell underneath, not this box. */
+.timegrid-pending-slot {
+  position: absolute;
+  left: 2px;
+  right: 2px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  border-radius: var(--radius-xs);
+  background: rgba(11, 11, 11, 0.06);
+  border: 1.5px dashed var(--color-ink-secondary);
+  color: var(--color-ink-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  pointer-events: none;
+}
+.timegrid-pending-slot svg {
+  flex: 0 0 auto;
+}
+
 /* Solid color-filled event block, positioned by time. Its content sits inside
    one or two "inset panels" — a light tint of the same event color, set as
    --event-color inline per event (dayGridView.js) — rather than filling the
@@ -724,6 +931,12 @@
   justify-content: center;
   gap: 8px;
   border-radius: var(--radius-xs);
+  /* Back to flat 6px (was bumped to 10px top/bottom for more breathing room
+     around the panel, but that ate into a plain 1hr card's available height
+     enough to trip fitEventHeaderTitles' shrink-to-fit — so a 1hr event's
+     title/time would render smaller than a longer event's, inconsistently,
+     even when neither actually needed to shrink). Prioritizing same-size text
+     across cards over the extra top/bottom gap. */
   padding: 6px;
   overflow: hidden;
   cursor: grab;
@@ -742,6 +955,29 @@
   box-shadow: var(--shadow-lg);
   opacity: 0.92;
 }
+/* Click-to-select-first-then-click-to-open (see the card's onClick in
+   dayGridView.js). A soft white ring + lifted drop-shadow reads calmer than a
+   hard black outline — filter:drop-shadow rather than box-shadow so it layers
+   over each card's own box-shadow use (the white inset ring on events, the
+   reschedule-severity ring on tasks) instead of replacing it. Also grows the
+   card past its time-slot height and past its overlap-layout column share
+   (min-height here as a floor/fallback; the actual top/height/left/width for
+   a selected card are computed precisely in itemBlock in dayGridView.js, so
+   growth stays centered on the original card's position instead of just
+   stretching from one corner — see the comment there) so a short or
+   narrow-column card's full title/info has room to show — see
+   extraInfoHTML's scroll for whatever still doesn't fit even then. Only needs
+   to clear sibling cards (z-index:1) on the timeline, so keep this well under
+   .modal-overlay's z-index:50 in components.css — it was 60 before, which let
+   a selected card render visually on top of the Settings/Add modal behind it. */
+.timegrid-event.is-selected,
+.timegrid-task-block.is-selected {
+  outline: 2px solid rgba(11, 11, 11, 0.32);
+  outline-offset: 2px;
+  filter: drop-shadow(0 6px 16px rgba(11, 11, 11, 0.22));
+  min-height: 160px;
+  z-index: 5;
+}
 
 /* Shared inset-panel look: a subtle tint of the event's own color (never
    white), inset from the card's own edges so each panel reads as embedded
@@ -750,8 +986,10 @@
    blocks) gets the same look scoped to .timegrid-event so tasks are unaffected. */
 .timegrid-event-panel,
 .timegrid-event > .timegrid-event-info {
-  width: 92%;
-  margin: 0 auto;
+  /* Fixed equal margins instead of width:92%+margin:auto — guarantees the same
+     inset on both sides regardless of any sub-pixel rounding, rather than
+     relying on flexbox auto-margin centering to land exactly even. */
+  margin: 0 8px;
   padding: 6px 8px;
   border-radius: 5px;
   background: color-mix(in srgb, var(--event-color) 85%, white 15%);
@@ -787,8 +1025,14 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.timegrid-event-header-panel {
+  /* Tighter than the shared 6px 8px — same reasoning as the outer card's
+     padding above: less panel height means more real slack for the outer
+     justify-content:center to center against on a short (e.g. 1hr/56px) card. */
+  padding: 4px 8px;
+}
 .timegrid-event-header-panel .timegrid-event-time {
-  margin-top: 4px;
+  margin-top: 2px;
   font-size: 12px;
 }
 .timegrid-event.is-compact .timegrid-event-title,

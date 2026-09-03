@@ -3,11 +3,12 @@ import { esc } from "../utils.js";
 import { toISODate, today } from "../dateUtils.js";
 import { computeReschedulePatch } from "../rescheduleTracking.js";
 import { resolveOccurrence } from "../selectors.js";
-import { showConfirm, showToast, openFormPopup } from "./notify.js";
+import { showConfirm, showChoice, showToast, openFormPopup } from "./notify.js";
 import { openAddCategoryPopup, openAddColorPopup } from "./categoryColorPopups.js";
 import { createRepeatRuleUI } from "./repeatRuleUI.js";
-import { allFieldDefs, allFieldKeys, fieldLabels, TODO_LIST_KEY } from "../extraFields.js";
+import { allFieldDefs, allFieldKeys, fieldLabels } from "../extraFields.js";
 import { uid } from "../seed.js";
+import { timeInputHTML, wireTimeInput, syncVisibleTimeDisplay } from "./timeInput.js";
 
 let localType = "task";
 
@@ -143,8 +144,8 @@ function extraFieldsChecklistHTML(state, enabledFields) {
   return `${toggles}<button type="button" class="field-toggle-pill field-toggle-add" id="f-add-field-btn">${icons.plusSmall}<span>Add New</span></button>`;
 }
 
-function extraFieldInputsHTML(state, checkedKeys, item, todoItems) {
-  const inputs = allFieldDefs(state)
+function extraFieldInputsHTML(state, checkedKeys, item) {
+  return allFieldDefs(state)
     .filter((f) => checkedKeys.includes(f.key))
     .map((f) => {
       const value = f.custom ? item?.customFields?.[f.key] || "" : item?.[f.key] || "";
@@ -155,13 +156,6 @@ function extraFieldInputsHTML(state, checkedKeys, item, todoItems) {
     </div>`;
     })
     .join("");
-  const todo = checkedKeys.includes(TODO_LIST_KEY)
-    ? `<div class="field">
-        <label>To-Do List</label>
-        <div id="f-todo-wrap">${todoListHTML(todoItems)}</div>
-      </div>`
-    : "";
-  return inputs + todo;
 }
 
 // Each item can optionally carry its own time — items with one render as small
@@ -174,7 +168,6 @@ function todoListHTML(items) {
     <div class="todo-item-row" data-todo-id="${item.id}">
       <input type="checkbox" class="todo-item-check" data-todo-id="${item.id}" ${item.done ? "checked" : ""} />
       <span class="todo-item-text ${item.done ? "is-done" : ""}">${esc(item.text)}</span>
-      <input type="time" class="todo-item-time" data-todo-id="${item.id}" value="${item.time || ""}" title="Show at this time in the day grid" />
       <button type="button" class="remove-btn todo-item-remove" data-todo-id="${item.id}" aria-label="Remove item">${icons.close}</button>
     </div>`
     )
@@ -183,8 +176,27 @@ function todoListHTML(items) {
     <div class="todo-list">${rows}</div>
     <div class="todo-add-row">
       <input type="text" id="f-todo-new" placeholder="Add an item…" />
-      <input type="time" id="f-todo-new-time" title="Optional time" />
       <button type="button" class="btn btn-ghost" id="f-todo-add-btn">${icons.plusSmall}</button>
+    </div>`;
+}
+
+// Plain checkbox goals only — no progress/numeric mode.
+function targetListHTML(items) {
+  const rows = items
+    .map(
+      (item) => `
+    <div class="target-item-row" data-target-id="${item.id}">
+      <input type="checkbox" class="target-item-check" data-target-id="${item.id}" ${item.done ? "checked" : ""} />
+      <span class="target-item-text ${item.done ? "is-done" : ""}">${esc(item.text)}</span>
+      <button type="button" class="remove-btn target-item-remove" data-target-id="${item.id}" aria-label="Remove target">${icons.close}</button>
+    </div>`
+    )
+    .join("");
+  return `
+    <div class="todo-list">${rows}</div>
+    <div class="todo-add-row">
+      <input type="text" id="f-target-new" placeholder="Add a target…" />
+      <button type="button" class="btn btn-ghost" id="f-target-add-btn">${icons.plusSmall}</button>
     </div>`;
 }
 
@@ -217,6 +229,12 @@ function restoreFormSnapshot(root, snap) {
   if (startEl && snap.start) startEl.value = snap.start;
   const endEl = root.querySelector("#f-end");
   if (endEl && snap.end) endEl.value = snap.end;
+  // In text/clock time-picker mode, #f-start/#f-end are the hidden canonical
+  // fields (see timeInputHTML) — the separate visible input needs its own
+  // sync or it'd keep showing whatever it displayed before this restore.
+  syncVisibleTimeDisplay(root, "f-start");
+  syncVisibleTimeDisplay(root, "f-end");
+
   const hasTimeEl = root.querySelector("#f-has-time");
   if (hasTimeEl && snap.hasTime !== null) {
     hasTimeEl.checked = snap.hasTime;
@@ -236,6 +254,10 @@ export function renderAddModal(root, state, actions) {
   if (isEdit) {
     localType = state.modal.itemType;
   }
+
+  // The To-Do & Target tab can disappear mid-session (Settings toggle) while
+  // it's the active one — fall back rather than landing on a tab with no panel.
+  if ((activeAddModalTab === "todo" || activeAddModalTab === "record") && !state.showTodoTargetTab) activeAddModalTab = "basic";
 
   const isTaskForm = localType === "task";
 
@@ -260,6 +282,7 @@ export function renderAddModal(root, state, actions) {
   const isOccurrenceScope = isEdit && state.modal.occurrenceScope === "occurrence";
   let repeatRules = isEdit ? editingItem.repeat || [] : [];
   let todoItems = isEdit ? [...(editingItem.todoList || [])] : [];
+  let targetItems = isEdit ? [...(editingItem.targets || [])] : [];
   const defaultColor = defaultCategory?.colors.find((c) => c.id === defaultColorId) || null;
   const initialEnabledFields = effectiveEnabledFields(defaultCategory, defaultColor, editingItem);
 
@@ -273,9 +296,15 @@ export function renderAddModal(root, state, actions) {
         <div class="add-modal-tabs">
           <button type="button" class="add-modal-tab ${activeAddModalTab === "basic" ? "active" : ""}" data-tab="basic">Basic Info</button>
           <button type="button" class="add-modal-tab ${activeAddModalTab === "details" ? "active" : ""}" data-tab="details">Notes &amp; Details</button>
+          ${
+            state.showTodoTargetTab
+              ? `<button type="button" class="add-modal-tab ${activeAddModalTab === "todo" ? "active" : ""}" data-tab="todo">To-Do &amp; Target</button>
+                 <button type="button" class="add-modal-tab ${activeAddModalTab === "record" ? "active" : ""}" data-tab="record">Record</button>`
+              : ""
+          }
         </div>
         <div class="modal-body">
-          <div class="add-modal-tab-panel" id="tab-panel-basic" style="${activeAddModalTab === "basic" ? "" : "display:none;"}">
+          <div class="add-modal-tab-panel" id="tab-panel-basic" data-tab="basic" style="${activeAddModalTab === "basic" ? "" : "display:none;"}">
             ${
               isEdit
                 ? ""
@@ -335,11 +364,11 @@ export function renderAddModal(root, state, actions) {
             <div class="field-row" id="f-time-wrap" style="${localType === "event" || (isTaskForm && hasTimeInitially && defaultDate) ? "" : "display:none;"}">
               <div class="field">
                 <label>Start</label>
-                <input type="time" id="f-start" value="${prefillTime || "09:00"}" />
+                ${timeInputHTML("f-start", prefillTime || "09:00", state)}
               </div>
               <div class="field">
                 <label>End</label>
-                <input type="time" id="f-end" value="${prefillEndTime || (prefillTime ? plusOneHour(prefillTime) : "10:00")}" />
+                ${timeInputHTML("f-end", prefillEndTime || (prefillTime ? plusOneHour(prefillTime) : "10:00"), state)}
               </div>
             </div>
 
@@ -353,7 +382,7 @@ export function renderAddModal(root, state, actions) {
             }
           </div>
 
-          <div class="add-modal-tab-panel" id="tab-panel-details" style="${activeAddModalTab === "details" ? "" : "display:none;"}">
+          <div class="add-modal-tab-panel" id="tab-panel-details" data-tab="details" style="${activeAddModalTab === "details" ? "" : "display:none;"}">
             <div class="field">
               <label>Notes (optional)</label>
               <textarea id="f-notes" placeholder="Add notes…">${esc(editingItem?.notes || "")}</textarea>
@@ -366,8 +395,30 @@ export function renderAddModal(root, state, actions) {
               </div>
               <div class="default-field-pill-row" id="f-fields-checklist" style="${fieldsChecklistOpen ? "" : "display:none;"}">${extraFieldsChecklistHTML(state, initialEnabledFields)}</div>
             </div>
-            <div id="f-extra-fields-inputs">${extraFieldInputsHTML(state, initialEnabledFields, editingItem, todoItems)}</div>
+            <div id="f-extra-fields-inputs">${extraFieldInputsHTML(state, initialEnabledFields, editingItem)}</div>
           </div>
+
+          ${
+            state.showTodoTargetTab
+              ? `<div class="add-modal-tab-panel" id="tab-panel-todo" data-tab="todo" style="${activeAddModalTab === "todo" ? "" : "display:none;"}">
+            <div class="field">
+              <label>To-Do List</label>
+              <div id="f-todo-wrap">${todoListHTML(todoItems)}</div>
+            </div>
+            <div class="field">
+              <label>Target</label>
+              <div id="f-target-wrap">${targetListHTML(targetItems)}</div>
+            </div>
+          </div>
+
+          <div class="add-modal-tab-panel" id="tab-panel-record" data-tab="record" style="${activeAddModalTab === "record" ? "" : "display:none;"}">
+            <div class="field">
+              <label>Record (fill in after the event)</label>
+              <textarea id="f-record-notes" placeholder="Progress made, things to note, a summary…">${esc(editingItem?.recordNotes || "")}</textarea>
+            </div>
+          </div>`
+              : ""
+          }
         </div>
         <div class="modal-footer">
           ${
@@ -399,6 +450,8 @@ export function renderAddModal(root, state, actions) {
     dateInput.addEventListener("input", syncTimeVisibility);
     hasTimeCheckbox?.addEventListener("change", syncTimeVisibility);
   }
+  wireTimeInput(root, "f-start");
+  wireTimeInput(root, "f-end");
 
   const repeatWrap = root.querySelector("#f-repeat-wrap");
   const syncRepeatVisibility = () => {
@@ -436,12 +489,6 @@ export function renderAddModal(root, state, actions) {
         renderTodoList();
       });
     });
-    wrap.querySelectorAll(".todo-item-time").forEach((input) => {
-      input.addEventListener("change", () => {
-        const id = input.dataset.todoId;
-        todoItems = todoItems.map((t) => (t.id === id ? { ...t, time: input.value || "" } : t));
-      });
-    });
     wrap.querySelectorAll(".todo-item-remove").forEach((btn) => {
       btn.addEventListener("click", () => {
         todoItems = todoItems.filter((t) => t.id !== btn.dataset.todoId);
@@ -450,11 +497,10 @@ export function renderAddModal(root, state, actions) {
     });
     const addBtn = wrap.querySelector("#f-todo-add-btn");
     const newInput = wrap.querySelector("#f-todo-new");
-    const newTimeInput = wrap.querySelector("#f-todo-new-time");
     const submitAdd = () => {
       const text = newInput.value.trim();
       if (!text) return;
-      todoItems = [...todoItems, { id: uid("todo"), text, done: false, time: newTimeInput.value || "" }];
+      todoItems = [...todoItems, { id: uid("todo"), text, done: false }];
       renderTodoList();
     };
     addBtn?.addEventListener("click", submitAdd);
@@ -465,18 +511,60 @@ export function renderAddModal(root, state, actions) {
       }
     });
   }
+
+  function renderTargetList() {
+    const wrap = root.querySelector("#f-target-wrap");
+    if (!wrap) return;
+    wrap.innerHTML = targetListHTML(targetItems, newTargetMode);
+    wireTargetList();
+  }
+
+  function wireTargetList() {
+    const wrap = root.querySelector("#f-target-wrap");
+    if (!wrap) return;
+    wrap.querySelectorAll(".target-item-check").forEach((cb) => {
+      cb.addEventListener("change", () => {
+        const id = cb.dataset.targetId;
+        targetItems = targetItems.map((t) => (t.id === id ? { ...t, done: cb.checked } : t));
+        renderTargetList();
+      });
+    });
+    wrap.querySelectorAll(".target-item-remove").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        targetItems = targetItems.filter((t) => t.id !== btn.dataset.targetId);
+        renderTargetList();
+      });
+    });
+    const addBtn = wrap.querySelector("#f-target-add-btn");
+    const newInput = wrap.querySelector("#f-target-new");
+    const submitAdd = () => {
+      const text = newInput.value.trim();
+      if (!text) return;
+      targetItems = [...targetItems, { id: uid("target"), text, done: false }];
+      renderTargetList();
+    };
+    addBtn?.addEventListener("click", submitAdd);
+    newInput?.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        submitAdd();
+      }
+    });
+  }
+
   function currentCheckedFieldKeys() {
     return Array.from(root.querySelectorAll(".field-toggle-pill.is-selected[data-key]")).map((el) => el.dataset.key);
   }
 
-  // Rebuilds only the inputs/todo-list dependent on which checkboxes are currently
-  // checked — never the checklist itself, so this can run on every checkbox change
-  // without clobbering the user's own in-progress toggle choices.
+  // Rebuilds only the inputs dependent on which checkboxes are currently checked
+  // — never the checklist itself, so this can run on every checkbox change
+  // without clobbering the user's own in-progress toggle choices. To-Do List
+  // lives in its own always-present tab now, not here, so there's nothing of
+  // its to re-wire on this rebuild.
   function renderExtraFieldInputs() {
     const wrap = root.querySelector("#f-extra-fields-inputs");
     if (!wrap) return;
-    wrap.innerHTML = extraFieldInputsHTML(state, currentCheckedFieldKeys(), editingItem, todoItems);
-    wireTodoList();
+    wrap.innerHTML = extraFieldInputsHTML(state, currentCheckedFieldKeys(), editingItem);
   }
 
   function wireAddFieldBtn() {
@@ -542,7 +630,10 @@ export function renderAddModal(root, state, actions) {
     toggleFieldsBtn.setAttribute("aria-label", fieldsChecklistOpen ? "Hide extra details" : "Show extra details");
   });
 
-  if (initialEnabledFields.includes(TODO_LIST_KEY)) wireTodoList();
+  if (state.showTodoTargetTab) {
+    wireTodoList();
+    wireTargetList();
+  }
 
   // Re-derives the checklist from the currently-selected category/color's own
   // defaults (plus this item's overrides) whenever either changes, then rebuilds
@@ -645,8 +736,9 @@ export function renderAddModal(root, state, actions) {
     tab.addEventListener("click", () => {
       activeAddModalTab = tab.dataset.tab;
       root.querySelectorAll(".add-modal-tab").forEach((t) => t.classList.toggle("active", t === tab));
-      root.querySelector("#tab-panel-basic").style.display = activeAddModalTab === "basic" ? "" : "none";
-      root.querySelector("#tab-panel-details").style.display = activeAddModalTab === "details" ? "" : "none";
+      root.querySelectorAll(".add-modal-tab-panel").forEach((panel) => {
+        panel.style.display = panel.dataset.tab === activeAddModalTab ? "" : "none";
+      });
     });
   });
 
@@ -719,7 +811,16 @@ export function renderAddModal(root, state, actions) {
       else extraFields[f.key] = value;
     });
     extraFields.customFields = customFields;
-    if (enabledFields.includes(TODO_LIST_KEY)) extraFields.todoList = todoItems;
+    // To-Do List and Target aren't part of the enabled-fields system any more
+    // (see extraFields.js) — always saved, same as title/notes, so toggling the
+    // Settings feature off never loses data that's already there.
+    extraFields.todoList = todoItems;
+    extraFields.targets = targetItems;
+    // Preserve the existing value when the tab (and its textarea) isn't even in
+    // the DOM (Settings feature off) — distinct from the field existing and
+    // being intentionally cleared, which should save as empty.
+    const recordEl = root.querySelector("#f-record-notes");
+    extraFields.recordNotes = recordEl ? recordEl.value.trim() : editingItem?.recordNotes || "";
 
     // Beyond whatever the current category/color already turn on by default, this
     // records only the additional fields the user checked for just this one card.

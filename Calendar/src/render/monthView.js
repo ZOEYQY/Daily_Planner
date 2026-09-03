@@ -1,4 +1,4 @@
-import { getMonthGridDays, parseISODate, toISODate, isSameDay, today, WEEKDAY_LABELS } from "../dateUtils.js";
+import { getMonthGridDays, parseISODate, toISODate, isSameDay, today, orderedWeekdayLabels } from "../dateUtils.js";
 import { eventsOnDate, scheduledTasksOnDate, specialDaysOnDate, resolveOccurrence } from "../selectors.js";
 import { isOverdue } from "../rescheduleTracking.js";
 import { esc } from "../utils.js";
@@ -9,14 +9,14 @@ const MAX_VISIBLE = 3;
 
 export function renderMonthView(root, state, actions, currentUser) {
   const cursor = parseISODate(state.cursorDate);
-  const days = getMonthGridDays(cursor);
+  const days = getMonthGridDays(cursor, state.weekStartsOn);
   const t = today();
   const todayISO = toISODate(t);
 
   root.innerHTML = `
     <div class="month-grid">
       <div class="month-weekdays">
-        ${WEEKDAY_LABELS.map((w) => `<div>${w}</div>`).join("")}
+        ${orderedWeekdayLabels(state.weekStartsOn).map((w) => `<div>${w}</div>`).join("")}
       </div>
       <div class="month-weeks">
         ${chunk(days, 7)
@@ -98,11 +98,18 @@ function eventChip(e) {
     </div>`;
 }
 
+// Deliberately not .event-chip's small pill+accent-bar look — a special day
+// (birthday, exam, anniversary) is meant to stand out as its own kind of
+// marker, not blend in as "one more event", so it gets a solid full-width
+// banner instead.
 function specialDayChip(d) {
+  // Keeps the .event-chip class purely so the shared click-to-open wiring in
+  // renderMonthView (root.querySelectorAll(".event-chip")) still picks it up
+  // — .special-day-chip's own CSS overrides all of .event-chip's visual
+  // styling to get the solid-banner look instead.
   return `
-    <div class="event-chip special-day-chip" style="--chip-color:${d.color}" data-id="${d.id}" data-kind="specialDay" data-occurrence="${d.occurrenceDate || ""}">
-      <span class="chip-bar"></span>
-      <span class="chip-label">🎉 ${esc(d.title)}</span>
+    <div class="event-chip special-day-chip" style="--chip-color:${d.color}" data-id="${d.id}" data-kind="specialDay" data-occurrence="${d.occurrenceDate || ""}" title="${esc(d.title)}">
+      ${esc(d.title)}
     </div>`;
 }
 

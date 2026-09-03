@@ -6,6 +6,7 @@ import { renderStatsWidget } from "./statsWidget.js";
 import { openFormPopup, showChoice, showToast } from "./notify.js";
 import { makeColor, pickUnusedColor } from "../categoryColor.js";
 import { allFieldKeys, fieldLabels } from "../extraFields.js";
+import { formatHourLabel } from "../dateUtils.js";
 
 let activeTab = "categories";
 let draft = null; // { categories } — live only while Settings is open
@@ -14,6 +15,7 @@ let suggestCount = 3;
 let suggestTopic = "";
 let suggestResults = null; // array of names, or null
 let suggestSelected = new Set();
+const HOURS_0_23 = Array.from({ length: 24 }, (_, h) => h);
 
 // Category-tab UI state — which panels are expanded. Collapsed by default so a
 // category with several subcategories doesn't dump every checkbox on screen at
@@ -118,7 +120,43 @@ function renderCategoriesTab(body, state, actions) {
       <div class="toggle-pill-row">
         <button type="button" class="toggle-pill ${state.showWeekTray ? "is-on" : ""}" id="vis-week">Show Week Tasks</button>
         <button type="button" class="toggle-pill ${state.showDayTray ? "is-on" : ""}" id="vis-day">Show Day Tasks</button>
+        <button type="button" class="toggle-pill ${state.showTodoTargetTab ? "is-on" : ""}" id="vis-todo-target">Show To-Do, Target &amp; Record</button>
       </div>
+    </div>
+
+    <div class="settings-section">
+      <div class="settings-section-title">Calendar</div>
+      <div class="settings-field-label" style="margin-top:0;">Week Starts On</div>
+      <div class="type-toggle" id="week-start-toggle">
+        <button type="button" data-day="0" class="${(state.weekStartsOn ?? 0) === 0 ? "active" : ""}">Sunday</button>
+        <button type="button" data-day="1" class="${state.weekStartsOn === 1 ? "active" : ""}">Monday</button>
+      </div>
+      <div class="settings-field-label">Starts At</div>
+      <select class="settings-select" id="day-start-hour-select">
+        ${HOURS_0_23.map(
+          (h) => `<option value="${h}" ${(state.dayStartHour ?? 7) === h ? "selected" : ""}>${formatHourLabel(h)}</option>`
+        ).join("")}
+      </select>
+      <div class="settings-field-label">Time Picker Style</div>
+      <div class="type-toggle" id="time-picker-style-toggle">
+        <button type="button" data-style="native" class="${(state.timePickerStyle || "native") === "native" ? "active" : ""}">Default</button>
+        <button type="button" data-style="text" class="${state.timePickerStyle === "text" ? "active" : ""}">Type</button>
+        <button type="button" data-style="clock" class="${state.timePickerStyle === "clock" ? "active" : ""}">Clock</button>
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <div class="settings-section-title">To-Do</div>
+      <p style="font-size:12px; color:var(--color-muted); line-height:1.5; margin:-2px 0 10px;">
+        A to-do is a lighter-weight quick-add (Week/Day tray's checkmark button) — just a title, an optional
+        deadline, and an optional note, separate from the full Add Task/Event form.
+      </p>
+      <div class="toggle-pill-row">
+        <button type="button" class="toggle-pill ${state.todoDeadlineRequired ? "is-on" : ""}" id="vis-todo-deadline-required">Require a Deadline</button>
+        <button type="button" class="toggle-pill ${state.todoShowDetail !== false ? "is-on" : ""}" id="vis-todo-show-detail">Show Detail Field</button>
+      </div>
+      <div class="settings-field-label">Turn Red This Many Hours Before Deadline</div>
+      <input type="number" class="settings-select" id="todo-urgent-hours" min="1" step="1" value="${state.todoUrgentThresholdHours ?? 24}" style="max-width:100px;" />
     </div>
 
     <div class="settings-section">
@@ -141,8 +179,43 @@ function renderCategoriesTab(body, state, actions) {
 
   wireCategoryList(body, state, actions);
   wireVisibility(body, state, actions);
+  wireWeekStart(body, actions);
+  wireTodoSettings(body, state, actions);
   wireAddCategory(body, state, actions);
   wireSuggestSection(body, state, actions);
+}
+
+// Applies instantly, same as the rest of this section — no Save step needed.
+function wireTodoSettings(body, state, actions) {
+  body.querySelector("#vis-todo-deadline-required")?.addEventListener("click", () => {
+    actions.setTodoDeadlineRequired(!state.todoDeadlineRequired);
+  });
+  body.querySelector("#vis-todo-show-detail")?.addEventListener("click", () => {
+    actions.setTodoShowDetail(state.todoShowDetail === false);
+  });
+  const hoursInput = body.querySelector("#todo-urgent-hours");
+  hoursInput?.addEventListener("change", () => {
+    const hours = Math.max(1, Math.round(Number(hoursInput.value)) || 24);
+    hoursInput.value = hours;
+    actions.setTodoUrgentThresholdHours(hours);
+  });
+}
+
+// Applies immediately, same as Visibility — a segmented Sunday/Monday pick
+// rather than an independent toggle-pill, since the two options are mutually
+// exclusive (reuses .type-toggle, the same segmented-picker style as the Add/
+// Edit modal's Task/Event switch).
+function wireWeekStart(body, actions) {
+  body.querySelectorAll("#week-start-toggle button").forEach((btn) => {
+    btn.addEventListener("click", () => actions.setWeekStartsOn(Number(btn.dataset.day)));
+  });
+  const startHourSelect = body.querySelector("#day-start-hour-select");
+  if (startHourSelect) {
+    startHourSelect.addEventListener("change", () => actions.setDayStartHour(Number(startHourSelect.value)));
+  }
+  body.querySelectorAll("#time-picker-style-toggle button").forEach((btn) => {
+    btn.addEventListener("click", () => actions.setTimePickerStyle(btn.dataset.style));
+  });
 }
 
 // Dashed, click-to-add pills for fields not yet on this subcategory — same
@@ -536,16 +609,20 @@ function openAddColorPopup(category, body, state, actions) {
   });
 }
 
-// Applies immediately (not part of the draft/Save flow). This is the only place
-// that can turn a tray back ON — the W/D corner buttons on the calendar are a
-// one-way "hide" shortcut once a tray is showing (see dayGridView.js), so once a
-// tray is off, this toggle is the sole way back.
+// Applies immediately (not part of the draft/Save flow). This is the master
+// on/off switch for the feature itself — off, and the W/D corner buttons on the
+// calendar disappear entirely, not just the tray. While it's on, those buttons
+// manage their own persisted hide/show state (weekTrayCollapsed/dayTrayCollapsed)
+// independently of this setting.
 function wireVisibility(body, state, actions) {
   body.querySelector("#vis-week").addEventListener("click", () => {
     actions.setShowWeekTray(!state.showWeekTray);
   });
   body.querySelector("#vis-day").addEventListener("click", () => {
     actions.setShowDayTray(!state.showDayTray);
+  });
+  body.querySelector("#vis-todo-target").addEventListener("click", () => {
+    actions.setShowTodoTargetTab(!state.showTodoTargetTab);
   });
 }
 

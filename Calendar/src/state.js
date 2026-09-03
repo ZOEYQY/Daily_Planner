@@ -3,6 +3,19 @@ import { toISODate, addDays, today, parseISODate, nthWeekdayOfMonth } from "./da
 import { makeColor, pickUnusedColor } from "./categoryColor.js";
 import { matchesPattern, isRepeating } from "./selectors.js";
 
+// Ctrl+Z/Ctrl+Y (see main.js) undo/redo across everything a user actually
+// creates or configures — tasks, events, categories, custom fields, the
+// Settings toggles. Deliberately excludes pure navigation/UI state (view,
+// cursorDate, modal, search, which tray is collapsed, selection) — undoing
+// "which month you're looking at" would be disorienting, not useful, the way
+// undoing a delete or an edit is.
+const UNDOABLE_KEYS = [
+  "categories", "tasks", "events", "specialDays", "customFieldDefs", "customDates",
+  "showWeekTray", "showDayTray", "showTodoTargetTab", "weekStartsOn", "dayStartHour",
+  "todoDeadlineRequired", "todoShowDetail", "todoUrgentThresholdHours", "timePickerStyle",
+];
+const HISTORY_LIMIT = 50;
+
 // Drops any exception/doneDate entries that no longer match an item's (possibly just
 // changed) recurrence pattern, so an actively-edited series doesn't accumulate
 // unreachable garbage in localStorage indefinitely. Safe no-op for non-repeating items.
@@ -42,6 +55,22 @@ function migrateRepeatShape(item, dateField) {
   return { ...item, repeat: [rule] };
 }
 
+// A dateUtils.js bug (now fixed — see minutesFromMidnight/minutesToHHMM) used to
+// let a drag/resize on an untimed item save the literal string "NaN:NaN" as its
+// startTime/endTime, which then self-perpetuated: every future drag re-derived
+// its math from that same broken value. One-time repair on load for anyone who
+// already has one — clearing it to "" is enough to make it display blank
+// instead of "NaN:NaN" and (for an event) fall back to the Day tray's
+// date-but-no-time state rather than sitting broken on the timeline.
+function fixCorruptedTimes(item) {
+  if (item.startTime !== "NaN:NaN" && item.endTime !== "NaN:NaN") return item;
+  return {
+    ...item,
+    startTime: item.startTime === "NaN:NaN" ? "" : item.startTime,
+    endTime: item.endTime === "NaN:NaN" ? "" : item.endTime,
+  };
+}
+
 // Guest (no logged-in user) is a view-only demo shell with no data of its own — it
 // never reads or writes localStorage at all, so it's always empty and can never
 // touch (or be confused with) whatever real data sits at the pre-accounts
@@ -70,8 +99,8 @@ function loadPersisted(userId) {
         : [],
       enabledFields: Array.isArray(c.enabledFields) ? c.enabledFields : [...(parsed.enabledFields || [])],
     }));
-    if (Array.isArray(parsed.tasks)) parsed.tasks = parsed.tasks.map((t) => migrateRepeatShape(t, "dueDate"));
-    if (Array.isArray(parsed.events)) parsed.events = parsed.events.map((e) => migrateRepeatShape(e, "date"));
+    if (Array.isArray(parsed.tasks)) parsed.tasks = parsed.tasks.map((t) => fixCorruptedTimes(migrateRepeatShape(t, "dueDate")));
+    if (Array.isArray(parsed.events)) parsed.events = parsed.events.map((e) => fixCorruptedTimes(migrateRepeatShape(e, "date")));
     parsed.specialDays = Array.isArray(parsed.specialDays) ? parsed.specialDays.map((d) => migrateRepeatShape(d, "date")) : [];
     parsed.customFieldDefs = Array.isArray(parsed.customFieldDefs) ? parsed.customFieldDefs : [];
     return parsed;
@@ -82,8 +111,12 @@ function loadPersisted(userId) {
 
 function persist(state, userId) {
   if (!userId) return;
-  const { categories, tasks, events, specialDays, customFieldDefs, customDates, showWeekTray, showDayTray, view, cursorDate, modal } =
-    state;
+  const {
+    categories, tasks, events, specialDays, customFieldDefs, customDates,
+    showWeekTray, showDayTray, showTodoTargetTab, weekTrayCollapsed, dayTrayCollapsed,
+    weekStartsOn, dayStartHour, todoDeadlineRequired, todoShowDetail, todoUrgentThresholdHours,
+    timePickerStyle, categoryFilterActive, categoryFilterIds, view, cursorDate, modal,
+  } = state;
   try {
     localStorage.setItem(
       storageKeyFor(userId),
@@ -99,6 +132,17 @@ function persist(state, userId) {
         customDates,
         showWeekTray,
         showDayTray,
+        showTodoTargetTab,
+        weekTrayCollapsed,
+        dayTrayCollapsed,
+        weekStartsOn,
+        dayStartHour,
+        todoDeadlineRequired,
+        todoShowDetail,
+        todoUrgentThresholdHours,
+        timePickerStyle,
+        categoryFilterActive,
+        categoryFilterIds,
         view,
         cursorDate,
         modal,
@@ -126,12 +170,51 @@ function initialState(userId = null) {
     customDates: persisted?.customDates?.length ? persisted.customDates : defaultCustomDates(),
     showWeekTray: persisted?.showWeekTray ?? true,
     showDayTray: persisted?.showDayTray ?? true,
+    showTodoTargetTab: persisted?.showTodoTargetTab ?? true,
+    // Whether the W/D corner button has hidden the tray for now — distinct from
+    // showWeekTray/showDayTray (the master on/off switch) — see dayGridView.js.
+    weekTrayCollapsed: persisted?.weekTrayCollapsed ?? false,
+    dayTrayCollapsed: persisted?.dayTrayCollapsed ?? false,
+    // 0 = Sunday, 1 = Monday — see startOfWeek/orderedWeekdayLabels in dateUtils.js.
+    weekStartsOn: persisted?.weekStartsOn ?? 0,
+    // Hour (0-23) scrolled to the top of the Week/Day/Custom timeline on first
+    // load of that view — see SCROLL_TO_HOUR's use in dayGridView.js. The grid
+    // itself always covers all 24 hours; this only picks the default scroll
+    // position, so earlier/later events are still just a scroll away.
+    dayStartHour: persisted?.dayStartHour ?? 7,
+    // Settings for the standalone To-Do quick-add popup (see openTodoQuickAdd
+    // in dayGridView.js) — distinct from the full Add/Edit modal's own fields.
+    todoDeadlineRequired: persisted?.todoDeadlineRequired ?? false,
+    todoShowDetail: persisted?.todoShowDetail ?? true,
+    // Hours-before-deadline at which an open to-do's chip switches to its
+    // urgent/red styling (see isTodoUrgent in selectors.js) — only applies
+    // while the deadline hasn't already passed by a full day (that's the
+    // existing "Overdue" styling's job instead, see isOverdue).
+    todoUrgentThresholdHours: persisted?.todoUrgentThresholdHours ?? 24,
+    // "native" (browser's own time picker), "text" (type e.g. "2:30 PM"), or
+    // "clock" (tap-to-select dial popup) — see timeInput.js, used by every
+    // time field in the app (Add/Edit modal's Start/End, the To-Do deadline).
+    timePickerStyle: persisted?.timePickerStyle || "native",
     view: persisted?.view || "month",
     cursorDate: persisted?.cursorDate || toISODate(today()),
     searchQuery: "",
     searchOpen: false,
+    // categoryFilterActive false = "All": show everything, categoryFilterIds
+    // ignored. Active + empty ids = "None": show nothing. Active + some ids =
+    // show only items in one of those categories (multi-select — clicking
+    // MMU then CLSC shows both). Applies across every view (month chips,
+    // week/day timeline, week/day trays) — see matchesCategoryFilter in
+    // selectors.js. Persisted (survives reload) like weekStartsOn/dayStartHour,
+    // but — like view/cursorDate — deliberately left out of undo/redo: it's
+    // what you're currently looking at, not data you created or configured.
+    categoryFilterActive: persisted?.categoryFilterActive ?? false,
+    categoryFilterIds: persisted?.categoryFilterIds ?? [],
     modal: persisted?.modal || null,
     pendingCreate: null,
+    // Click-to-select-first-then-click-to-open on a timeline card (see
+    // dayGridView.js) — { kind, id, occurrenceDate } or null. Transient UI
+    // state: not persisted, not part of undo/redo.
+    selectedItem: null,
   };
 }
 
@@ -140,6 +223,8 @@ class Store {
     this.userId = null; // null = guest; set via switchUser once authStore knows who's logged in
     this.state = initialState(this.userId);
     this.listeners = new Set();
+    this.undoStack = [];
+    this.redoStack = [];
   }
 
   subscribe(fn) {
@@ -147,17 +232,58 @@ class Store {
     return () => this.listeners.delete(fn);
   }
 
+  snapshotUndoable() {
+    const snap = {};
+    for (const key of UNDOABLE_KEYS) snap[key] = this.state[key];
+    return snap;
+  }
+
   set(patch, opts = {}) {
-    this.state = { ...this.state, ...(typeof patch === "function" ? patch(this.state) : patch) };
+    const resolved = typeof patch === "function" ? patch(this.state) : patch;
+    // skipHistory: true is how undo()/redo() themselves apply a snapshot without
+    // that application becoming a new undoable step (which would make undo
+    // immediately push its own reversal back onto the stack).
+    if (!opts.skipHistory && UNDOABLE_KEYS.some((key) => key in resolved)) {
+      this.undoStack.push(this.snapshotUndoable());
+      if (this.undoStack.length > HISTORY_LIMIT) this.undoStack.shift();
+      this.redoStack = [];
+    }
+    this.state = { ...this.state, ...resolved };
     if (!opts.silent) persist(this.state, this.userId);
     this.listeners.forEach((fn) => fn(this.state));
   }
 
+  canUndo() {
+    return this.undoStack.length > 0;
+  }
+
+  canRedo() {
+    return this.redoStack.length > 0;
+  }
+
+  undo() {
+    if (this.undoStack.length === 0) return;
+    const prev = this.undoStack.pop();
+    this.redoStack.push(this.snapshotUndoable());
+    this.set(prev, { skipHistory: true });
+  }
+
+  redo() {
+    if (this.redoStack.length === 0) return;
+    const next = this.redoStack.pop();
+    this.undoStack.push(this.snapshotUndoable());
+    this.set(next, { skipHistory: true });
+  }
+
   // Swaps the entire calendar dataset to the given user's (or guest's, if null) own
   // storage — a load, not a mutation, so it bypasses set()/persist() entirely.
+  // History is per-account (undoing across a user switch would silently touch the
+  // wrong person's data), so it resets here too.
   switchUser(userId) {
     this.userId = userId;
     this.state = initialState(userId);
+    this.undoStack = [];
+    this.redoStack = [];
     this.listeners.forEach((fn) => fn(this.state));
   }
 
@@ -196,6 +322,11 @@ class Store {
       thingsToBring: "",
       topic: "",
       todoList: [],
+      // Plain checkbox goals — see targetListHTML in addModal.js.
+      targets: [],
+      // Free-text, filled in after the event happens (progress made, things to
+      // note, a summary) — see the Record tab in addModal.js.
+      recordNotes: "",
       // Values for user-defined custom Extra Fields (see src/extraFields.js),
       // keyed by field id — kept separate from the fixed named properties above.
       customFields: {},
@@ -241,9 +372,16 @@ class Store {
   }
 
   // Toggles completion for one occurrence of a repeating task; delegates to the plain
-  // toggleTask for non-repeating tasks (canonicalKey null) so callers can use one method.
+  // toggleTask for non-repeating tasks. Gated on isRepeating(), not just canonicalKey
+  // being present — resolveOccurrence sets occurrenceDate on *any* resolved item
+  // (see selectors.js), repeating or not (e.g. getDayUnscheduledTasks's rolled-forward
+  // isTodo items), so a truthy canonicalKey alone doesn't mean "this is repeating".
+  // Writing to doneDates for a non-repeating task would be silently ignored on
+  // read anyway (resolveOccurrence only consults doneDates when isRepeating), making
+  // the checkbox look unresponsive — same bug class as the drag/exception fix elsewhere.
   toggleTaskOccurrence(id, canonicalKey) {
-    if (!canonicalKey) return this.toggleTask(id);
+    const task = this.state.tasks.find((t) => t.id === id);
+    if (!canonicalKey || !task || !isRepeating(task)) return this.toggleTask(id);
     this.set((s) => ({
       tasks: s.tasks.map((t) => {
         if (t.id !== id) return t;
@@ -268,6 +406,8 @@ class Store {
       thingsToBring: "",
       topic: "",
       todoList: [],
+      targets: [],
+      recordNotes: "",
       customFields: {},
       extraFieldsOverride: [],
       ...evt,
@@ -383,6 +523,50 @@ class Store {
     this.set({ showDayTray: visible });
   }
 
+  // Session hide/show via the calendar's own W/D corner button — persisted, so
+  // it survives a reload, but distinct from showWeekTray/showDayTray above
+  // (the master switch: off means no button and no tray at all).
+  setWeekTrayCollapsed(collapsed) {
+    this.set({ weekTrayCollapsed: collapsed });
+  }
+
+  setDayTrayCollapsed(collapsed) {
+    this.set({ dayTrayCollapsed: collapsed });
+  }
+
+  // Master on/off switch for the Add/Edit modal's To-Do & Target tab — off, and
+  // the tab (and its "+" affordances) just don't render, same as the tray
+  // features above. Existing todoList/targets data on any item is untouched.
+  setShowTodoTargetTab(visible) {
+    this.set({ showTodoTargetTab: visible });
+  }
+
+  setTodoDeadlineRequired(required) {
+    this.set({ todoDeadlineRequired: required });
+  }
+
+  setTodoShowDetail(show) {
+    this.set({ todoShowDetail: show });
+  }
+
+  setTodoUrgentThresholdHours(hours) {
+    this.set({ todoUrgentThresholdHours: hours });
+  }
+
+  setTimePickerStyle(style) {
+    this.set({ timePickerStyle: style });
+  }
+
+  // 0 = Sunday, 1 = Monday — see startOfWeek/orderedWeekdayLabels in dateUtils.js.
+  setWeekStartsOn(day) {
+    this.set({ weekStartsOn: day });
+  }
+
+  // 0-23 — see dayStartHour's use as the default scroll position in dayGridView.js.
+  setDayStartHour(hour) {
+    this.set({ dayStartHour: hour });
+  }
+
   setCustomDates(isoDates) {
     const unique = [...new Set(isoDates)].sort();
     if (unique.length === 0) return;
@@ -396,6 +580,32 @@ class Store {
 
   setSearchQuery(q) {
     this.set({ searchQuery: q }, { silent: true });
+  }
+
+  // ---- category filter ----
+  // "All" — turns the filter off entirely; categoryFilterIds is left as-is
+  // (irrelevant while inactive) rather than cleared, so toggling a category
+  // back on afterward doesn't lose whatever selection was built up before.
+  setCategoryFilterAll() {
+    this.set({ categoryFilterActive: false });
+  }
+
+  // "None" — filter on, nothing selected (distinct from "All": every view
+  // shows zero items instead of everything).
+  setCategoryFilterNone() {
+    this.set({ categoryFilterActive: true, categoryFilterIds: [] });
+  }
+
+  // Toggles one category in/out of the active set. "All" shows every pill
+  // active (see calendarHeader.js), so clicking one there means "everything
+  // is implicitly selected — deselect just this one", not "start a fresh
+  // selection with only this one" — matching a legend-style toggle (click to
+  // hide just that category, the rest stay showing) rather than a radio pick.
+  toggleCategoryFilterId(id) {
+    const allIds = this.state.categories.filter((c) => !c.archived).map((c) => c.id);
+    const current = this.state.categoryFilterActive ? this.state.categoryFilterIds : allIds;
+    const next = current.includes(id) ? current.filter((x) => x !== id) : [...current, id];
+    this.set({ categoryFilterActive: true, categoryFilterIds: next });
   }
 
   // ---- modal ----
@@ -413,6 +623,11 @@ class Store {
   // ---- +Add placement mode: next click/drag on the timeline creates this type ----
   setPendingCreate(pendingCreate) {
     this.set({ pendingCreate }, { silent: true });
+  }
+
+  // { kind, id, occurrenceDate } or null — see dayGridView.js's click-to-select.
+  setSelectedItem(selectedItem) {
+    this.set({ selectedItem }, { silent: true });
   }
 
   // ---- Settings draft commit ----

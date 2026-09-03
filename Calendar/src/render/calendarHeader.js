@@ -1,4 +1,5 @@
 import { icons } from "../icons.js";
+import { esc } from "../utils.js";
 import {
   parseISODate, toISODate, addDays, addMonths, startOfMonth, startOfWeek,
   formatMonthYear, formatWeekRange, formatFullDate, today,
@@ -19,7 +20,7 @@ function shortDateLabel(iso) {
 function periodLabel(state) {
   const cursor = parseISODate(state.cursorDate);
   if (state.view === "month") return formatMonthYear(cursor);
-  if (state.view === "week") return formatWeekRange(startOfWeek(cursor));
+  if (state.view === "week") return formatWeekRange(startOfWeek(cursor, state.weekStartsOn));
   if (state.view === "day") return formatFullDate(cursor);
   return [...state.customDates].sort().map(shortDateLabel).join(", ");
 }
@@ -31,28 +32,62 @@ function step(state, dir) {
   return toISODate(addDays(cursor, dir));
 }
 
+// Filtering applies everywhere (month chips, week/day timeline, week/day
+// trays) via getVisibleEvents/getVisibleTasks/getVisibleSpecialDays in
+// selectors.js — this row just drives state.categoryFilterActive/
+// categoryFilterIds, it doesn't do any filtering itself. Multi-select: MMU
+// and CLSC can both be active at once, showing either's items. "All" turns
+// the filter off (show everything); "None" turns it on with nothing selected
+// (show nothing) — a third state distinct from just deselecting every
+// category pill one at a time, for a quick reset before picking a couple.
+function categoryFilterHTML(state) {
+  const categories = state.categories.filter((c) => !c.archived);
+  if (categories.length === 0) return "";
+  // Filtering off, or every category individually toggled back on (e.g.
+  // clicking MMU off from "All" then clicking it on again) — both mean
+  // "everything shows", so the All pill lights up either way rather than
+  // only recognizing the exact state filtering-off produces.
+  const isAll = !state.categoryFilterActive || categories.every((c) => state.categoryFilterIds.includes(c.id));
+  const isNone = state.categoryFilterActive && state.categoryFilterIds.length === 0;
+  return `
+    <div class="cal-category-filter">
+      <button type="button" class="cal-cat-pill ${isAll ? "is-active" : ""}" id="cat-filter-all">All</button>
+      <button type="button" class="cal-cat-pill ${isNone ? "is-active" : ""}" id="cat-filter-none">None</button>
+      ${categories
+        .map(
+          (c) => `
+        <button type="button" class="cal-cat-pill ${isAll || state.categoryFilterIds.includes(c.id) ? "is-active" : ""}" data-cat-id="${c.id}">${esc(c.name)}</button>`
+        )
+        .join("")}
+    </div>
+  `;
+}
+
 export function renderCalendarHeader(root, state, actions) {
-  root.className = "cal-header";
+  root.className = "cal-header-wrap";
   const isCustom = state.view === "custom";
 
   root.innerHTML = `
-    <div class="cal-header-left">
-      ${
-        isCustom
-          ? `<button class="cal-today-btn" id="btn-customize">${icons.settings}<span>Customize</span></button>`
-          : `<div class="cal-nav">
-              <button class="cal-nav-btn" id="nav-prev" aria-label="Previous">${icons.chevronLeft}</button>
-              <button class="cal-nav-btn" id="nav-next" aria-label="Next">${icons.chevronRight}</button>
-            </div>
-            <button class="cal-today-btn" id="nav-today">Today</button>`
-      }
-      <div class="cal-period-label">${periodLabel(state)}</div>
+    <div class="cal-header">
+      <div class="cal-header-left">
+        ${
+          isCustom
+            ? `<button class="cal-today-btn" id="btn-customize">${icons.settings}<span>Customize</span></button>`
+            : `<div class="cal-nav">
+                <button class="cal-nav-btn" id="nav-prev" aria-label="Previous">${icons.chevronLeft}</button>
+                <button class="cal-nav-btn" id="nav-next" aria-label="Next">${icons.chevronRight}</button>
+              </div>
+              <button class="cal-today-btn" id="nav-today">Today</button>`
+        }
+        <div class="cal-period-label">${periodLabel(state)}</div>
+      </div>
+      <div class="view-switch">
+        ${VIEWS.map(
+          (v) => `<button class="view-switch-btn ${state.view === v.id ? "active" : ""}" data-view="${v.id}">${v.label}</button>`
+        ).join("")}
+      </div>
     </div>
-    <div class="view-switch">
-      ${VIEWS.map(
-        (v) => `<button class="view-switch-btn ${state.view === v.id ? "active" : ""}" data-view="${v.id}">${v.label}</button>`
-      ).join("")}
-    </div>
+    ${categoryFilterHTML(state)}
   `;
 
   if (isCustom) {
@@ -65,5 +100,11 @@ export function renderCalendarHeader(root, state, actions) {
 
   root.querySelectorAll(".view-switch-btn").forEach((btn) => {
     btn.addEventListener("click", () => actions.setView(btn.dataset.view));
+  });
+
+  root.querySelector("#cat-filter-all")?.addEventListener("click", () => actions.setCategoryFilterAll());
+  root.querySelector("#cat-filter-none")?.addEventListener("click", () => actions.setCategoryFilterNone());
+  root.querySelectorAll(".cal-cat-pill[data-cat-id]").forEach((btn) => {
+    btn.addEventListener("click", () => actions.toggleCategoryFilterId(btn.dataset.catId));
   });
 }

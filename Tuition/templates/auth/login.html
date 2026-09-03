@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}{{ t('login') }}{% endblock %}
+{% block auth %}
+<div class="auth-wrap">
+  <div class="card">
+    <div class="brand" style="padding-left:0">Tuition<span>·</span>System</div>
+    <h1>{{ t('login') }}</h1>
+    <form method="post">
+      <div class="field">
+        <label>{{ t('password') }}</label>
+        <input type="password" name="password" autofocus required>
+      </div>
+      <button class="btn primary" style="width:100%">{{ t('login') }}</button>
+    </form>
+    <p class="muted" style="margin-top:16px;font-size:.85rem">
+      Forgot your password? Run <code>python reset_password.py</code> in the Tuition folder.
+    </p>
+  </div>
+</div>
+{% endblock %}

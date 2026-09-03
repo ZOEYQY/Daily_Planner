@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="{{ cur_lang() }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}{{ t('app_name') }}{% endblock %} · {{ t('app_name') }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='tuition.css') }}">
+</head>
+<body>
+{% if session.get('logged_in') %}
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand">Tuition<span>·</span>System</div>
+    <nav class="nav">
+      {% set nav = [
+        ('attendance.today', 'nav_today', '&#9733;', 'attendance.today'),
+        ('attendance.index', 'nav_attendance', '✓', 'attendance.index'),
+        ('students.index', 'nav_students', '&#128100;', 'students'),
+        ('classes.index', 'nav_classes', '▤', 'classes'),
+        ('finance.index', 'nav_finance', '&#36;', 'finance'),
+        ('reports.index', 'nav_reports', '&#128202;', 'reports'),
+        ('settings.index', 'nav_settings', '⚙', 'settings'),
+      ] %}
+      {% for ep, key, ico, match in nav %}
+        <a href="{{ url_for(ep) }}" class="{{ 'active' if active_nav.startswith(match) }}">
+          <span class="ico">{{ ico|safe }}</span>{{ t(key) }}
+        </a>
+      {% endfor %}
+    </nav>
+  </aside>
+
+  <div class="main">
+    <div class="topbar">
+      <form class="search" action="{{ url_for('students.index') }}" method="get">
+        <input type="search" name="q" placeholder="{{ t('search') }} {{ t('nav_students') }}…"
+               value="{{ request.args.get('q','') if active_nav.startswith('students') }}">
+      </form>
+      <span class="spacer"></span>
+      <span class="lang-switch">
+        {% for code, label in LANGS.items() %}
+          <a href="{{ url_for('auth.set_lang', code=code) }}" class="{{ 'on' if cur_lang()==code }}">{{ label }}</a>
+        {% endfor %}
+      </span>
+      <button class="btn sm primary" onclick="document.getElementById('quickAdd').showModal()">+ {{ t('quick_add') }}</button>
+      <a class="btn sm" href="{{ url_for('auth.logout') }}">{{ t('logout') }}</a>
+    </div>
+
+    <div class="content">
+      {% with msgs = get_flashed_messages(with_categories=true) %}
+        {% if msgs %}<div class="flashes">
+          {% for cat, m in msgs %}<div class="flash {{ cat }}">{{ m }}</div>{% endfor %}
+        </div>{% endif %}
+      {% endwith %}
+      {% block content %}{% endblock %}
+    </div>
+  </div>
+</div>
+
+<dialog id="quickAdd">
+  <div class="dlg-head">{{ t('quick_add') }}
+    <a href="#" onclick="event.preventDefault();this.closest('dialog').close()">✕</a></div>
+  <form>
+    <div class="btn-row" style="flex-direction:column;align-items:stretch">
+      <a class="btn" href="{{ url_for('students.new') }}">+ {{ t('add_student') }}</a>
+      <a class="btn" href="{{ url_for('classes.new') }}">+ {{ t('add_class') }}</a>
+      <a class="btn" href="{{ url_for('attendance.today') }}">+ {{ t('record_attendance') }}</a>
+      <a class="btn" href="{{ url_for('finance.index') }}">+ {{ t('record_payment') }}</a>
+    </div>
+  </form>
+</dialog>
+{% else %}
+  {% with msgs = get_flashed_messages(with_categories=true) %}
+    {% if msgs %}<div class="auth-wrap"><div class="flashes">
+      {% for cat, m in msgs %}<div class="flash {{ cat }}">{{ m }}</div>{% endfor %}
+    </div></div>{% endif %}
+  {% endwith %}
+  {% block auth %}{% endblock %}
+{% endif %}
+</body>
+</html>

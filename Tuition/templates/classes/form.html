@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+{% block title %}{{ t('edit') if cls else t('add_class') }}{% endblock %}
+{% block content %}
+{% set c = cls %}
+<div class="toolbar">
+  <a class="btn sm" href="{{ url_for('classes.detail', cid=c.id) if c else url_for('classes.index') }}">&larr; {{ t('back') }}</a>
+  <h1>{{ t('edit') if c else t('add_class') }}</h1>
+</div>
+
+<form method="post" class="card">
+  <div class="grid c3">
+    <div class="field"><label>{{ t('subject') }}</label><input type="text" name="subject" value="{{ c.subject or '' if c }}" placeholder="BM / English"></div>
+    <div class="field"><label>{{ t('class_level') }}</label><input type="text" name="level" value="{{ c.level or '' if c }}" placeholder="Form 3 / Std 4"></div>
+    <div class="field"><label>{{ t('class_kind') }}</label>
+      <select name="kind">
+        <option value="">—</option>
+        {% for k in kinds %}<option value="{{ k }}" {{ 'selected' if c and c.kind==k }}>{{ t('kind_' ~ k) }}</option>{% endfor %}
+      </select>
+    </div>
+  </div>
+  <div class="field">
+    <label>{{ t('class_name') }} <span class="muted">({{ t('optional') }})</span></label>
+    <input type="text" name="name" value="{{ c.name if c }}" placeholder="{{ t('name_auto_placeholder') }}">
+    <span class="rc-hint muted">{{ t('name_auto_hint') }}</span>
+  </div>
+  <div class="grid c2">
+    <div class="field"><label>{{ t('teacher') }}</label><input type="text" name="teacher" value="{{ c.teacher or '' if c }}"></div>
+    <div class="field"><label>{{ t('status') }}</label>
+      <select name="status">
+        <option value="active" {{ 'selected' if not c or c.status=='active' }}>{{ t('st_active') }}</option>
+        <option value="inactive" {{ 'selected' if c and c.status=='inactive' }}>{{ t('st_inactive') }}</option>
+      </select>
+    </div>
+  </div>
+  <hr>
+  <h3>{{ t('class_schedule') }}</h3>
+  <p class="muted">{{ t('pick_days') }} {{ t('time_optional_hint') }}</p>
+  <div class="sched-grid">
+    {% for i in range(7) %}
+    {% set row = schedule.get(i) %}
+    <label class="sched-row">
+      <input type="checkbox" name="day_{{ i }}" value="1" {{ 'checked' if row }}>
+      <span class="sched-day">{{ weekday_name(i) }}</span>
+      <input type="time" name="start_{{ i }}" value="{{ row.start_time or '' if row }}" aria-label="start">
+      <span class="muted">–</span>
+      <input type="time" name="end_{{ i }}" value="{{ row.end_time or '' if row }}" aria-label="end">
+    </label>
+    {% endfor %}
+  </div>
+  <hr>
+  <h3>{{ t('default_fee') }}</h3>
+  <p class="muted rc-hint">{{ t('fee_rule_hint') }}</p>
+  <div class="fee-block">
+    <div class="field pricing-choice">
+      <label>{{ t('pricing') }}</label>
+      <label class="opt"><input type="radio" name="pricing" value="fixed" {{ 'checked' if not c or c.pricing != 'per_student' }}> {{ t('pricing_fixed') }}</label>
+      <label class="opt"><input type="radio" name="pricing" value="per_student" {{ 'checked' if c and c.pricing == 'per_student' }}> {{ t('pricing_per_student') }}</label>
+    </div>
+    <div class="field fee-amt" style="max-width:240px"><label>{{ t('default_fee') }} (RM / {{ t('month_word') }})</label>
+      <input type="number" step="1" name="default_fee" value="{{ (c.default_fee_cents / 100)|int if c and c.default_fee_cents else '' }}">
+      <span class="rc-hint muted one2one-note">{{ t('fee_1v1_note') }}</span>
+    </div>
+  </div>
+
+  {% if not c %}
+  <hr>
+  <h3>{{ t('add_students_now') }} <span class="muted">({{ t('optional') }})</span></h3>
+  {% if students %}
+  <label>{{ t('pick_existing') }}</label>
+  <div class="pick-list">
+    {% for st in students %}
+    <label class="pick"><input type="checkbox" name="enroll_ids" value="{{ st.id }}"> {{ st.full_name }}</label>
+    {% endfor %}
+  </div>
+  {% endif %}
+  <div class="field" style="margin-top:12px">
+    <label>{{ t('new_students_label') }}</label>
+    <textarea name="new_students" rows="3" placeholder="{{ t('new_students_ph') }}"></textarea>
+  </div>
+  <div class="field" style="max-width:240px">
+    <label>{{ t('student_fee_all') }} (RM / {{ t('month_word') }})</label>
+    <input type="number" step="1" name="student_fee" placeholder="{{ t('class_default') }}">
+  </div>
+  {% endif %}
+
+  <div class="btn-row"><button class="btn primary">{{ t('save') }}</button></div>
+</form>
+
+<script>
+(function () {
+  var form = document.currentScript.previousElementSibling;
+  var subj = form.querySelector('[name=subject]');
+  var lvl  = form.querySelector('[name=level]');
+  var kind = form.querySelector('[name=kind]');
+  var nameEl = form.querySelector('[name=name]');
+  var KT = { '1v1': '1v1', 'small': '小班' };
+  function tc(s) {
+    s = (s || '').trim();
+    if (s && s === s.toUpperCase() && s !== s.toLowerCase())
+      return s.replace(/\S+/g, function (w) { return w[0].toUpperCase() + w.slice(1).toLowerCase(); });
+    return s;
+  }
+  function build() {
+    return [tc(subj.value), tc(lvl.value), KT[kind.value] || ''].filter(Boolean).join(' ');
+  }
+  // start unlocked: changing subject/level/type rebuilds the name.
+  // typing in the name box locks it (until cleared).
+  var locked = false;
+  function apply() { if (!locked) nameEl.value = build(); }
+  nameEl.addEventListener('input', function () { locked = nameEl.value.trim() !== ''; });
+  [subj, lvl, kind].forEach(function (el) {
+    el.addEventListener('input', apply);
+    el.addEventListener('change', apply);
+  });
+})();
+</script>
+
+{% if c %}
+<form method="post" action="{{ url_for('classes.delete', cid=c.id) }}" class="card" onsubmit="return confirm('{{ t('confirm_delete') }}')">
+  <button class="btn danger">{{ t('delete') }} — {{ c.name }}</button>
+</form>
+{% endif %}
+{% endblock %}

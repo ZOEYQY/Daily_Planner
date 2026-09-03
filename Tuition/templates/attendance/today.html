@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% from "partials/macros.html" import makeup_dialog, makeup_script, avatar %}
+{% block title %}{{ t('todays_attendance') }}{% endblock %}
+{% block content %}
+<div class="toolbar">
+  <h1>{{ t('todays_attendance') }}</h1>
+  <span class="spacer"></span>
+  <span class="month-nav">
+    <a href="{{ url_for('attendance.today', date=prev_day) }}">&larr;</a>
+    <span>{{ dobj.strftime('%Y-%m-%d') }} · {{ weekday_name(dobj.weekday()) }}</span>
+    <a href="{{ url_for('attendance.today', date=next_day) }}">&rarr;</a>
+  </span>
+  {% if not is_today %}<a class="btn sm" href="{{ url_for('attendance.today') }}">{{ t('today_btn') }}</a>{% endif %}
+</div>
+
+{% if not blocks %}
+  <div class="card"><p class="empty">{{ t('no_class_today') }}</p></div>
+{% else %}
+<form method="post" action="{{ url_for('attendance.save_today') }}">
+  <input type="hidden" name="date" value="{{ date }}">
+  {% for b in blocks %}
+  <div class="card">
+    <div class="section-title">
+      <h2>{{ b.class.name }}
+        {% if b.sched and b.sched.start_time %}<span class="muted" style="font-weight:400"> · {{ b.sched.start_time }}{% if b.sched.end_time %}–{{ b.sched.end_time }}{% endif %}</span>{% endif %}
+      </h2>
+    </div>
+    {% if not b.students %}
+      <p class="muted">{{ t('nothing_here') }}</p>
+    {% else %}
+    <div class="today-list">
+      {% for st in b.students %}
+      {% set cur = b.current.get(st.id, '') %}
+      <div class="today-row">
+        <span class="tr-name">{{ avatar(st.full_name, '#5b7fbd') }}<span>{{ st.full_name }}</span>
+          {% if st.student_status == 'trial' %}<span class="badge b-purple">{{ t('trial') }}</span>{% endif %}
+        </span>
+        <select name="st_{{ b.class.id }}_{{ st.id }}" onchange="cellStatus(this)">
+          <option value=""></option>
+          {% for s in statuses %}<option value="{{ s }}" {{ 'selected' if cur==s }}>{{ '/' if s=='present' else '✗' if s=='absent' else t(s) }}</option>{% endfor %}
+        </select>
+        <input type="hidden" name="mkplan_{{ b.class.id }}_{{ st.id }}_{{ date }}" value="{{ b.plan.get(st.id, '') }}">
+        <input type="hidden" name="mkfinal_{{ b.class.id }}_{{ st.id }}_{{ date }}" value="{{ b.final.get(st.id, '') }}">
+        <span class="mk-summary" onclick="openMk(this.closest('.today-row').querySelector('select'))"
+              {% if cur not in ('absent','student_leave','teacher_leave','holiday') %}hidden{% endif %}></span>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+  {% endfor %}
+  <div class="btn-row" style="margin-top:16px">
+    <button class="btn primary">{{ t('save') }}</button>
+    <span class="muted">/ = {{ t('present') }} · ✗ = {{ t('absent') }}</span>
+  </div>
+</form>
+{{ makeup_dialog() }}
+{{ makeup_script() }}
+{% endif %}
+{% endblock %}

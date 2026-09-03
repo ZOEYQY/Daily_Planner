@@ -4,7 +4,7 @@ import {
 } from "../dateUtils.js";
 import {
   eventsOnDate, scheduledTasksOnDate, specialDaysOnDate, getWeekUnscheduledTasks, getWeekUnscheduledEvents,
-  getDayUnscheduledTasks, getDayUnscheduledEvents, resolveOccurrence, isRepeating,
+  getDayUnscheduledTasks, getDayUnscheduledEvents, resolveOccurrence, isRepeating, isTodoUrgent,
 } from "../selectors.js";
 import { icons } from "../icons.js";
 import { esc } from "../utils.js";
@@ -13,14 +13,74 @@ import { layoutDayEvents, HOUR_ROW_PX, minutesToTop } from "../timeLayout.js";
 import { startPointerInteraction, snapMinutes, createAutoScroller } from "../dragUtils.js";
 import { isOverdue, computeReschedulePatch } from "../rescheduleTracking.js";
 import { handleOccurrenceClick } from "./recurrenceUI.js";
-import { showToast } from "./notify.js";
+import { showToast, openFormPopup } from "./notify.js";
+import { timeInputHTML, wireTimeInput } from "./timeInput.js";
 
 const HOURS = Array.from({ length: 24 }, (_, h) => h);
+// Fallback only — the actual starting hour is user-configurable via
+// Settings > Calendar > Starts At (state.dayStartHour, see its use below).
 const SCROLL_TO_HOUR = 7;
 const DAY_MINUTES = 24 * 60;
 const MIN_DURATION = 15;
-const WEEK_TRAY_VISIBLE = 6;
-const DAY_TRAY_VISIBLE = 2;
+
+// "Starts At" (Settings > Calendar, state.dayStartHour) reorders the whole
+// grid rather than just scrolling to a position — the chosen hour becomes the
+// very first row, with the hours before it wrapped around to the bottom (e.g.
+// starting at 7 AM puts 7 AM...11 PM on top, then 12 AM...6 AM underneath).
+// wrapMinutes/toDisplayMinutes/toActualMinutes translate between a real clock
+// time and where it lands in that reordered layout — used for POSITIONS
+// (an absolute point in time, e.g. a block's top) — a DURATION/height is a
+// span, not a point, and is never offset. orderedHours does the same
+// reordering for the hour-label row. A block whose actual time span crosses
+// the wrap point (e.g. 6 AM-8 AM when starting at 7 AM) is an inherent limit
+// of any wraparound single-day view, not handled specially — it just renders
+// from its (possibly discontinuous-looking) start.
+function wrapMinutes(min) {
+  return ((min % DAY_MINUTES) + DAY_MINUTES) % DAY_MINUTES;
+}
+function toDisplayMinutes(actualMin, offsetMin) {
+  return wrapMinutes(actualMin - offsetMin);
+}
+function toActualMinutes(displayMin, offsetMin) {
+  return wrapMinutes(displayMin + offsetMin);
+}
+function orderedHours(startHour) {
+  return Array.from({ length: 24 }, (_, i) => (startHour + i) % 24);
+}
+// Default visible count before a tray needs its "Show all" toggle (see
+// weekTrayExpanded/expandedDayTrayDates below) — both trays still render
+// every item underneath regardless, just visually capped by CSS
+// overflow-y:auto (see .week-tray/.day-tray-col) so scrolling within the tray
+// reaches anything past this count even without expanding it.
+const WEEK_TRAY_VISIBLE = 5;
+const DAY_TRAY_VISIBLE = 5;
+
+// Which trays are currently expanded past their default ~5-item height — a
+// single flag for the Week tray, a per-date set for the Day tray (each day
+// column expands independently). Transient UI state, not persisted: reset on
+// reload same as which Add/Edit tab was open, which category panels were
+// expanded, etc.
+let weekTrayExpanded = false;
+let expandedDayTrayDates = new Set();
+
+// Where Ctrl+V pastes — the timeline date/time under the pointer right now, kept
+// up to date by a mousemove listener re-attached on every render (see the end of
+// renderDayGridView). Module-level so main.js's keydown handler can read it
+// without this view needing to expose any of its render-scoped internals.
+let hoverTarget = null;
+
+export function getHoverTarget() {
+  return hoverTarget;
+}
+
+// The dayStartHour this view last scrolled to on its own — lets a Settings
+// change to "Starts At" force an immediate rescroll even though the timegrid
+// scroll element already exists and would otherwise just keep its current
+// scrollTop across the re-render (see prevScrollTop below, which exists so
+// unrelated updates like opening a modal don't reset a scroll position you
+// set by hand). Starts null so the very first render still falls through to
+// state.dayStartHour normally.
+let appliedDayStartHour = null;
 
 function commitItemPatch(actions, item, patch) {
   if (item.kind === "task") actions.updateTask(item.id, patch);
@@ -104,6 +164,96 @@ function quickAddTask(actions, state, dueDate) {
   actions.openModal({ type: "edit", itemType: "task", id: created.id, isDraft: true });
 }
 
+// A to-do gets its own small popup instead of the full Add/Edit modal —
+// deliberately lighter (title, an optional deadline, an optional Detail
+// note; no category/color/repeat) since that's the whole point of it being a
+// "completely separate" quick-capture flow. isTodo:true is what
+// getDayUnscheduledTasks (selectors.js) checks to roll an incomplete one
+// forward onto today's Day tray column instead of leaving it stranded on
+// whatever day it was created, the way a plain task stays put until you
+// manually reschedule it. The same popup doubles as the edit flow — a to-do
+// chip's second click (already selected, see the tray chip onClick below)
+// opens this with existingItem set, instead of the full Add/Edit modal.
+//
+// fixedDate: when opened from a specific Day tray column, that day is
+// already known, so only a deadline *time* is asked for. Opened from the
+// Week tray, or when editing (existingItem set — the date might need
+// changing too), there's no implicit day, so both a deadline date and time
+// are asked for — mirroring what was actually requested rather than reusing
+// one layout for both.
+function openTodoQuickAdd(actions, state, fixedDate, existingItem = null) {
+  const requireDeadline = !!state.todoDeadlineRequired;
+  const showDetail = state.todoShowDetail !== false;
+  const optionalSuffix = requireDeadline ? "" : " (optional)";
+  const askDate = !fixedDate || !!existingItem;
+
+  openFormPopup({
+    title: existingItem ? "Edit To-Do" : "Add To-Do",
+    submitLabel: existingItem ? "Save" : "Add",
+    bodyHTML: `
+      <div class="field"><label>Title</label><input type="text" id="todo-title" placeholder="e.g. Submit assignment" value="${esc(existingItem?.title || "")}" /></div>
+      ${askDate ? `<div class="field"><label>Deadline Date${optionalSuffix}</label><input type="date" id="todo-date" value="${esc(existingItem?.dueDate || "")}" /></div>` : ""}
+      <div class="field"><label>Deadline Time${askDate ? " (optional)" : optionalSuffix}</label>${timeInputHTML("todo-time", existingItem?.startTime || "", state)}</div>
+      ${showDetail ? `<div class="field"><label>Detail</label><textarea id="todo-detail" rows="3" placeholder="Optional notes">${esc(existingItem?.notes || "")}</textarea></div>` : ""}
+    `,
+    onMount: (panel) => {
+      panel.querySelector("#todo-title").focus();
+      wireTimeInput(panel, "todo-time");
+    },
+    onSubmit: ({ panel, close }) => {
+      const titleInput = panel.querySelector("#todo-title");
+      const title = titleInput.value.trim();
+      if (!title) {
+        titleInput.focus();
+        showToast("To-do needs a title before it can be added", { variant: "danger" });
+        return;
+      }
+      const dateInput = panel.querySelector("#todo-date");
+      const timeInput = panel.querySelector("#todo-time");
+      const date = askDate ? dateInput.value || "" : fixedDate;
+      const time = timeInput.value || "";
+      if (requireDeadline) {
+        // Day tray create: the date's already fixed, so the required deadline
+        // is the time. Otherwise (Week tray, or editing) the date itself is
+        // the required deadline (time stays optional, same as everywhere
+        // else a task's date/time works).
+        if (!askDate && !time) {
+          timeInput.focus();
+          showToast("This to-do needs a deadline time", { variant: "danger" });
+          return;
+        }
+        if (askDate && !date) {
+          dateInput.focus();
+          showToast("This to-do needs a deadline date", { variant: "danger" });
+          return;
+        }
+      }
+      const detailInput = panel.querySelector("#todo-detail");
+      close();
+      const patch = {
+        title,
+        dueDate: date,
+        startTime: date ? time : "",
+        endTime: "",
+        scheduled: false,
+        isTodo: true,
+        notes: detailInput ? detailInput.value.trim() : "",
+      };
+      if (existingItem) {
+        actions.updateTask(existingItem.id, patch);
+        showToast("To-do updated");
+      } else {
+        actions.addTask({
+          categoryId: state.categories[0]?.id || "",
+          colorId: state.categories[0]?.colors[0]?.id || "",
+          ...patch,
+        });
+        showToast("To-do added");
+      }
+    },
+  });
+}
+
 export function renderDayGridView(root, state, actions, currentUser) {
   // Guest always has zero categories (its data never persists — see state.js) and
   // can't create anything anyway, so it gets a sign-in prompt instead of the grid.
@@ -118,10 +268,11 @@ export function renderDayGridView(root, state, actions, currentUser) {
   const cursor = parseISODate(state.cursorDate);
   const t = today();
   const todayISO = toISODate(t);
+  const startHour = state.dayStartHour ?? SCROLL_TO_HOUR;
 
   let days;
   if (state.view === "week") {
-    const start = startOfWeek(cursor);
+    const start = startOfWeek(cursor, state.weekStartsOn);
     days = Array.from({ length: 7 }, (_, i) => addDays(start, i));
   } else if (state.view === "day") {
     days = [cursor];
@@ -149,12 +300,12 @@ export function renderDayGridView(root, state, actions, currentUser) {
         <div class="timegrid-gutter-spacer corner-unhide-cell">
           ${
             state.showWeekTray
-              ? `<button type="button" class="corner-unhide-btn is-active" id="week-tray-toggle-btn" title="Hide Week tray">W</button>`
+              ? `<button type="button" class="corner-unhide-btn ${state.weekTrayCollapsed ? "" : "is-active"}" id="week-tray-toggle-btn" title="${state.weekTrayCollapsed ? "Show" : "Hide"} Week tray">W</button>`
               : ""
           }
           ${
             state.showDayTray
-              ? `<button type="button" class="corner-unhide-btn is-active" id="day-tray-toggle-btn" title="Hide Day tray">D</button>`
+              ? `<button type="button" class="corner-unhide-btn ${state.dayTrayCollapsed ? "" : "is-active"}" id="day-tray-toggle-btn" title="${state.dayTrayCollapsed ? "Show" : "Hide"} Day tray">D</button>`
               : ""
           }
         </div>
@@ -173,15 +324,18 @@ export function renderDayGridView(root, state, actions, currentUser) {
 
       ${
         state.showWeekTray
-          ? `<div class="week-tray">
+          ? `<div class="week-tray ${weekTrayExpanded ? "is-expanded" : ""}" style="${state.weekTrayCollapsed ? "display:none;" : ""}">
         <div class="week-tray-title">Week</div>
         <div class="week-tray-chips">
-          ${weekItems
-            .slice(0, WEEK_TRAY_VISIBLE)
-            .map(({ item, kind }) => weekTrayChip(item, todayISO, kind))
-            .join("")}
-          ${weekItems.length > WEEK_TRAY_VISIBLE ? `<div class="unscheduled-more">+${weekItems.length - WEEK_TRAY_VISIBLE} more</div>` : ""}
+          ${weekItems.map(({ item, kind }) => weekTrayChip(item, todayISO, kind, state)).join("")}
         </div>
+        ${
+          weekItems.length > WEEK_TRAY_VISIBLE
+            ? `<button type="button" class="tray-show-all-btn" id="week-tray-show-all-btn">${weekTrayExpanded ? "Show less" : `Show all (${weekItems.length})`}</button>`
+            : ""
+        }
+        <button type="button" class="tray-add-btn tray-add-specialday-btn tray-add-btn-floating" id="week-add-specialday-btn" aria-label="Add a special day" title="Add a special day — birthday, exam, anniversary…">🎉</button>
+        <button type="button" class="tray-add-btn tray-add-todo-btn tray-add-btn-floating" id="week-add-todo-btn" aria-label="Add a to-do for sometime this week" title="Add a to-do — rolls forward to today until done">${icons.checkSmall}</button>
         <button type="button" class="tray-add-btn tray-add-btn-floating" id="week-add-btn" aria-label="Add a task for sometime this week">${icons.plusSmall}</button>
       </div>`
           : ""
@@ -189,7 +343,7 @@ export function renderDayGridView(root, state, actions, currentUser) {
 
       ${
         state.showDayTray
-          ? `<div class="day-tray-row">
+          ? `<div class="day-tray-row" style="${state.dayTrayCollapsed ? "display:none;" : ""}">
         <div class="timegrid-gutter-spacer day-tray-gutter-label">Day</div>
         <div class="day-tray-cols" style="grid-template-columns: repeat(${days.length}, 1fr);">
           ${days.map((d) => dayTrayCol(d, state, todayISO)).join("")}
@@ -200,7 +354,12 @@ export function renderDayGridView(root, state, actions, currentUser) {
 
       <div class="timegrid-scroll" id="timegrid-scroll">
         <div class="timegrid-gutter" style="height:${24 * HOUR_ROW_PX}px;">
-          ${HOURS.map((h) => `<div class="timegrid-hour-label" style="top:${h * HOUR_ROW_PX}px;">${h === 0 ? "" : formatHourLabel(h)}</div>`).join("")}
+          ${orderedHours(startHour)
+            .map(
+              (h, i) =>
+                `<div class="timegrid-hour-label ${i === 0 ? "is-first" : ""}" style="top:${i * HOUR_ROW_PX}px;">${h === 0 ? "" : formatHourLabel(h)}</div>`
+            )
+            .join("")}
         </div>
         <div class="timegrid-body" style="grid-template-columns: repeat(${days.length}, 1fr); height:${24 * HOUR_ROW_PX}px;">
           ${days.map((d) => dayColumn(d, state, todayISO)).join("")}
@@ -211,12 +370,34 @@ export function renderDayGridView(root, state, actions, currentUser) {
 
   const scrollEl = root.querySelector("#timegrid-scroll");
   const weekTrayEl = root.querySelector(".week-tray");
-  scrollEl.scrollTop = prevScrollTop !== null ? prevScrollTop : SCROLL_TO_HOUR * HOUR_ROW_PX;
+  // The grid itself is reordered around startHour now (see orderedHours
+  // above), so its row is always at the very top by construction — a
+  // Settings change to "Starts At" just needs to reset the scroll to 0
+  // (the old scroll position pointed at whatever used to be there before the
+  // reorder, which is meaningless now). Any other re-render (opening a
+  // modal, ticking a checkbox, etc.) leaves your manual scroll alone.
+  const startHourChanged = appliedDayStartHour !== null && appliedDayStartHour !== startHour;
+  scrollEl.scrollTop = prevScrollTop !== null && !startHourChanged ? prevScrollTop : 0;
+  appliedDayStartHour = startHour;
 
+  fitEventHeaderTitles(root);
+
+  // Returns the real clock-time minute under the pointer — contentY/HOUR_ROW_PX
+  // is a *display* minute (0 = the grid's very top, i.e. startHour, not
+  // midnight), so every caller downstream (drag/resize/create) can keep
+  // working in ordinary "minutes since midnight" without knowing the grid is
+  // reordered at all — the wraparound is fully resolved right here.
   function minuteFromClientY(clientY) {
     const scrollRect = scrollEl.getBoundingClientRect();
     const contentY = clientY - scrollRect.top + scrollEl.scrollTop;
-    return (contentY / HOUR_ROW_PX) * 60;
+    const displayMin = (contentY / HOUR_ROW_PX) * 60;
+    return toActualMinutes(displayMin, startHour * 60);
+  }
+
+  // The reverse of minuteFromClientY, for POSITIONING (never for a duration —
+  // see the comment on orderedHours near the top of the file).
+  function topForMinute(actualMin) {
+    return minutesToTop(toDisplayMinutes(actualMin, startHour * 60));
   }
 
   function columnsSnapshot() {
@@ -239,6 +420,22 @@ export function renderDayGridView(root, state, actions, currentUser) {
     }
     return clientX < columns[0].rect.left ? columns[0].date : columns[columns.length - 1].date;
   }
+
+  // Keeps hoverTarget current for Ctrl+V (see getHoverTarget above) — re-attached
+  // fresh on every render since root.innerHTML wipes the previous listener along
+  // with everything else.
+  const timegridBody = root.querySelector(".timegrid-body");
+  timegridBody?.addEventListener("mousemove", (e) => {
+    const columns = columnsSnapshot();
+    if (columns.length === 0) return;
+    const date = dateFromClientX(e.clientX, columns);
+    let startMin = snapMinutes(minuteFromClientY(e.clientY), 15);
+    startMin = Math.max(0, Math.min(DAY_MINUTES - 60, startMin));
+    hoverTarget = { date, startMin };
+  });
+  timegridBody?.addEventListener("mouseleave", () => {
+    hoverTarget = null;
+  });
 
   function resolveDropTarget(cx, cy, ctx) {
     const wt = ctx.weekTrayRect;
@@ -325,6 +522,7 @@ export function renderDayGridView(root, state, actions, currentUser) {
   }
 
   function createFromRange(date, startMin, endMin) {
+    actions.setSelectedItem(null);
     const type = state.pendingCreate?.type || "event";
     const category = state.categories[0];
     const categoryId = category?.id || "";
@@ -356,7 +554,7 @@ export function renderDayGridView(root, state, actions, currentUser) {
     const hi = Math.min(DAY_MINUTES, Math.max(ctx.startMin, curMin, lo + 15));
     ctx.lo = lo;
     ctx.hi = hi;
-    ctx.previewEl.style.top = `${minutesToTop(lo)}px`;
+    ctx.previewEl.style.top = `${topForMinute(lo)}px`;
     ctx.previewEl.style.height = `${minutesToTop(hi - lo)}px`;
   }
 
@@ -386,9 +584,20 @@ export function renderDayGridView(root, state, actions, currentUser) {
           if (ctx.previewEl) ctx.previewEl.remove();
           createFromRange(ctx.date, ctx.lo, ctx.hi);
         },
+        // Same select-first-then-act pattern as an existing card: the first click
+        // just marks this slot (a dashed preview box, see dayColumn/pendingSlot);
+        // clicking the *same* slot again is what actually creates something
+        // there. Clicking a different slot (or a card) just moves the mark.
         onClick: (ev, { ctx }) => {
           ctx.autoScroll.stop();
-          createFromRange(ctx.date, ctx.startMin, ctx.startMin + 60);
+          const pending = state.selectedItem;
+          const isThisSlot = pending?.kind === "slot" && pending.date === ctx.date && pending.startMin === ctx.startMin;
+          if (isThisSlot) {
+            actions.setSelectedItem(null);
+            createFromRange(ctx.date, ctx.startMin, ctx.startMin + 60);
+          } else {
+            actions.setSelectedItem({ kind: "slot", date: ctx.date, startMin: ctx.startMin });
+          }
         },
       });
     });
@@ -419,7 +628,7 @@ export function renderDayGridView(root, state, actions, currentUser) {
         if (edge === "top") {
           let newStart = snapMinutes(ctx.startMin + deltaMin, 15);
           newStart = Math.max(0, Math.min(ctx.endMin - MIN_DURATION, newStart));
-          card.style.top = `${minutesToTop(newStart)}px`;
+          card.style.top = `${topForMinute(newStart)}px`;
           card.style.height = `${Math.max(minutesToTop(ctx.endMin - newStart), 20)}px`;
           ctx.liveStart = newStart;
         } else {
@@ -573,7 +782,14 @@ export function renderDayGridView(root, state, actions, currentUser) {
         },
         onClick: () => {
           const item = findItem();
-          if (item) handleOccurrenceClick(item, kind, occurrenceKey, actions);
+          if (!item) return;
+          const already = isSelected(state, kind, id, occurrenceKey);
+          if (already) {
+            actions.setSelectedItem(null);
+            handleOccurrenceClick(item, kind, occurrenceKey, actions);
+          } else {
+            actions.setSelectedItem({ kind, id, occurrenceDate: occurrenceKey || null });
+          }
         },
       });
     });
@@ -668,6 +884,23 @@ export function renderDayGridView(root, state, actions, currentUser) {
         },
         onClick: (ev, { ctx }) => {
           if (!ctx) return;
+          // A to-do gets the same click-to-select-first pattern as a timeline
+          // card (see itemBlock's onClick) instead of opening straight away —
+          // first click reveals its deadline/detail in place (see
+          // todoDetailHTML/dayTrayChip's is-selected), a second click (now
+          // already selected) opens it for editing via its own lightweight
+          // popup rather than the full Add/Edit modal. A plain task/event
+          // chip is unaffected — still opens directly on a single click.
+          if (ctx.item.isTodo) {
+            const already = isSelected(state, kind, ctx.item.id, ctx.item.occurrenceDate || null);
+            if (already) {
+              actions.setSelectedItem(null);
+              openTodoQuickAdd(actions, state, null, ctx.item);
+            } else {
+              actions.setSelectedItem({ kind, id: ctx.item.id, occurrenceDate: ctx.item.occurrenceDate || null });
+            }
+            return;
+          }
           handleOccurrenceClick(ctx.item, kind, ctx.item.occurrenceDate || null, actions);
         },
       });
@@ -678,12 +911,48 @@ export function renderDayGridView(root, state, actions, currentUser) {
   root.querySelectorAll(".day-tray-add-btn").forEach((btn) => {
     btn.addEventListener("click", () => quickAddTask(actions, state, btn.dataset.date));
   });
+  // Covers both the Week tray's single button (no data-date, so fixedDate
+  // comes through undefined/falsy — the "ask for both date and time" case in
+  // openTodoQuickAdd) and each Day tray column's own button (data-date set).
+  root.querySelectorAll(".tray-add-todo-btn").forEach((btn) => {
+    btn.addEventListener("click", () => openTodoQuickAdd(actions, state, btn.dataset.date));
+  });
+  // Opens the existing Special Day step of the Add chooser (addChooserModal.js)
+  // — a birthday/exam/anniversary marker, deliberately a different shape (no
+  // checkbox, no deadline, always date-based) and look (🎉, see the
+  // .special-day-tray-chip it creates) from a task or to-do, so it doesn't
+  // get mistaken for either. Day tray's button carries that day's date;
+  // Week tray's (no data-date) falls back to today inside the modal itself.
+  root.querySelectorAll(".tray-add-specialday-btn").forEach((btn) => {
+    btn.addEventListener("click", () => actions.openModal({ type: "add-chooser", step: "specialDay", date: btn.dataset.date || undefined }));
+  });
 
-  // Only rendered while its tray is on (see corner-unhide-cell above), so this is a
-  // one-way "hide" — once off, Settings' Visibility checkboxes are the only way
-  // back, not this corner button (see settingsPanel.js).
-  root.querySelector("#week-tray-toggle-btn")?.addEventListener("click", () => actions.setShowWeekTray(false));
-  root.querySelector("#day-tray-toggle-btn")?.addEventListener("click", () => actions.setShowDayTray(false));
+  // Toggled by direct DOM manipulation (class + label text) rather than a
+  // full re-render — weekTrayExpanded/expandedDayTrayDates are transient
+  // module state the store doesn't know about, so there's nothing to trigger
+  // one; same pattern as fieldsChecklistOpen in addModal.js.
+  root.querySelector("#week-tray-show-all-btn")?.addEventListener("click", (e) => {
+    weekTrayExpanded = !weekTrayExpanded;
+    root.querySelector(".week-tray")?.classList.toggle("is-expanded", weekTrayExpanded);
+    e.currentTarget.textContent = weekTrayExpanded ? "Show less" : `Show all (${weekItems.length})`;
+  });
+  root.querySelectorAll(".day-tray-show-all-btn").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      const iso = btn.dataset.date;
+      const expanded = expandedDayTrayDates.has(iso);
+      if (expanded) expandedDayTrayDates.delete(iso);
+      else expandedDayTrayDates.add(iso);
+      btn.closest(".day-tray-col")?.classList.toggle("is-expanded", !expanded);
+      e.currentTarget.textContent = expanded ? `Show all (${btn.dataset.total})` : "Show less";
+    });
+  });
+
+  // Only rendered at all while the feature is on in Settings (see
+  // corner-unhide-cell above). Persisted (state.weekTrayCollapsed/
+  // dayTrayCollapsed), so hiding a tray this way survives a reload — distinct
+  // from showWeekTray/showDayTray, the master on/off switch for the feature.
+  root.querySelector("#week-tray-toggle-btn")?.addEventListener("click", () => actions.setWeekTrayCollapsed(!state.weekTrayCollapsed));
+  root.querySelector("#day-tray-toggle-btn")?.addEventListener("click", () => actions.setDayTrayCollapsed(!state.dayTrayCollapsed));
 }
 
 // Flattens every timed to-do item (item.todoList entries carrying their own .time)
@@ -721,10 +990,22 @@ function dayColumn(date, state, todayISO) {
   const todoBlocks = todoBlocksForDay(events, tasks);
   const placed = layoutDayEvents([...events, ...tasks, ...todoBlocks]);
 
+  // First click on an empty hour cell marks it rather than creating right away
+  // (see the onClick handler above) — this dashed box is that mark; clicking
+  // the same spot again is what actually creates something.
+  const sel = state.selectedItem;
+  const pendingSlot = sel?.kind === "slot" && sel.date === iso ? sel : null;
+  const offsetMin = (state.dayStartHour ?? SCROLL_TO_HOUR) * 60;
+
   return `
     <div class="timegrid-col" data-date="${iso}">
       ${HOURS.map((h) => `<div class="timegrid-hourcell" style="top:${h * HOUR_ROW_PX}px; height:${HOUR_ROW_PX}px;"></div>`).join("")}
       ${placed.map((p) => itemBlock(p, todayISO, state)).join("")}
+      ${
+        pendingSlot
+          ? `<div class="timegrid-pending-slot" style="top:${minutesToTop(toDisplayMinutes(pendingSlot.startMin, offsetMin))}px; height:${minutesToTop(60)}px;">${icons.plusSmall}<span>Click again to add</span></div>`
+          : ""
+      }
     </div>
   `;
 }
@@ -736,20 +1017,20 @@ function dayTrayCol(date, state, todayISO) {
     ...getDayUnscheduledEvents(state, iso).map((e) => ({ item: e, kind: "event" })),
   ];
   const specialDays = specialDaysOnDate(state, iso);
-
-  // Special Days share the tray's fixed-height row with unscheduled tasks/events,
-  // so they compete for the same small slot budget rather than adding to it
-  // unbounded — otherwise a day with several markers would overflow the row.
-  const specialSlots = Math.min(specialDays.length, DAY_TRAY_VISIBLE);
-  const visibleSpecial = specialDays.slice(0, specialSlots);
-  const visibleItems = items.slice(0, DAY_TRAY_VISIBLE - specialSlots);
-  const overflow = specialDays.length - visibleSpecial.length + (items.length - visibleItems.length);
+  const total = specialDays.length + items.length;
+  const expanded = expandedDayTrayDates.has(iso);
 
   return `
-    <div class="day-tray-col" data-date="${iso}">
-      ${visibleSpecial.map((d) => specialDayTrayChip(d)).join("")}
-      ${visibleItems.map(({ item, kind }) => dayTrayChip(item, todayISO, kind)).join("")}
-      ${overflow > 0 ? `<div class="unscheduled-more">+${overflow} more</div>` : ""}
+    <div class="day-tray-col ${expanded ? "is-expanded" : ""}" data-date="${iso}">
+      ${specialDays.map((d) => specialDayTrayChip(d)).join("")}
+      ${items.map(({ item, kind }) => dayTrayChip(item, todayISO, kind, state)).join("")}
+      ${
+        total > DAY_TRAY_VISIBLE
+          ? `<button type="button" class="tray-show-all-btn day-tray-show-all-btn" data-date="${iso}" data-total="${total}">${expanded ? "Show less" : `Show all (${total})`}</button>`
+          : ""
+      }
+      <button type="button" class="tray-add-btn tray-add-specialday-btn tray-add-btn-floating" data-date="${iso}" aria-label="Add a special day" title="Add a special day — birthday, exam, anniversary…">🎉</button>
+      <button type="button" class="tray-add-btn tray-add-todo-btn tray-add-btn-floating" data-date="${iso}" aria-label="Add a to-do for this day" title="Add a to-do — rolls forward to today until done">${icons.checkSmall}</button>
       <button type="button" class="tray-add-btn day-tray-add-btn tray-add-btn-floating" data-date="${iso}" aria-label="Add a task for this day">${icons.plusSmall}</button>
     </div>
   `;
@@ -758,10 +1039,14 @@ function dayTrayCol(date, state, todayISO) {
 // All-day markers (birthdays, holidays, ...) live in the day tray — the app's
 // existing "no specific time" strip — rather than the hourly grid. No drag
 // support (there's no time to reschedule to); click opens the edit step.
+// .special-day-tray-chip gives it the same solid-fill look as its month-view
+// counterpart (specialDayChip in monthView.js) rather than the same muted
+// pill a task/to-do chip gets — it kept getting mistaken for one of those
+// with only a small 🎉 prefix as the difference.
 function specialDayTrayChip(d) {
   return `
     <div class="day-tray-chip special-day-tray-chip" style="--chip-color:${d.color}" data-id="${d.id}" data-occurrence="${d.occurrenceDate || ""}" title="${esc(d.title)}">
-      <span class="unscheduled-chip-label">🎉 ${esc(d.title)}</span>
+      <span class="unscheduled-chip-label">${esc(d.title)}</span>
     </div>
   `;
 }
@@ -769,32 +1054,60 @@ function specialDayTrayChip(d) {
 // Tasks get their done-checkbox and reschedule badge; events have neither (no
 // completion state, no reschedule tracking), so those are gated on kind here
 // rather than needing a whole separate chip renderer.
-function weekTrayChip(item, todayISO, kind = "task") {
+function weekTrayChip(item, todayISO, kind = "task", state) {
   const isTask = kind === "task";
   const severity = isTask ? rescheduleSeverityClass(item.rescheduleCount || 0) : "";
   const prefix = isTask && item.rescheduleCount ? (item.rescheduleCount >= 3 || item.overdueReschedule ? "⚠ " : "↻ ") : "";
   const dragHint = isTask ? "Drag onto a day or the timeline" : "Drag onto the timeline to schedule";
+  // Same click-to-select/click-again-to-open pattern as dayTrayChip — only
+  // for to-dos, see the reasoning there.
+  const selected = item.isTodo && isSelected(state, kind, item.id, item.occurrenceDate || null);
   return `
-    <div class="unscheduled-chip ${isTask && item.done ? "is-done" : ""} ${severity}" style="--chip-color:${item.color}" data-id="${item.id}" data-kind="${kind}" data-occurrence="${item.occurrenceDate || ""}" title="${esc(item.title)} · ${dragHint}${isTask && item.rescheduleCount ? `\n${esc(rescheduleHistoryText(item))}` : ""}">
+    <div class="unscheduled-chip ${isTask && item.done ? "is-done" : ""} ${severity} ${selected ? "is-selected" : ""}" style="--chip-color:${item.color}" data-id="${item.id}" data-kind="${kind}" data-occurrence="${item.occurrenceDate || ""}" title="${esc(item.title)} · ${dragHint}${isTask && item.rescheduleCount ? `\n${esc(rescheduleHistoryText(item))}` : ""}">
       ${isTask ? `<button type="button" class="timegrid-task-checkbox" data-id="${item.id}" data-occurrence="${item.occurrenceDate || ""}" aria-label="Toggle done"></button>` : ""}
-      <span class="unscheduled-chip-label">${prefix}${esc(item.title)}</span>
+      <div class="day-tray-chip-body">
+        <span class="unscheduled-chip-label">${prefix}${esc(item.title)}</span>
+        ${selected ? todoDetailHTML(item) : ""}
+      </div>
     </div>
   `;
+}
+
+// A to-do's deadline time and Detail note aren't shown anywhere else in the
+// tray view, unlike a scheduled task's time on the timeline — surface them
+// once the chip is selected (click once), rather than always-on, so a plain
+// unselected to-do still just shows its title like any other tray chip (see
+// dayTrayChip/weekTrayChip's default "just show title" look). Nothing to
+// show (no deadline, no detail) renders nothing, same as extraInfoHTML.
+function todoDetailHTML(item) {
+  const rows = [];
+  if (item.startTime) rows.push(`<div class="todo-chip-detail-row"><span class="todo-chip-detail-label">Deadline</span> ${esc(formatTime(item.startTime))}</div>`);
+  if (item.notes) rows.push(`<div class="todo-chip-detail-row"><span class="todo-chip-detail-label">Detail</span> ${esc(item.notes)}</div>`);
+  if (rows.length === 0) return "";
+  return `<div class="todo-chip-detail">${rows.join("")}</div>`;
 }
 
 // Overdue/reschedule tracking, done-checkbox — all task-only concepts (events
 // have no dueDate/done fields to check), so those are gated on kind here rather
 // than needing a whole separate chip renderer, same approach as weekTrayChip.
-function dayTrayChip(item, todayISO, kind = "task") {
+function dayTrayChip(item, todayISO, kind = "task", state) {
   const isTask = kind === "task";
   const overdue = isTask && isOverdue(item, todayISO);
+  const urgent = isTask && !overdue && isTodoUrgent(item, state?.todoUrgentThresholdHours ?? 24, todayISO);
   const severity = isTask ? rescheduleSeverityClass(item.rescheduleCount || 0) : "";
   const prefix = overdue ? "⚠ " : isTask && item.rescheduleCount ? (item.rescheduleCount >= 3 || item.overdueReschedule ? "⚠ " : "↻ ") : "";
   const historyLine = isTask && (overdue || item.rescheduleCount) ? `\n${esc(rescheduleHistoryText(item))}` : "";
+  // Only a to-do supports the click-to-select/click-again-to-open pattern (see
+  // this chip's onClick wiring below) — a plain task/event chip still opens
+  // directly on a single click, same as always.
+  const selected = item.isTodo && isSelected(state, kind, item.id, item.occurrenceDate || null);
   return `
-    <div class="day-tray-chip ${isTask && item.done ? "is-done" : ""} ${overdue ? "is-overdue" : severity}" style="--chip-color:${item.color}" data-id="${item.id}" data-kind="${kind}" data-occurrence="${item.occurrenceDate || ""}" title="${esc(item.title)} · Drag onto the timeline to set a time${historyLine}">
+    <div class="day-tray-chip ${isTask && item.done ? "is-done" : ""} ${overdue ? "is-overdue" : urgent ? "is-todo-urgent" : severity} ${selected ? "is-selected" : ""}" style="--chip-color:${item.color}" data-id="${item.id}" data-kind="${kind}" data-occurrence="${item.occurrenceDate || ""}" title="${esc(item.title)} · Drag onto the timeline to set a time${historyLine}">
       ${isTask ? `<button type="button" class="timegrid-task-checkbox" data-id="${item.id}" data-occurrence="${item.occurrenceDate || ""}" aria-label="Toggle done"></button>` : ""}
-      <span class="unscheduled-chip-label">${prefix}${esc(item.title)}</span>
+      <div class="day-tray-chip-body">
+        <span class="unscheduled-chip-label">${prefix}${esc(item.title)}</span>
+        ${selected ? todoDetailHTML(item) : ""}
+      </div>
     </div>
   `;
 }
@@ -840,9 +1153,26 @@ function extraInfoHTML(item, state) {
   `;
 }
 
+// A card must be selected before a click opens it (see the main pointerdown
+// handler below) — this just decides whether to paint the selection outline.
+function isSelected(state, kind, id, occurrenceDate) {
+  const sel = state.selectedItem;
+  return !!sel && sel.kind === kind && sel.id === id && (sel.occurrenceDate || null) === (occurrenceDate || null);
+}
+
+// A card's `top` always lands exactly at its own start minute (needed for the
+// grid to line up with the hour labels), so two back-to-back cards — one
+// ending right as the next begins — would otherwise render with touching
+// edges and no visible seam between them. Trimming a couple px off the
+// bottom (not the top, so the grid alignment above is untouched) leaves a
+// small gap wherever the next card follows immediately, without shifting
+// anything's actual start position.
+const CARD_BOTTOM_GAP = 2;
+
 function itemBlock({ event: item, col, cols, startMin, endMin }, todayISO, state) {
-  const top = minutesToTop(startMin);
-  const height = Math.max(minutesToTop(endMin - startMin), 20);
+  const offsetMin = (state.dayStartHour ?? SCROLL_TO_HOUR) * 60;
+  const top = minutesToTop(toDisplayMinutes(startMin, offsetMin));
+  const height = Math.max(minutesToTop(endMin - startMin) - CARD_BOTTOM_GAP, 20);
   const widthPct = 100 / cols;
   const leftPct = col * widthPct;
   const compact = height < 40;
@@ -862,11 +1192,35 @@ function itemBlock({ event: item, col, cols, startMin, endMin }, todayISO, state
     `;
   }
 
+  const selected = isSelected(state, isTask ? "task" : "event", item.id, item.occurrenceDate || null);
+
+  // Selecting a short card grows it (min-height:160px, see .is-selected in
+  // calendar.css) so its full info panel has room to show. Left at a plain
+  // `top`, that growth only extends downward from the card's original top
+  // edge — it visually "pops up" anchored at a corner unrelated to where you
+  // clicked. Growing it symmetrically around the original card's own vertical
+  // center instead keeps the click point the visual anchor. Clamped to 0 so
+  // it can't grow above the grid's start (hour 0).
+  const SELECTED_MIN_HEIGHT = 160; // keep in sync with .is-selected's min-height in calendar.css
+  const displayHeight = selected ? Math.max(height, SELECTED_MIN_HEIGHT) : height;
+  const displayTop = selected ? Math.max(0, top - (displayHeight - height) / 2) : top;
+
+  // Same idea horizontally: a card sharing the day column with overlapping
+  // siblings (cols > 1) only owns a slice of the column's width (widthPct).
+  // Selecting it grows that to the column's full width, centered on the
+  // slice's own center rather than snapped to the column's left edge — for a
+  // card that started at, say, the right half of a 2-way split, centering on
+  // a full-width box means it overflows past the day column's edge into the
+  // neighboring column's space. That's fine: .timegrid-col has no
+  // overflow:hidden, and the z-index above already lifts it over neighbors.
+  const displayWidthPct = selected ? 100 : widthPct;
+  const displayLeftPct = selected ? leftPct + widthPct / 2 - 50 : leftPct;
+
   if (isTask) {
     const severity = rescheduleSeverityClass(item.rescheduleCount || 0);
     return `
-      <div class="timegrid-task-block ${item.done ? "is-done" : ""} ${compact ? "is-compact" : ""} ${severity}"
-           style="top:${top}px; height:${height}px; left:calc(${leftPct}% + 2px); width:calc(${widthPct}% - 4px); --chip-color:${item.color};"
+      <div class="timegrid-task-block ${item.done ? "is-done" : ""} ${compact ? "is-compact" : ""} ${severity} ${selected ? "is-selected" : ""}"
+           style="top:${displayTop}px; height:${displayHeight}px; left:calc(${displayLeftPct}% + 2px); width:calc(${displayWidthPct}% - 4px); --chip-color:${item.color};"
            data-id="${item.id}" data-kind="task" data-occurrence="${item.occurrenceDate || ""}" title="${esc(item.title)}">
         ${resizeHandles}
         <div class="timegrid-task-block-row">
@@ -892,13 +1246,67 @@ function itemBlock({ event: item, col, cols, startMin, endMin }, todayISO, state
         <div class="timegrid-event-time">${formatTime(item.startTime)} – ${formatTime(item.endTime)}</div>
       </div>`;
 
+  // The header panel alone (padding + title + time, see calendar.css) already
+  // takes ~58px of a non-compact card; a second info panel needs another ~27px
+  // to show even one line without being squeezed flat by flex-shrink (leaving
+  // a dead gap between the two — see the "不上不下" fix history). Below that,
+  // just skip the info panel entirely rather than show a cut-off sliver of it —
+  // the header panel alone still centers cleanly (see .timegrid-event's
+  // justify-content). Selected cards get their guaranteed min-height counted
+  // here too, since that's what actually determines their rendered height.
+  const MIN_HEIGHT_FOR_EVENT_INFO = 90;
+  const info = !compact ? extraInfoHTML(item, state) : "";
+  const showInfo = info && displayHeight >= MIN_HEIGHT_FOR_EVENT_INFO;
+
   return `
-    <div class="timegrid-event ${compact ? "is-compact" : ""}"
-         style="top:${top}px; height:${height}px; left:calc(${leftPct}% + 2px); width:calc(${widthPct}% - 4px); background-color:${item.color}; --event-color:${item.color};"
+    <div class="timegrid-event ${compact ? "is-compact" : ""} ${selected ? "is-selected" : ""}"
+         style="top:${displayTop}px; height:${displayHeight}px; left:calc(${displayLeftPct}% + 2px); width:calc(${displayWidthPct}% - 4px); background-color:${item.color}; --event-color:${item.color};"
          data-id="${item.id}" data-kind="event" data-occurrence="${item.occurrenceDate || ""}" title="${esc(item.title)}">
       ${resizeHandles}
       ${header}
-      ${!compact ? extraInfoHTML(item, state) : ""}
+      ${showInfo ? info : ""}
     </div>
   `;
+}
+
+// Shrinks el's font a step at a time until container fits within available
+// height (or bottoms out at minFont and gives up). Returns whether it fits.
+function shrinkFontToFit(el, container, available, maxFont, minFont) {
+  el.style.fontSize = "";
+  let size = maxFont;
+  while (container.scrollHeight > available && size > minFont) {
+    size -= 1;
+    el.style.fontSize = `${size}px`;
+  }
+  return container.scrollHeight <= available;
+}
+
+// The title wraps to as many lines as it needs (see .timegrid-event-header-panel
+// .timegrid-event-title in calendar.css) rather than truncating, shrinking its
+// font first if a short/narrow card doesn't have room for that at full size
+// (getting clipped by the card's own overflow:hidden otherwise). Only once
+// shrinking bottoms out and it *still* doesn't fit — a long multi-word title
+// in a genuinely narrow column — does it fall back to just the first word
+// (plus an ellipsis to signal there's more), which then gets its own chance to
+// size back up since it's so much shorter. Checking actual fit (rather than a
+// flat "more than N lines" rule) is what makes this behave right on a
+// selected card too: is-selected's min-height:160px (calendar.css) often
+// gives a narrow-but-tall card plenty of room to show the full title wrapped,
+// even though the same card unselected did not. Needs a real DOM measurement
+// pass, so it runs after the innerHTML render rather than as a plain CSS rule.
+const EVENT_TITLE_MAX_FONT = 14; // matches .timegrid-event-header-panel .timegrid-event-title
+const EVENT_TITLE_MIN_FONT = 10;
+function fitEventHeaderTitles(root) {
+  root.querySelectorAll(".timegrid-event-header-panel").forEach((panel) => {
+    const card = panel.closest(".timegrid-event");
+    const title = panel.querySelector(".timegrid-event-title");
+    if (!card || !title) return;
+    const fullTitle = title.textContent;
+    const available = card.clientHeight - 12; // card's own 6px top + 6px bottom padding
+    if (shrinkFontToFit(title, panel, available, EVENT_TITLE_MAX_FONT, EVENT_TITLE_MIN_FONT)) return;
+    const words = fullTitle.trim().split(/\s+/);
+    if (words.length <= 1) return; // nothing shorter to fall back to
+    title.textContent = `${words[0]}…`;
+    shrinkFontToFit(title, panel, available, EVENT_TITLE_MAX_FONT, EVENT_TITLE_MIN_FONT);
+  });
 }

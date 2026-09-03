@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% from "partials/macros.html" import student_badge %}
+{% block title %}{{ t('families') }}{% endblock %}
+{% block content %}
+<div class="toolbar">
+  <a class="btn sm" href="{{ url_for('students.index') }}">&larr; {{ t('nav_students') }}</a>
+  <h1>{{ t('families') }}</h1>
+</div>
+<p class="muted">{{ t('family_billing_hint') }}</p>
+
+<details class="card add-panel">
+<summary>{{ t('new_family') }}</summary>
+<form method="post" action="{{ url_for('students.family_new') }}">
+  <div class="field"><label>{{ t('family') }}</label><input type="text" name="name" required></div>
+  <label>{{ t('members') }}</label>
+  <div class="pick-list">
+    {% for st in unassigned %}
+    <label class="pick"><input type="checkbox" name="student_ids" value="{{ st.id }}"> {{ st.full_name }}</label>
+    {% else %}<span class="muted">{{ t('nothing_here') }}</span>{% endfor %}
+  </div>
+  <div class="btn-row" style="margin-top:12px"><button class="btn primary">{{ t('add') }}</button></div>
+</form>
+</details>
+
+{% for f in families %}
+<div class="card">
+  <div class="section-title">
+    <h3>{{ f.name }} <span class="muted">· {{ f.n }} {{ t('members') }}</span></h3>
+    <form class="inline-form" method="post" action="{{ url_for('students.family_delete', fid=f.id) }}"
+          onsubmit="return confirm('{{ t('confirm_delete') }}')">
+      <button class="btn sm danger">{{ t('delete') }}</button>
+    </form>
+  </div>
+  <form method="post" action="{{ url_for('students.family_edit', fid=f.id) }}">
+    <div class="grid c2">
+      <div class="field"><label>{{ t('family') }}</label><input type="text" name="name" value="{{ f.name }}"></div>
+    </div>
+    <label>{{ t('members') }}</label>
+    <div class="pick-list">
+      {% for m in members[f.id] %}
+      <label class="pick on"><input type="checkbox" name="remove_ids" value="{{ m.id }}">
+        {{ m.full_name }} {{ student_badge(m.status) }}
+        <span class="muted" style="font-size:.75rem">({{ t('delete') }})</span></label>
+      {% endfor %}
+    </div>
+    {% if unassigned %}
+    <label style="margin-top:10px">+ {{ t('add') }}</label>
+    <div class="pick-list">
+      {% for st in unassigned %}
+      <label class="pick"><input type="checkbox" name="add_ids" value="{{ st.id }}"> {{ st.full_name }}</label>
+      {% endfor %}
+    </div>
+    {% endif %}
+    <div class="btn-row" style="margin-top:12px"><button class="btn primary">{{ t('save') }}</button></div>
+  </form>
+</div>
+{% else %}
+<div class="card"><p class="empty">{{ t('nothing_here') }}</p></div>
+{% endfor %}
+{% endblock %}

@@ -38,10 +38,22 @@ export function addMonths(date, n) {
   return d;
 }
 
-export function startOfWeek(date) {
+// weekStartsOn: 0 = Sunday (default), 1 = Monday — see state.weekStartsOn,
+// user-configurable in Settings. Kept as a parameter (not read from state
+// directly) since this is a plain date util with no store access; callers that
+// care about the user's preference pass state.weekStartsOn through explicitly.
+export function startOfWeek(date, weekStartsOn = 0) {
   const d = startOfDay(date);
-  d.setDate(d.getDate() - d.getDay());
+  d.setDate(d.getDate() - ((d.getDay() - weekStartsOn + 7) % 7));
   return d;
+}
+
+// WEEKDAY_LABELS rotated to start on the given day — for header rows (month
+// grid, etc.) that lay out a fixed Sun–Sat sequence and need it reordered to
+// match. Contexts that index by an actual date's getDay() (the week/day view's
+// per-column head label) don't need this — only fixed positional sequences do.
+export function orderedWeekdayLabels(weekStartsOn = 0) {
+  return [...WEEKDAY_LABELS.slice(weekStartsOn), ...WEEKDAY_LABELS.slice(0, weekStartsOn)];
 }
 
 export function startOfMonth(date) {
@@ -53,8 +65,8 @@ export function endOfMonth(date) {
 }
 
 /** Returns an array of 42 Date objects covering the full 6-week grid for a month. */
-export function getMonthGridDays(date) {
-  const gridStart = startOfWeek(startOfMonth(date));
+export function getMonthGridDays(date, weekStartsOn = 0) {
+  const gridStart = startOfWeek(startOfMonth(date), weekStartsOn);
   const days = [];
   for (let i = 0; i < 42; i++) {
     days.push(addDays(gridStart, i));
@@ -83,6 +95,11 @@ export function formatFullDate(date) {
 export function formatTime(hhmm) {
   if (!hhmm) return "";
   const [h, m] = hhmm.split(":").map(Number);
+  // Blank rather than "NaN:NaN AM" for a value already corrupted before the
+  // minutesFromMidnight/minutesToHHMM fix — this only masks old bad data on
+  // display, it doesn't repair it; re-saving the item (e.g. editing its time
+  // in the modal) is what actually fixes the stored value.
+  if (!Number.isFinite(h) || !Number.isFinite(m)) return "";
   const period = h >= 12 ? "PM" : "AM";
   const h12 = h % 12 === 0 ? 12 : h % 12;
   return `${h12}:${pad2(m)} ${period}`;
@@ -98,13 +115,23 @@ export function formatHourLabel(hour) {
   return `${h12} ${period}`;
 }
 
+// "" (an untimed task) used to silently become NaN here — "".split(":") is
+// [""], Number("") is 0, but the missing second element makes m undefined, and
+// h*60 + undefined is NaN — which then survives all the way through
+// minutesToHHMM into a literally-saved "NaN:NaN" startTime/endTime that every
+// future drag/resize on that item re-derives from, staying broken forever.
+// Falls back to 0 (midnight) for anything that isn't a clean "HH:MM" instead.
 export function minutesFromMidnight(hhmm) {
+  if (!hhmm) return 0;
   const [h, m] = hhmm.split(":").map(Number);
-  return h * 60 + m;
+  return Number.isFinite(h) && Number.isFinite(m) ? h * 60 + m : 0;
 }
 
+// Never emits "NaN:NaN" — see minutesFromMidnight above for how that used to
+// happen and permanently corrupt whatever item it got saved onto.
 export function minutesToHHMM(totalMinutes) {
-  const clamped = Math.max(0, Math.min(24 * 60 - 1, Math.round(totalMinutes)));
+  const safe = Number.isFinite(totalMinutes) ? totalMinutes : 0;
+  const clamped = Math.max(0, Math.min(24 * 60 - 1, Math.round(safe)));
   const h = Math.floor(clamped / 60);
   const m = clamped % 60;
   return `${pad2(h)}:${pad2(m)}`;

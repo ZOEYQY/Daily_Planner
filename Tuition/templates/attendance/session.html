@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% from "partials/macros.html" import makeup_dialog, makeup_script %}
+{% block title %}{{ t('record_attendance') }}{% endblock %}
+{% block content %}
+<div class="toolbar">
+  <a class="btn sm" href="{{ url_for('attendance.index') }}">&larr; {{ t('nav_attendance') }}</a>
+  <h1>{{ t('record_attendance') }}</h1>
+</div>
+
+<form class="toolbar" method="get">
+  <select name="class" onchange="this.form.submit()">
+    <option value="">— {{ t('nav_classes') }} —</option>
+    {% for c in classes %}<option value="{{ c.id }}" {{ 'selected' if c.id==class_id }}>{{ c.name }}</option>{% endfor %}
+  </select>
+  <label style="margin:0">{{ t('session_date') }}</label>
+  <input type="date" name="date" value="{{ date }}" onchange="this.form.submit()" style="max-width:180px">
+</form>
+<p class="muted">{{ t('backdated_note') }}</p>
+
+{% if class_id and students %}
+<form method="post" action="{{ url_for('attendance.session_view') }}">
+  <input type="hidden" name="class" value="{{ class_id }}">
+  <input type="hidden" name="date" value="{{ date }}">
+  <div class="card-grid">
+    {% for st in students %}
+    {% set cur = current.get(st.id, '') %}
+    <div class="entity-card">
+      <div class="ec-head">
+        <div class="ec-grow"><div class="ec-name">{{ st.full_name }}</div></div>
+        {% if st.student_status == 'trial' %}<span class="badge b-purple">{{ t('trial') }}</span>{% endif %}
+      </div>
+      <div class="field" style="margin:10px 0 0">
+        <select name="st_{{ st.id }}" onchange="cellStatus(this)">
+          <option value=""></option>
+          {% for s in statuses %}<option value="{{ s }}" {{ 'selected' if cur==s }}>{{ '/' if s=='present' else '✗' if s=='absent' else t(s) }}</option>{% endfor %}
+        </select>
+        <input type="hidden" name="mkplan_{{ st.id }}_{{ date }}" value="{{ plan.get(st.id, '') }}">
+        <input type="hidden" name="mkfinal_{{ st.id }}_{{ date }}" value="{{ final.get(st.id, '') }}">
+        <span class="mk-summary" onclick="openMk(this.closest('.entity-card').querySelector('select'))"
+              {% if cur not in ('absent','student_leave','teacher_leave','holiday') %}hidden{% endif %}></span>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  <div class="btn-row" style="margin-top:16px"><button class="btn primary">{{ t('save') }}</button></div>
+</form>
+{{ makeup_dialog() }}
+{{ makeup_script() }}
+{% elif class_id %}
+<div class="card"><p class="empty">{{ t('nothing_here') }}</p></div>
+{% endif %}
+{% endblock %}

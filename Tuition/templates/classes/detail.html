@@ -1,0 +1,157 @@
+{% extends "base.html" %}
+{% from "partials/macros.html" import money, pay_badge, class_days, makeup_dialog, makeup_script %}
+{% block title %}{{ c.name }}{% endblock %}
+{% block content %}
+{% macro tablink(key, label) %}
+  <a href="{{ url_for('classes.detail', cid=c.id, tab=key, month=ym) }}" class="{{ 'active' if tab==key }}">{{ label }}</a>
+{% endmacro %}
+
+<div class="toolbar">
+  <a class="btn sm" href="{{ url_for('classes.index') }}">&larr; {{ t('nav_classes') }}</a>
+  <span class="spacer"></span>
+  <a class="btn" href="{{ url_for('classes.edit', cid=c.id) }}">{{ t('edit') }}</a>
+</div>
+
+<div class="card">
+  <h1 style="margin:0">{{ c.name }}
+    {% if c.status != 'active' %}<span class="badge b-grey">{{ t('st_inactive') }}</span>{% endif %}</h1>
+  <div class="muted">{{ c.subject or '—' }} · {{ class_days(schedule) }}
+    {% if c.teacher %} · {{ c.teacher }}{% endif %}</div>
+</div>
+
+<div class="tabs" style="margin-top:18px">
+  {{ tablink('overview', t('tab_overview')) }}
+  {{ tablink('attendance', t('nav_attendance')) }}
+  {{ tablink('finance', t('tab_finance')) }}
+  {{ tablink('students', t('nav_students')) }}
+</div>
+
+{% if tab != 'overview' %}
+<div class="toolbar">
+  <span class="month-nav">
+    <a href="{{ url_for('classes.detail', cid=c.id, tab=tab, month=prev_month) }}">&larr;</a>
+    <span>{{ month_label(ym) }}</span>
+    <a href="{{ url_for('classes.detail', cid=c.id, tab=tab, month=next_month) }}">&rarr;</a>
+  </span>
+</div>
+{% endif %}
+
+{# ── OVERVIEW ── #}
+{% if tab == 'overview' %}
+<div class="stats">
+  <div class="stat"><div class="v">{{ stats.n_students }}</div><div class="k">{{ t('num_students') }}</div></div>
+  <div class="stat"><div class="v">{{ money(stats.projected_fee) }}</div><div class="k">{{ t('stat_projected_fee') }}</div><div class="k2">{{ month_label(ym) }}</div></div>
+  <div class="stat"><div class="v">{{ stats.scheduled_lessons }}</div><div class="k">{{ t('stat_scheduled_lessons') }}</div></div>
+  <div class="stat"><div class="v">{{ stats.held_lessons }}</div><div class="k">{{ t('stat_held_lessons') }}</div></div>
+  <div class="stat"><div class="v">{{ money(stats.due) }}</div><div class="k">{{ t('fin_due') }}</div><div class="k2">{{ t('fin_due_hint') }}</div></div>
+  <div class="stat"><div class="v">{{ money(stats.outstanding) }}</div><div class="k">{{ t('outstanding') }}</div></div>
+  {% if stats.show_collected %}
+  <div class="stat"><div class="v">{{ money(stats.collected) }}</div><div class="k">{{ t('collected') }}</div></div>
+  {% endif %}
+</div>
+<div class="card-grid" style="margin-top:18px">
+  {% for row in enrollments if row.e.status == 'active' %}
+  <a class="entity-card" href="{{ url_for('students.detail', sid=row.e.student_id) }}">
+    <div class="ec-head">
+      <div class="ec-grow"><div class="ec-name">{{ row.e.full_name }}</div>
+        <div class="ec-sub">{{ t('own_rate') if row.fee.source=='own' else t('class_default') }}</div>
+      </div>
+      {% if row.e.student_status=='trial' %}<span class="badge b-purple">{{ t('trial') }}</span>{% else %}<span class="badge b-green">{{ t('st_active') }}</span>{% endif %}
+    </div>
+    <div class="ec-rows"><div class="ec-row"><span class="k">{{ t('monthly_fee') }}</span><span class="v">{{ money(row.fee.amount_cents) }}</span></div></div>
+  </a>
+  {% else %}<div class="card"><p class="empty">{{ t('nothing_here') }}</p></div>{% endfor %}
+</div>
+{% endif %}
+
+{# ── ATTENDANCE ── #}
+{% if tab == 'attendance' %}
+<div class="card">{% include "partials/matrix.html" %}</div>
+{{ makeup_dialog() }}
+{{ makeup_script() }}
+{% endif %}
+
+{# ── FINANCE ── #}
+{% if tab == 'finance' %}
+<div class="stats">
+  <div class="stat"><div class="v">{{ money(stats.projected_fee) }}</div><div class="k">{{ t('fin_projected') }}</div></div>
+  <div class="stat"><div class="v">{{ money(stats.due) }}</div><div class="k">{{ t('fin_due') }}</div></div>
+  <div class="stat"><div class="v">{{ money(stats.outstanding) }}</div><div class="k">{{ t('outstanding') }}</div></div>
+  {% if stats.show_collected %}
+  <div class="stat"><div class="v">{{ money(stats.collected) }}</div><div class="k">{{ t('collected') }}</div></div>
+  <div class="stat"><div class="v">{{ '%.0f'|format(stats.rate) }}%</div><div class="k">{{ t('collection_rate') }}</div></div>
+  {% endif %}
+</div>
+<div class="card-grid" style="margin-top:18px">
+  {% for p in finance.rows %}
+  <div class="entity-card">
+    <div class="ec-head">
+      <div class="ec-grow"><div class="ec-name"><a href="{{ url_for('students.detail', sid=p.student_id, tab='finance') }}">{{ p.full_name }}</a></div></div>
+      {{ pay_badge(p.status) }}
+    </div>
+    <div class="ec-rows">
+      <div class="ec-row"><span class="k">{{ t('fin_due') }}</span><span class="v">{{ money(p.expected_cents) }}</span></div>
+      <div class="ec-row"><span class="k">{{ t('paid') }}</span><span class="v">{{ money(p.paid_cents) }}</span></div>
+      <div class="ec-row"><span class="k">{{ t('outstanding') }}</span><span class="v">{{ money([p.expected_cents - p.paid_cents, 0]|max) }}</span></div>
+    </div>
+    <div class="btn-row"><a class="btn sm" href="{{ url_for('finance.index', month=ym, **{'class': c.id}) }}">{{ t('record_payment') }}</a></div>
+  </div>
+  {% else %}<div class="card"><p class="empty">{{ t('nothing_here') }}</p></div>{% endfor %}
+</div>
+<form method="post" action="{{ url_for('classes.set_default_fee', cid=c.id) }}" class="card">
+  <h3>{{ t('default_fee') }}</h3>
+  <p class="muted rc-hint">{{ t('fee_rule_hint') }}</p>
+  <div class="field" style="max-width:220px"><label>{{ t('default_fee') }} (RM / {{ t('month_word') }})</label>
+    <input type="number" step="1" name="default_fee" value="{{ (c.default_fee_cents/100)|int if c.default_fee_cents else '' }}"></div>
+  <div class="btn-row"><button class="btn primary">{{ t('save') }}</button></div>
+</form>
+{% endif %}
+
+{# ── STUDENTS ── #}
+{% if tab == 'students' %}
+<div class="card-grid">
+  {% for row in enrollments %}{% set e = row.e %}
+  <div class="entity-card">
+    <div class="ec-head">
+      <div class="ec-grow"><div class="ec-name"><a href="{{ url_for('students.detail', sid=e.student_id) }}">{{ e.full_name }}</a></div>
+        <div class="ec-sub">{{ e.start_date }} → {{ e.end_date or t('current_class') }}</div>
+      </div>
+      {% if e.status=='active' %}<span class="badge b-green">{{ t('st_active') }}</span>{% else %}<span class="badge b-grey">{{ t('st_left') }}</span>{% endif %}
+    </div>
+    <div class="btn-row">
+      {% if e.status == 'active' %}
+      <form class="inline-form" method="post" action="{{ url_for('classes.end_enrollment', eid=e.id) }}">
+        <button class="btn sm">{{ t('end_enrollment') }}</button></form>
+      {% else %}
+      <form class="inline-form" method="post" action="{{ url_for('classes.delete_enrollment', eid=e.id) }}" onsubmit="return confirm('{{ t('confirm_delete') }}')">
+        <button class="btn sm danger">{{ t('delete') }}</button></form>
+      {% endif %}
+    </div>
+  </div>
+  {% else %}<div class="card"><p class="empty">{{ t('nothing_here') }}</p></div>{% endfor %}
+</div>
+
+<details class="card add-panel">
+<summary>{{ t('enroll_student') }}</summary>
+<form method="post" action="{{ url_for('classes.enroll', cid=c.id) }}">
+  <div class="grid c3">
+    <div class="field"><label>{{ t('student') }}</label>
+      <select name="student_id">
+        <option value="">—</option>
+        {% for st in all_students if st.id not in enrolled_ids %}<option value="{{ st.id }}">{{ st.full_name }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="field"><label>{{ t('or_new_student') }}</label>
+      <input type="text" name="new_student" placeholder="{{ t('new_student_ph') }}"></div>
+    <div class="field"><label>{{ t('start_date') }}</label><input type="date" name="start_date" value="{{ ym }}-01"></div>
+  </div>
+  <div class="grid c2">
+    <div class="field"><label>{{ t('amount') }} (RM / {{ t('month_word') }}){% if c.pricing == 'per_student' %} *{% endif %}</label>
+      <input type="number" step="1" name="fee_amount" {% if c.pricing == 'per_student' %}required{% else %}placeholder="{{ t('class_default') }}"{% endif %}></div>
+    <div class="field"><label>{{ t('special_discount') }} (RM)</label><input type="number" step="1" name="fee_discount"></div>
+  </div>
+  <div class="btn-row"><button class="btn primary">{{ t('add') }}</button></div>
+</form>
+</details>
+{% endif %}
+{% endblock %}

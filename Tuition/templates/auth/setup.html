@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}{{ t('welcome_setup') }}{% endblock %}
+{% block auth %}
+<div class="auth-wrap">
+  <div class="card">
+    <div class="brand" style="padding-left:0">Tuition<span>·</span>System</div>
+    <h1>{{ t('welcome_setup') }}</h1>
+    <form method="post">
+      <div class="field">
+        <label>{{ t('teacher_name') }}</label>
+        <input type="text" name="teacher_name" autofocus>
+      </div>
+      <div class="field">
+        <label>{{ t('password') }}</label>
+        <input type="password" name="password" required>
+      </div>
+      <div class="field">
+        <label>{{ t('confirm_password') }}</label>
+        <input type="password" name="confirm_password" required>
+      </div>
+      <button class="btn primary" style="width:100%">{{ t('create_account') }}</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

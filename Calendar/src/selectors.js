@@ -1,4 +1,4 @@
-import { parseISODate, nthWeekdayOfMonth, weeksBetween, monthsBetween, yearsBetween } from "./dateUtils.js";
+import { parseISODate, nthWeekdayOfMonth, weeksBetween, monthsBetween, yearsBetween, today, toISODate } from "./dateUtils.js";
 
 const FALLBACK_CATEGORY = { id: "", name: "Uncategorized", colors: [] };
 const FALLBACK_COLOR = { id: "", name: "", value: "#898781", enabledFields: [] };
@@ -26,17 +26,29 @@ export function matchesSearch(title, query) {
   return title.toLowerCase().includes(query.trim().toLowerCase());
 }
 
+// Inactive (the default, "All") means no filter — everything passes. Active
+// with an empty id list ("None") matches nothing. Active with ids matches
+// any item in one of them (multi-select). Set via the category pills in the
+// calendar header (see calendarHeader.js).
+function matchesCategoryFilter(item, state) {
+  return !state.categoryFilterActive || state.categoryFilterIds.includes(item.categoryId);
+}
+
 export function getVisibleEvents(state) {
-  return state.events.filter((e) => matchesSearch(e.title, state.searchQuery)).map((e) => withCategory(state, e));
+  return state.events
+    .filter((e) => matchesSearch(e.title, state.searchQuery) && matchesCategoryFilter(e, state))
+    .map((e) => withCategory(state, e));
 }
 
 export function getVisibleTasks(state) {
-  return state.tasks.filter((t) => matchesSearch(t.title, state.searchQuery)).map((t) => withCategory(state, t));
+  return state.tasks
+    .filter((t) => matchesSearch(t.title, state.searchQuery) && matchesCategoryFilter(t, state))
+    .map((t) => withCategory(state, t));
 }
 
 export function getVisibleSpecialDays(state) {
   return (state.specialDays || [])
-    .filter((d) => matchesSearch(d.title, state.searchQuery))
+    .filter((d) => matchesSearch(d.title, state.searchQuery) && matchesCategoryFilter(d, state))
     .map((d) => withCategory(state, d));
 }
 
@@ -202,11 +214,51 @@ export function getDayUnscheduledEvents(state, iso) {
 }
 
 // Day-scoped but time-unscheduled: has a date, no time yet (e.g. an exam
-// you know the day of but haven't pinned a time for).
+// you know the day of but haven't pinned a time for). isTodo tasks (see
+// openTodoQuickAdd in dayGridView.js) are a special case within this same list:
+// once due (dueDate <= today), they roll forward onto today's column instead
+// of staying on whatever day they were created — matching the "completely
+// separate to-do that shows in Day" request, as opposed to a plain task,
+// which stays put on its own date until manually rescheduled. This stays
+// true whether or not it's done — checking one off shouldn't make it vanish
+// from today's tray back onto a stale date you're no longer looking at; it
+// just gets the normal is-done/strikethrough look in place, same as a task.
+// Only a not-yet-due isTodo task shows on its own (future) exact date.
 export function getDayUnscheduledTasks(state, iso) {
-  return occurrencesOnDate(
-    getVisibleTasks(state).filter((t) => !t.scheduled && t.dueDate),
+  const candidates = getVisibleTasks(state).filter((t) => !t.scheduled && t.dueDate);
+  const plain = occurrencesOnDate(
+    candidates.filter((t) => !t.isTodo),
     iso,
     "dueDate"
   );
+
+  const todoTasks = candidates.filter((t) => t.isTodo);
+  const todayISO = toISODate(today());
+  if (iso === todayISO) {
+    const rolled = todoTasks.filter((t) => t.dueDate <= todayISO).map((t) => resolveOccurrence(t, t.dueDate, "dueDate"));
+    return [...plain, ...rolled];
+  }
+  const notYetDue = occurrencesOnDate(
+    todoTasks.filter((t) => t.dueDate > todayISO),
+    iso,
+    "dueDate"
+  );
+  return [...plain, ...notYetDue];
+}
+
+// Whether an open to-do's chip should switch to its urgent/red styling —
+// within thresholdHours of its deadline (dueDate + startTime, or end-of-day
+// if no time was set) but not yet a full day overdue, since that's already
+// covered by isOverdue's own (separate, day-granularity) "Overdue" styling —
+// this only needs to cover the "closing in, but not there yet" window.
+export function isTodoUrgent(task, thresholdHours, todayISO = toISODate(today())) {
+  if (!task.isTodo || task.done || !task.dueDate || task.dueDate < todayISO) return false;
+  const deadline = parseISODate(task.dueDate);
+  if (task.startTime) {
+    const [h, m] = task.startTime.split(":").map(Number);
+    deadline.setHours(h, m, 0, 0);
+  } else {
+    deadline.setHours(23, 59, 59, 999);
+  }
+  return deadline.getTime() - Date.now() <= thresholdHours * 3600000;
 }

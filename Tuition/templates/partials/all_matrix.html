@@ -1,0 +1,52 @@
+{# expects: all_matrix (am), ym . Page renders makeup_dialog()+makeup_script() once. #}
+{% from "partials/macros.html" import avatar %}
+{% set am = all_matrix %}
+{% macro status_label(s) %}{{ '/' if s=='present' else '✗' if s=='absent' else t(s) }}{% endmacro %}
+{% if not am.rows %}
+  <div class="card"><p class="empty">{{ t('nothing_here') }}</p></div>
+{% else %}
+<p class="muted">{{ t('backdated_note') }}</p>
+<form method="post" action="{{ url_for('attendance.save_all') }}">
+  <input type="hidden" name="month" value="{{ ym }}">
+  <div class="table-wrap" style="max-height:70vh;border:1px solid var(--line);border-radius:var(--radius)">
+  <table class="matrix all">
+    <tr>
+      <th>{{ t('student') }}</th>
+      <th>{{ t('nav_classes') }}</th>
+      {% for d, wd in am.dates %}<th>{{ d[8:10] }}<br><span class="muted" style="font-weight:400">{{ weekday_short(wd) }}</span></th>{% endfor %}
+    </tr>
+    {% set ns = namespace(prev='') %}
+    {% for r in am.rows %}
+    <tr class="{{ 'grp' if r.name != ns.prev }}">
+      <td>{% if r.name != ns.prev %}
+        <span style="display:inline-flex;align-items:center;gap:7px">
+          {{ avatar(r.name, r.color) }}<span>{{ r.name }}</span>
+        </span>{% endif %}{% set ns.prev = r.name %}</td>
+      <td><a href="{{ url_for('classes.detail', cid=r.class_id) }}">{{ r.class_name }}</a></td>
+      {% for d, wd in am.dates %}
+        {% if d in r.dates %}
+          {% set val = am.cells.get((r.student_id, r.class_id, d), '') %}
+          <td>
+            <select name="cell_{{ r.eid }}_{{ d }}" onchange="cellStatus(this)" title="{{ status_label(val) if val }}">
+              <option value=""></option>
+              {% for s in STATUS_KEYS %}<option value="{{ s }}" {{ 'selected' if val==s }}>{{ status_label(s) }}</option>{% endfor %}
+            </select>
+            <input type="hidden" name="mkplan_{{ r.eid }}_{{ d }}" value="{{ am.plan.get((r.student_id, r.class_id, d), '') }}">
+            <input type="hidden" name="mkfinal_{{ r.eid }}_{{ d }}" value="{{ am.final.get((r.student_id, r.class_id, d), '') }}">
+            <span class="mk-summary" onclick="openMk(this.parentNode.querySelector('select'))"
+                  {% if val not in ('absent','student_leave','teacher_leave','holiday') %}hidden{% endif %}></span>
+          </td>
+        {% else %}
+          <td class="off">·</td>
+        {% endif %}
+      {% endfor %}
+    </tr>
+    {% endfor %}
+  </table>
+  </div>
+  <div class="btn-row" style="margin-top:14px">
+    <button class="btn primary">{{ t('save') }}</button>
+    <span class="muted">/ = {{ t('present') }} · ✗ = {{ t('absent') }}</span>
+  </div>
+</form>
+{% endif %}

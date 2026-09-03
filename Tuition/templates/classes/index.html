@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% from "partials/macros.html" import money, class_day_chips %}
+{% block title %}{{ t('nav_classes') }}{% endblock %}
+{% block content %}
+<div class="toolbar">
+  <h1>{{ t('nav_classes') }}</h1>
+  <span class="spacer"></span>
+  <a class="btn primary" href="{{ url_for('classes.new') }}">+ {{ t('add_class') }}</a>
+</div>
+
+<form class="toolbar" method="get">
+  <input type="search" name="q" value="{{ q }}" placeholder="{{ t('search') }}…" style="max-width:280px">
+  <button class="btn">{{ t('search') }}</button>
+</form>
+
+{% macro class_card(row) %}
+{% set c = row.c %}
+<a class="entity-card" href="{{ url_for('classes.detail', cid=c.id) }}">
+  <div class="ec-head">
+    <div class="ec-grow">
+      <div class="ec-name">{{ c.name }}
+        {% if c.status != 'active' %}<span class="badge b-grey">{{ t('st_inactive') }}</span>{% endif %}</div>
+      <div class="ec-sub">
+        {%- set bits = [] -%}
+        {%- if c.subject %}{% set _ = bits.append(c.subject) %}{% endif -%}
+        {%- if c.level %}{% set _ = bits.append(c.level) %}{% endif -%}
+        {%- if c.teacher %}{% set _ = bits.append(c.teacher) %}{% endif -%}
+        {{ bits | join(' · ') or '—' }}
+      </div>
+    </div>
+  </div>
+  <div style="margin-top:10px">{{ class_day_chips(row.days) }}</div>
+  <div class="ec-rows">
+    <div class="ec-row"><span class="k">{{ t('num_students') }}</span><span class="v">{{ row.c.n_students }}</span></div>
+    <div class="ec-row"><span class="k">{{ t('estimated_income') }} · {{ month_label(ym) }}</span><span class="v">{{ money(row.est) }}</span></div>
+  </div>
+</a>
+{% endmacro %}
+
+{% set one2one = classes | selectattr('c.kind', 'equalto', '1v1') | list %}
+{% set smallcls = classes | selectattr('c.kind', 'equalto', 'small') | list %}
+{% set others = classes | rejectattr('c.kind', 'in', ['1v1', 'small']) | list %}
+
+{% for glabel, rows in [(t('kind_1v1'), one2one), (t('kind_small'), smallcls), (t('nav_classes'), others)] %}
+  {% if rows %}
+    <div class="section-title" style="margin-top:22px"><h2>{{ glabel }} <span class="muted">· {{ rows|length }}</span></h2></div>
+    <div class="card-grid">{% for row in rows %}{{ class_card(row) }}{% endfor %}</div>
+  {% endif %}
+{% endfor %}
+{% if not classes %}<div class="card"><p class="empty">{{ t('nothing_here') }}</p></div>{% endif %}
+{% endblock %}
