@@ -20,13 +20,13 @@
     </div>
 
     <div class="topbar-links">
-        <a href="/finance" class="active-link">Dashboard</a>
-        <a href="/add">Add</a>
-        <a href="/view">View</a>
-        <a href="/summary">Summary</a>
-        <a href="/budget">Budget</a>
-        <a href="/goals">Goals</a>
-        <a href="/accounts">Accounts</a>
+        <a href="{{ url_for('finance.finance_home') }}" class="active-link">Dashboard</a>
+        <a href="{{ url_for('finance.add_financial') }}">Add</a>
+        <a href="{{ url_for('finance.view_financial') }}">View</a>
+        <a href="{{ url_for('finance.summary') }}">Summary</a>
+        <a href="{{ url_for('finance.budget') }}">Budget</a>
+        <a href="{{ url_for('finance.goals') }}">Goals</a>
+        <a href="{{ url_for('finance.accounts') }}">Accounts</a>
     </div>
 
 </div>
@@ -296,7 +296,7 @@
 
                 <!-- ACTION: Add Record / 操作：新增记录 -->
                 <a
-                href="/add"
+                href="{{ url_for('finance.add_financial') }}"
                 class="quick-action-card"
                 >
 
@@ -312,7 +312,7 @@
 
                 <!-- ACTION: Manage Budget / 操作：管理预算 -->
                 <a
-                href="/budget"
+                href="{{ url_for('finance.budget') }}"
                 class="quick-action-card"
                 >
 
@@ -328,7 +328,7 @@
 
                 <!-- ACTION: Savings Goals / 操作：储蓄目标 -->
                 <a
-                href="/goals"
+                href="{{ url_for('finance.goals') }}"
                 class="quick-action-card"
                 >
 
@@ -344,7 +344,7 @@
 
                 <!-- ACTION: Analytics / 操作：数据分析 -->
                 <a
-                href="/summary"
+                href="{{ url_for('finance.summary') }}"
                 class="quick-action-card"
                 >
 
@@ -392,7 +392,7 @@
             </div>
 
             <a
-            href="/view"
+            href="{{ url_for('finance.view_financial') }}"
             class="add-btn"
             >
 

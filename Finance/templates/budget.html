@@ -17,13 +17,13 @@
     </div>
 
     <div class="topbar-links">
-        <a href="/finance">Dashboard</a>
-        <a href="/add">Add</a>
-        <a href="/view">View</a>
-        <a href="/summary">Summary</a>
-        <a href="/budget" class="active-link">Budget</a>
-        <a href="/goals">Goals</a>
-        <a href="/accounts">Accounts</a>
+        <a href="{{ url_for('finance.finance_home') }}">Dashboard</a>
+        <a href="{{ url_for('finance.add_financial') }}">Add</a>
+        <a href="{{ url_for('finance.view_financial') }}">View</a>
+        <a href="{{ url_for('finance.summary') }}">Summary</a>
+        <a href="{{ url_for('finance.budget') }}" class="active-link">Budget</a>
+        <a href="{{ url_for('finance.goals') }}">Goals</a>
+        <a href="{{ url_for('finance.accounts') }}">Accounts</a>
     </div>
 
 </div>
@@ -148,8 +148,8 @@
                     </div>
 
                     <div class="budget-actions">
-                        <a href="/edit_budget/{{ b.category }}" class="budget-icon-btn" title="Edit">Edit</a>
-                        <form method="post" action="/delete_budget/{{ b.category }}" onsubmit="return confirm('Delete {{ b.category }} budget?')" style="display:inline;">
+                        <a href="{{ url_for('finance.edit_budget', category=b.category) }}" class="budget-icon-btn" title="Edit">Edit</a>
+                        <form method="post" action="{{ url_for('finance.delete_budget', category=b.category) }}" onsubmit="return confirm('Delete {{ b.category }} budget?')" style="display:inline;">
                             <button type="submit" class="budget-icon-btn budget-icon-del" title="Delete">✕</button>
                         </form>
                     </div>

@@ -11,13 +11,13 @@
 <div class="topbar">
     <div class="topbar-title">Accounts</div>
     <div class="topbar-links">
-        <a href="/finance">Dashboard</a>
-        <a href="/add">Add</a>
-        <a href="/view">View</a>
-        <a href="/summary">Summary</a>
-        <a href="/budget">Budget</a>
-        <a href="/goals">Goals</a>
-        <a href="/accounts" class="active-link">Accounts</a>
+        <a href="{{ url_for('finance.finance_home') }}">Dashboard</a>
+        <a href="{{ url_for('finance.add_financial') }}">Add</a>
+        <a href="{{ url_for('finance.view_financial') }}">View</a>
+        <a href="{{ url_for('finance.summary') }}">Summary</a>
+        <a href="{{ url_for('finance.budget') }}">Budget</a>
+        <a href="{{ url_for('finance.goals') }}">Goals</a>
+        <a href="{{ url_for('finance.accounts') }}" class="active-link">Accounts</a>
     </div>
 </div>
 
@@ -51,7 +51,7 @@
             </div>
             <div class="action-buttons" style="margin-top:16px;">
                 <button type="submit" class="primary-btn">Save Changes</button>
-                <a href="/accounts" class="secondary-btn">Cancel</a>
+                <a href="{{ url_for('finance.accounts') }}" class="secondary-btn">Cancel</a>
             </div>
         </form>
 

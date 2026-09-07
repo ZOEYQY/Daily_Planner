@@ -19,13 +19,13 @@
     </div>
 
     <div class="topbar-links">
-        <a href="/finance">Dashboard</a>
-        <a href="/add">Add</a>
-        <a href="/view">View</a>
-        <a href="/summary">Summary</a>
-        <a href="/budget" class="active-link">Budget</a>
-        <a href="/goals">Goals</a>
-        <a href="/accounts">Accounts</a>
+        <a href="{{ url_for('finance.finance_home') }}">Dashboard</a>
+        <a href="{{ url_for('finance.add_financial') }}">Add</a>
+        <a href="{{ url_for('finance.view_financial') }}">View</a>
+        <a href="{{ url_for('finance.summary') }}">Summary</a>
+        <a href="{{ url_for('finance.budget') }}" class="active-link">Budget</a>
+        <a href="{{ url_for('finance.goals') }}">Goals</a>
+        <a href="{{ url_for('finance.accounts') }}">Accounts</a>
     </div>
 
 </div>
@@ -114,7 +114,7 @@
             </button>
 
             <a
-                href="/budget"
+                href="{{ url_for('finance.budget') }}"
                 class="secondary-btn"
             >
                 Cancel

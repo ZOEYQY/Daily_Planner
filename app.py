@@ -1,14 +1,17 @@
 """
-Daily Planner — one entry point for Finance + Calendar.
+Daily Planner — one standalone entry point that combines Finance + Calendar.
 
     python app.py      ->  http://127.0.0.1:5050
 
-Home page links to:
-  * Finance   (/finance)   — the Flask finance app in Finance/
-  * Calendar  (/calendar)  — the static calendar app in Calendar/
+Home page (/) links to:
+  * Finance   (/finance/)   — the Flask finance app in Finance/
+  * Calendar  (/calendar/)  — the client-side calendar app in Calendar/
 
-Tuition is intentionally NOT linked here — it runs on its own
-(cd Tuition && python app.py, port 5058).
+Each module can also be run on its own:
+    cd Finance  && python app.py     (port 5050)
+    cd Calendar && python app.py     (port 5051)
+
+Tuition is a separate project and is intentionally not part of this app.
 """
 import os
 
@@ -47,14 +50,12 @@ HOME_HTML = """<!doctype html>
   a.card:hover { border-color:#2f4b7c; transform:translateY(-2px);
     box-shadow:0 2px 6px rgba(20,25,40,.06),0 14px 34px rgba(20,25,40,.08); }
   a.card .ico { font-size:2.4rem; }
-  .muted { color:#666d7d; font-size:.9rem; }
 </style></head><body>
   <h1>Daily Planner</h1>
   <div class="grid">
     <a class="card" href="/finance/"><span class="ico">$</span>Finance</a>
     <a class="card" href="/calendar/"><span class="ico">&#128197;</span>Calendar</a>
   </div>
-  <p class="muted">Tuition runs separately &mdash; <code>cd Tuition &amp;&amp; python app.py</code></p>
 </body></html>"""
 
 

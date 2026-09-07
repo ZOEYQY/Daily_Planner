@@ -11,13 +11,13 @@
 <div class="topbar">
     <div class="topbar-title">Accounts</div>
     <div class="topbar-links">
-        <a href="/finance">Dashboard</a>
-        <a href="/add">Add</a>
-        <a href="/view">View</a>
-        <a href="/summary">Summary</a>
-        <a href="/budget">Budget</a>
-        <a href="/goals">Goals</a>
-        <a href="/accounts" class="active-link">Accounts</a>
+        <a href="{{ url_for('finance.finance_home') }}">Dashboard</a>
+        <a href="{{ url_for('finance.add_financial') }}">Add</a>
+        <a href="{{ url_for('finance.view_financial') }}">View</a>
+        <a href="{{ url_for('finance.summary') }}">Summary</a>
+        <a href="{{ url_for('finance.budget') }}">Budget</a>
+        <a href="{{ url_for('finance.goals') }}">Goals</a>
+        <a href="{{ url_for('finance.accounts') }}" class="active-link">Accounts</a>
     </div>
 </div>
 
@@ -70,8 +70,8 @@
                         </div>
                     </div>
                     <div class="budget-actions">
-                        <a href="/edit_account/{{ acc.name }}" class="budget-icon-btn" title="Edit">Edit</a>
-                        <form method="post" action="/delete_account/{{ acc.name }}" onsubmit="return confirm('Delete account {{ acc.name }}? This will not delete its transactions.')" style="display:inline;">
+                        <a href="{{ url_for('finance.edit_account', name=acc.name) }}" class="budget-icon-btn" title="Edit">Edit</a>
+                        <form method="post" action="{{ url_for('finance.delete_account', name=acc.name) }}" onsubmit="return confirm('Delete account {{ acc.name }}? This will not delete its transactions.')" style="display:inline;">
                             <button type="submit" class="budget-icon-btn budget-icon-del" title="Delete">✕</button>
                         </form>
                     </div>
@@ -100,7 +100,7 @@
                 </div>
 
                 <!-- VIEW TRANSACTIONS -->
-                <a href="/view?account={{ acc.name }}" class="acc-view-btn">View Transactions →</a>
+                <a href="{{ url_for('finance.view_financial', account=acc.name) }}" class="acc-view-btn">View Transactions →</a>
 
             </div>
             {% endfor %}

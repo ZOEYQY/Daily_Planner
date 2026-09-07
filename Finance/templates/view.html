@@ -22,13 +22,13 @@
     </div>
 
     <div class="topbar-links">
-        <a href="/finance">Dashboard</a>
-        <a href="/add">Add</a>
-        <a href="/view" class="active-link">View</a>
-        <a href="/summary">Summary</a>
-        <a href="/budget">Budget</a>
-        <a href="/goals">Goals</a>
-        <a href="/accounts">Accounts</a>
+        <a href="{{ url_for('finance.finance_home') }}">Dashboard</a>
+        <a href="{{ url_for('finance.add_financial') }}">Add</a>
+        <a href="{{ url_for('finance.view_financial') }}" class="active-link">View</a>
+        <a href="{{ url_for('finance.summary') }}">Summary</a>
+        <a href="{{ url_for('finance.budget') }}">Budget</a>
+        <a href="{{ url_for('finance.goals') }}">Goals</a>
+        <a href="{{ url_for('finance.accounts') }}">Accounts</a>
     </div>
 
 </div>
@@ -64,7 +64,7 @@
             </div>
 
             <a
-            href="/add"
+            href="{{ url_for('finance.add_financial') }}"
             class="add-btn"
             >
 
@@ -201,7 +201,7 @@
             </button>
 
             <a
-                href="/view"
+                href="{{ url_for('finance.view_financial') }}"
                 class="secondary-btn"
             >
                 Reset
@@ -334,7 +334,7 @@
                         <div class="action-buttons">
 
                             <a
-                            href="/update/{{ r._global_idx }}"
+                            href="{{ url_for('finance.update_financial', idx=r._global_idx) }}"
                             class="edit-btn"
                             >
 
@@ -344,7 +344,7 @@
 
                             <form
                             method="post"
-                            action="/delete/{{ r._global_idx }}"
+                            action="{{ url_for('finance.delete_financial', idx=r._global_idx) }}"
                             onsubmit="return confirm('Delete this record?')"
                             style="display:inline;"
                             >

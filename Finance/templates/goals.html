@@ -20,13 +20,13 @@
     </div>
 
     <div class="topbar-links">
-        <a href="/finance">Dashboard</a>
-        <a href="/add">Add</a>
-        <a href="/view">View</a>
-        <a href="/summary">Summary</a>
-        <a href="/budget">Budget</a>
-        <a href="/goals" class="active-link">Goals</a>
-        <a href="/accounts">Accounts</a>
+        <a href="{{ url_for('finance.finance_home') }}">Dashboard</a>
+        <a href="{{ url_for('finance.add_financial') }}">Add</a>
+        <a href="{{ url_for('finance.view_financial') }}">View</a>
+        <a href="{{ url_for('finance.summary') }}">Summary</a>
+        <a href="{{ url_for('finance.budget') }}">Budget</a>
+        <a href="{{ url_for('finance.goals') }}" class="active-link">Goals</a>
+        <a href="{{ url_for('finance.accounts') }}">Accounts</a>
     </div>
 
 </div>
@@ -164,8 +164,8 @@
                         </div>
                     </div>
                     <div class="action-buttons">
-                        <a href="/edit_goal/{{ g.id }}" class="edit-btn">Edit</a>
-                        <form method="post" action="/delete_goal/{{ g.id }}" onsubmit="return confirm('Delete this goal?')" style="display:inline;">
+                        <a href="{{ url_for('finance.edit_goal', goal_id=g.id) }}" class="edit-btn">Edit</a>
+                        <form method="post" action="{{ url_for('finance.delete_goal', goal_id=g.id) }}" onsubmit="return confirm('Delete this goal?')" style="display:inline;">
                             <button type="submit" class="delete-btn">Delete</button>
                         </form>
                     </div>
@@ -225,18 +225,18 @@
                 <!-- QUICK STATUS ACTIONS -->
                 <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;">
                     {% if g.status == 'Paused' %}
-                    <form method="post" action="/resume_goal/{{ g.id }}" style="display:inline;">
+                    <form method="post" action="{{ url_for('finance.resume_goal', goal_id=g.id) }}" style="display:inline;">
                         <button type="submit" class="chip-btn">Resume</button>
                     </form>
                     {% else %}
-                    <form method="post" action="/pause_goal/{{ g.id }}" style="display:inline;">
+                    <form method="post" action="{{ url_for('finance.pause_goal', goal_id=g.id) }}" style="display:inline;">
                         <button type="submit" class="chip-btn">Pause</button>
                     </form>
                     {% endif %}
-                    <form method="post" action="/complete_goal/{{ g.id }}" style="display:inline;">
+                    <form method="post" action="{{ url_for('finance.complete_goal', goal_id=g.id) }}" style="display:inline;">
                         <button type="submit" class="chip-btn">Mark Complete</button>
                     </form>
-                    <form method="post" action="/cancel_goal/{{ g.id }}" onsubmit="return confirm('Cancel this goal?')" style="display:inline;">
+                    <form method="post" action="{{ url_for('finance.cancel_goal', goal_id=g.id) }}" onsubmit="return confirm('Cancel this goal?')" style="display:inline;">
                         <button type="submit" class="chip-btn">Cancel</button>
                     </form>
                 </div>
@@ -336,8 +336,8 @@
                         </div>
                     </div>
                     <div class="action-buttons">
-                        <a href="/edit_goal/{{ g.id }}" class="edit-btn">Edit</a>
-                        <form method="post" action="/delete_goal/{{ g.id }}" onsubmit="return confirm('Delete this goal?')" style="display:inline;">
+                        <a href="{{ url_for('finance.edit_goal', goal_id=g.id) }}" class="edit-btn">Edit</a>
+                        <form method="post" action="{{ url_for('finance.delete_goal', goal_id=g.id) }}" onsubmit="return confirm('Delete this goal?')" style="display:inline;">
                             <button type="submit" class="delete-btn">Delete</button>
                         </form>
                     </div>
@@ -397,18 +397,18 @@
                 <!-- QUICK STATUS ACTIONS -->
                 <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;">
                     {% if g.status == 'Paused' %}
-                    <form method="post" action="/resume_goal/{{ g.id }}" style="display:inline;">
+                    <form method="post" action="{{ url_for('finance.resume_goal', goal_id=g.id) }}" style="display:inline;">
                         <button type="submit" class="chip-btn">Resume</button>
                     </form>
                     {% else %}
-                    <form method="post" action="/pause_goal/{{ g.id }}" style="display:inline;">
+                    <form method="post" action="{{ url_for('finance.pause_goal', goal_id=g.id) }}" style="display:inline;">
                         <button type="submit" class="chip-btn">Pause</button>
                     </form>
                     {% endif %}
-                    <form method="post" action="/complete_goal/{{ g.id }}" style="display:inline;">
+                    <form method="post" action="{{ url_for('finance.complete_goal', goal_id=g.id) }}" style="display:inline;">
                         <button type="submit" class="chip-btn">Mark Complete</button>
                     </form>
-                    <form method="post" action="/cancel_goal/{{ g.id }}" onsubmit="return confirm('Cancel this goal?')" style="display:inline;">
+                    <form method="post" action="{{ url_for('finance.cancel_goal', goal_id=g.id) }}" onsubmit="return confirm('Cancel this goal?')" style="display:inline;">
                         <button type="submit" class="chip-btn">Cancel</button>
                     </form>
                 </div>
@@ -487,8 +487,8 @@
                         </div>
                     </div>
                     <div class="action-buttons">
-                        <a href="/edit_goal/{{ g.id }}" class="edit-btn">Edit</a>
-                        <form method="post" action="/delete_goal/{{ g.id }}" onsubmit="return confirm('Delete this goal?')" style="display:inline;">
+                        <a href="{{ url_for('finance.edit_goal', goal_id=g.id) }}" class="edit-btn">Edit</a>
+                        <form method="post" action="{{ url_for('finance.delete_goal', goal_id=g.id) }}" onsubmit="return confirm('Delete this goal?')" style="display:inline;">
                             <button type="submit" class="delete-btn">Delete</button>
                         </form>
                     </div>
@@ -519,7 +519,7 @@
                 {% endif %}
 
                 <div style="margin-top:12px;">
-                    <form method="post" action="/reopen_goal/{{ g.id }}" style="display:inline;">
+                    <form method="post" action="{{ url_for('finance.reopen_goal', goal_id=g.id) }}" style="display:inline;">
                         <button type="submit" class="chip-btn">Reopen Goal</button>
                     </form>
                 </div>
@@ -550,6 +550,12 @@
 </div>
 
 <script>
+
+// Route bases for URLs built in JS below. Taken from url_for() so they carry
+// whatever prefix the app is mounted under (e.g. "/finance" in the combined
+// Daily Planner app, "" when Finance runs standalone). idx=0 then trim the "0".
+const UPDATE_URL_BASE = "{{ url_for('finance.update_financial', idx=0) }}".slice(0, -1);
+const DELETE_URL_BASE = "{{ url_for('finance.delete_financial', idx=0) }}".slice(0, -1);
 
 // ================= SORT DROPDOWNS =================
 // ================= 排序下拉框 =================
@@ -599,7 +605,7 @@ function openContributions(contributions, goalName) {
                 '</div>' +
                 '<div style="display:flex;align-items:center;gap:12px;">' +
                     '<span style="font-size:14px;font-weight:700;">+RM ' + Number(c.amount).toFixed(2) + '</span>' +
-                    '<a href="/update/' + c.edit_idx + '?source=goal" title="Edit" style="text-decoration:none;font-size:13px;font-weight:700;">Edit</a>' +
+                    '<a href="' + UPDATE_URL_BASE + c.edit_idx + '?source=goal" title="Edit" style="text-decoration:none;font-size:13px;font-weight:700;">Edit</a>' +
                     '<a href="#" title="Delete" style="text-decoration:none;font-size:13px;font-weight:700;" onclick="deleteContribution(' + c.delete_idx + '); return false;">✕</a>' +
                 '</div>' +
             '</div>';
@@ -619,7 +625,7 @@ function deleteContribution(idx) {
     if (!confirm('Delete this contribution?')) return;
     const form = document.createElement('form');
     form.method = 'POST';
-    form.action = '/delete/' + idx;
+    form.action = DELETE_URL_BASE + idx;
     document.body.appendChild(form);
     form.submit();
 }
