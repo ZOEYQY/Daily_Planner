@@ -1,4 +1,7 @@
-from flask import Blueprint, render_template, request, redirect, url_for, Response
+from flask import Blueprint, render_template, request, redirect, url_for, Response, jsonify
+import base64
+import json
+import math
 import mimetypes
 import os
 import uuid
@@ -19,6 +22,15 @@ except ImportError:
         CATEGORY_MAP, BASE_DIR, DATA_DIR
     )
 
+# Load Finance/.env (if present) so OPENAI_API_KEY / OPENAI_RECEIPT_MODEL can
+# live in a file instead of the shell. Optional: a missing package or file is
+# a no-op, and real environment variables always win over the file.
+try:
+    from dotenv import load_dotenv
+    load_dotenv(os.path.join(BASE_DIR, ".env"))
+except ImportError:
+    pass
+
 finance_bp = Blueprint('finance', __name__, url_prefix='')
 
 # ================= FILE PATHS =================
@@ -31,6 +43,131 @@ f_goals = os.path.join(DATA_DIR, "goals.json")
 
 RECEIPTS_DIR = os.path.join(BASE_DIR, "static", "receipts")
 ALLOWED_EXTENSIONS = {"jpg", "jpeg", "png", "gif", "webp"}
+# AI receipt extraction reads the OpenAI credentials from the environment:
+#   OPENAI_API_KEY       - required; without it the "Extract with AI" button
+#                          returns a 503 and the form still works manually.
+#   OPENAI_RECEIPT_MODEL - optional; defaults to a small vision model.
+RECEIPT_ANALYSIS_MAX_BYTES = 5 * 1024 * 1024
+RECEIPT_ANALYSIS_TIMEOUT = 30  # seconds, so a hung request can't wedge a worker
+RECEIPT_MIME_TYPES = {
+    "jpg": "image/jpeg",
+    "jpeg": "image/jpeg",
+    "png": "image/png",
+    "gif": "image/gif",
+    "webp": "image/webp",
+}
+RECEIPT_RESPONSE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "merchant": {"type": ["string", "null"]},
+        "date": {"type": ["string", "null"]},
+        "total": {"type": ["number", "null"]},
+        "category": {"type": ["string", "null"], "enum": [*CATEGORY_MAP["expense"], None]},
+        "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
+    },
+    "required": ["merchant", "date", "total", "category", "confidence"],
+    "additionalProperties": False,
+}
+
+
+def _receipt_analysis_prompt():
+    categories = ", ".join(CATEGORY_MAP["expense"])
+    return f"""Extract transaction details from this receipt image.
+
+Use the final amount charged as total, not a subtotal, tax, discount, change,
+or a line-item amount. Do not invent a date, total, merchant, or category when
+the image is unclear. Dates must be normalized to ISO format; use null when the
+format is ambiguous. When selecting a category, use only one of: {categories}."""
+
+
+def _json_from_model_text(text):
+    """Accept plain JSON, and tolerate a Markdown code fence from a model."""
+    text = (text or "").strip()
+    if text.startswith("```"):
+        text = text.split("\n", 1)[1] if "\n" in text else ""
+        if text.endswith("```"):
+            text = text[:-3].strip()
+    start, end = text.find("{"), text.rfind("}")
+    if start == -1 or end < start:
+        raise ValueError("No JSON object in the model response")
+    data = json.loads(text[start:end + 1])
+    if not isinstance(data, dict):
+        raise ValueError("Receipt result was not an object")
+    return data
+
+
+def _normalise_receipt_result(result):
+    merchant = result.get("merchant")
+    merchant = merchant.strip()[:160] if isinstance(merchant, str) and merchant.strip() else None
+
+    date = result.get("date")
+    try:
+        date = datetime.strptime(date, "%Y-%m-%d").strftime("%Y-%m-%d") if isinstance(date, str) else None
+    except ValueError:
+        date = None
+
+    total = result.get("total")
+    try:
+        total = float(total)
+        if not math.isfinite(total) or total < 0:
+            total = None
+        elif total is not None:
+            total = round(total, 2)
+    except (TypeError, ValueError):
+        total = None
+
+    category = result.get("category")
+    category_lookup = {name.casefold(): name for name in CATEGORY_MAP["expense"]}
+    category = category_lookup.get(category.casefold()) if isinstance(category, str) else None
+
+    confidence = result.get("confidence")
+    confidence = confidence if confidence in {"high", "medium", "low"} else "low"
+
+    return {
+        "merchant": merchant,
+        "date": date,
+        "total": total,
+        "category": category,
+        "confidence": confidence,
+    }
+
+
+def _analyse_receipt(image_bytes, mime_type):
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        raise RuntimeError("Receipt analysis is not configured")
+
+    try:
+        from openai import OpenAI, AuthenticationError
+    except ImportError as exc:
+        raise RuntimeError("The OpenAI package is not installed") from exc
+
+    data_url = f"data:{mime_type};base64,{base64.b64encode(image_bytes).decode('ascii')}"
+    client = OpenAI(api_key=api_key, timeout=RECEIPT_ANALYSIS_TIMEOUT)
+    try:
+        response = client.responses.create(
+            model=os.environ.get("OPENAI_RECEIPT_MODEL", "gpt-4o-mini"),
+            store=False,
+            max_output_tokens=300,
+            text={
+                "format": {
+                    "type": "json_schema",
+                    "name": "receipt_fields",
+                    "strict": True,
+                    "schema": RECEIPT_RESPONSE_SCHEMA,
+                },
+            },
+            input=[{
+                "role": "user",
+                "content": [
+                    {"type": "input_text", "text": _receipt_analysis_prompt()},
+                    {"type": "input_image", "image_url": data_url, "detail": "high"},
+                ],
+            }],
+        )
+    except AuthenticationError as exc:
+        raise RuntimeError("Receipt analysis is not configured correctly") from exc
+    return _normalise_receipt_result(_json_from_model_text(response.output_text))
 
 def _allowed_file(filename):
     # 只要文件名里有"."，并且最后一段扩展名（小写化后）
@@ -57,6 +194,41 @@ def receipt_image(filename):
         return "", 404
     mimetype = mimetypes.guess_type(filename)[0] or "application/octet-stream"
     return Response(data, mimetype=mimetype)
+
+
+@finance_bp.route("/analyze-receipt", methods=["POST"])
+def analyze_receipt():
+    """Read an image without saving it, then return AI-suggested form fields."""
+    receipt_file = request.files.get("receipt")
+    if not receipt_file or not receipt_file.filename:
+        return jsonify(error="Choose a receipt image first."), 400
+    if not _allowed_file(receipt_file.filename):
+        return jsonify(error="Use a JPG, PNG, GIF, or WEBP receipt image."), 400
+
+    image_bytes = receipt_file.read(RECEIPT_ANALYSIS_MAX_BYTES + 1)
+    if not image_bytes:
+        return jsonify(error="The receipt image is empty."), 400
+    if len(image_bytes) > RECEIPT_ANALYSIS_MAX_BYTES:
+        return jsonify(error="Use a receipt image smaller than 5 MB for AI extraction."), 413
+
+    # _allowed_file() already guaranteed a "." and a known image extension;
+    # read it off the raw name (secure_filename can drop a non-ASCII stem
+    # entirely and leave nothing to split).
+    extension = receipt_file.filename.rsplit(".", 1)[1].lower()
+    mime_type = RECEIPT_MIME_TYPES.get(extension)
+    if not mime_type:
+        return jsonify(error="Use a JPG, PNG, GIF, or WEBP receipt image."), 400
+
+    try:
+        fields = _analyse_receipt(image_bytes, mime_type)
+    except RuntimeError as exc:
+        return jsonify(error=str(exc)), 503
+    except (ValueError, json.JSONDecodeError):
+        return jsonify(error="The receipt could not be read. Please enter the details manually."), 422
+    except Exception:
+        return jsonify(error="Receipt analysis is temporarily unavailable. Please try again or enter the details manually."), 502
+
+    return jsonify(fields=fields)
 
 def _goal_time_data(target_date_str, remaining_amount):
     # 根据目标日期和还差多少钱，算出：还剩几天/几个月、

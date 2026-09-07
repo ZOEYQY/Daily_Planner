@@ -416,6 +416,19 @@
                     class="receipt-input"
                 >
 
+                <div class="receipt-ai-row">
+                    <button
+                        type="button"
+                        id="receiptAnalyzeButton"
+                        class="receipt-ai-button"
+                        data-analyze-url="{{ url_for('finance.analyze_receipt') }}"
+                    >
+                        ✨ Extract details with AI
+                    </button>
+                    <span id="receiptAnalysisStatus" class="receipt-analysis-status" aria-live="polite"></span>
+                </div>
+                <p class="receipt-ai-note">AI sends the selected image for analysis, then suggests the merchant, date, total, and category. Review before saving.</p>
+
             </div>
 
             <!-- BUTTON -->
@@ -456,6 +469,8 @@
 {{ categories | tojson if categories else '{}' }}
 
 </script>
+
+<script src="{{ url_for('static', filename='receipt_ai.js') }}"></script>
 
 <script>
 
@@ -775,6 +790,24 @@ document.addEventListener("DOMContentLoaded", function () {
         "tabindex",
         "0"
     );
+
+    // AI receipt extraction fills the form fields directly; amount and
+    // category need the page's own setters since they aren't plain inputs.
+    window.initReceiptAssistant({
+        applyAmount: function(total) {
+            value = Math.round(total * 100);
+            updateAmount();
+        },
+        applyCategory: function(category) {
+            if (!categories.expense || !categories.expense.includes(category)) return false;
+            selectedCategory = category;
+            typeSelect.value = "expense";
+            updateCategory();
+            updateItemRequired();
+            updateTransferUI();
+            return true;
+        }
+    });
 
     amountDisplay.addEventListener(
         "keydown",
