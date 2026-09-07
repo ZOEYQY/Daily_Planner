@@ -71,8 +71,9 @@
                     </div>
                     <div class="budget-actions">
                         <a href="/edit_account/{{ acc.name }}" class="budget-icon-btn" title="Edit">Edit</a>
-                        <a href="/delete_account/{{ acc.name }}" class="budget-icon-btn budget-icon-del" title="Delete"
-                           onclick="return confirm('Delete account {{ acc.name }}? This will not delete its transactions.')">✕</a>
+                        <form method="post" action="/delete_account/{{ acc.name }}" onsubmit="return confirm('Delete account {{ acc.name }}? This will not delete its transactions.')" style="display:inline;">
+                            <button type="submit" class="budget-icon-btn budget-icon-del" title="Delete">✕</button>
+                        </form>
                     </div>
                 </div>
 

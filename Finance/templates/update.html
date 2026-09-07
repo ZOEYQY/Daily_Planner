@@ -415,6 +415,19 @@
                     class="receipt-input"
                 >
 
+                <div class="receipt-ai-row">
+                    <button
+                        type="button"
+                        id="receiptAnalyzeButton"
+                        class="receipt-ai-button"
+                        data-analyze-url="{{ url_for('finance.analyze_receipt') }}"
+                    >
+                        ✨ Extract details with AI
+                    </button>
+                    <span id="receiptAnalysisStatus" class="receipt-analysis-status" aria-live="polite"></span>
+                </div>
+                <p class="receipt-ai-note">AI sends the selected image for analysis and replaces matching fields with suggestions. Review before saving.</p>
+
             </div>
             {% endif %}
 
@@ -456,6 +469,8 @@
 
 </script>
 
+<script src="{{ url_for('static', filename='receipt_ai.js') }}"></script>
+
 <script>
 
 document.addEventListener("DOMContentLoaded", function () {
@@ -493,9 +508,11 @@ document.addEventListener("DOMContentLoaded", function () {
     const categorySelect =
         document.getElementById("categorySelect");
 
+    let applyReceiptCategory = function() {};
+
     if (typeSelect && categorySelect) {
 
-        const selectedCategory =
+        let selectedCategory =
             "{{ record.category or '' }}";
 
         function loadCategories() {
@@ -528,6 +545,14 @@ document.addEventListener("DOMContentLoaded", function () {
             }
 
         }
+
+        applyReceiptCategory = function(category) {
+            if (!categories.expense || !categories.expense.includes(category)) return false;
+            selectedCategory = category;
+            typeSelect.value = "expense";
+            loadCategories();
+            return true;
+        };
 
         typeSelect.addEventListener(
             "change",
@@ -637,6 +662,14 @@ document.addEventListener("DOMContentLoaded", function () {
         amountDisplay.textContent =
             formatted;
     }
+
+    window.initReceiptAssistant({
+        applyAmount: function(total) {
+            value = Math.round(total * 100);
+            updateAmount();
+        },
+        applyCategory: applyReceiptCategory
+    });
 
     amountDisplay.addEventListener(
         "keydown",

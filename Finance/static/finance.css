@@ -300,6 +300,51 @@ button:hover,
 
 .receipt-input{ display: none; }
 
+.receipt-ai-row{
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-top: 12px;
+}
+
+.receipt-ai-button{
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    color: var(--text-main);
+    cursor: pointer;
+    font: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 8px 12px;
+}
+
+.receipt-ai-button:hover:not(:disabled){
+    border-color: var(--text-main);
+    color: var(--text-main);
+}
+
+.receipt-ai-button:disabled{
+    cursor: wait;
+    opacity: .65;
+}
+
+.receipt-analysis-status{
+    color: var(--text-muted);
+    font-size: 12px;
+}
+
+.receipt-analysis-status.receipt-analysis-error{ color: #b42318; }
+.receipt-analysis-status.receipt-analysis-success{ color: #18794e; }
+
+.receipt-ai-note{
+    color: var(--text-muted);
+    font-size: 12px;
+    line-height: 1.45;
+    margin: 10px 0 0;
+}
+
 .receipt-current{
     display: flex;
     align-items: center;
@@ -435,6 +480,9 @@ button:hover,
     font-weight: 700;
     text-decoration: none;
     color: var(--text-main);
+    background: transparent;
+    font-family: inherit;
+    cursor: pointer;
 }
 
 .edit-btn:hover{ border-color: var(--border-strong); }
@@ -509,6 +557,9 @@ button:hover,
     font-weight: 700;
     text-decoration: none;
     color: var(--text-main);
+    background: transparent;
+    font-family: inherit;
+    cursor: pointer;
 }
 
 .chip-btn:hover{ border-color: var(--border-strong); }
@@ -677,6 +728,9 @@ button:hover,
     color: var(--text-main);
     font-size: 12px;
     font-weight: 700;
+    background: transparent;
+    font-family: inherit;
+    cursor: pointer;
 }
 
 .budget-icon-btn:hover{ border-color: var(--border-strong); }

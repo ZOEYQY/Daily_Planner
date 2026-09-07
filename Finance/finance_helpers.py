@@ -1,5 +1,6 @@
 import json
 import os
+import tempfile
 
 # ================= BASE =================
 # ================= 基础配置 =================
@@ -59,9 +60,24 @@ def load_data(path, default):
 
 
 def save_data(path, data):
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2)
+    # 先把内容写到同一个文件夹里的临时文件，再用 os.replace() 原子性地
+    # 换成正式文件名 —— 这样即使程序中途崩溃或被两个请求同时写入，
+    # 也不会留下一个写了一半、损坏掉的 JSON 文件。
+    # Writes to a temp file in the same folder first, then atomically
+    # swaps it into place with os.replace() — this way a crash mid-write,
+    # or two requests writing at the same time, can never leave behind a
+    # half-written, corrupted JSON file.
+    folder = os.path.dirname(path)
+    os.makedirs(folder, exist_ok=True)
+    fd, tmp_path = tempfile.mkstemp(dir=folder, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+        os.replace(tmp_path, path)
+    except Exception:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+        raise
 
 
 # ================= RAW FILE STORE (receipts) =================
@@ -69,9 +85,17 @@ def save_data(path, data):
 
 
 def save_file(path, content_bytes):
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "wb") as f:
-        f.write(content_bytes)
+    folder = os.path.dirname(path)
+    os.makedirs(folder, exist_ok=True)
+    fd, tmp_path = tempfile.mkstemp(dir=folder, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(content_bytes)
+        os.replace(tmp_path, path)
+    except Exception:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+        raise
 
 
 def load_file(path):

@@ -342,14 +342,14 @@
 
                             </a>
 
-                            <a
-                            href="/delete/{{ r._global_idx }}"
-                            class="delete-btn"
+                            <form
+                            method="post"
+                            action="/delete/{{ r._global_idx }}"
+                            onsubmit="return confirm('Delete this record?')"
+                            style="display:inline;"
                             >
-
-                                Delete
-
-                            </a>
+                                <button type="submit" class="delete-btn">Delete</button>
+                            </form>
 
                         </div>
 
