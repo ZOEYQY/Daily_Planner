@@ -42,7 +42,10 @@
     </div>
     {% endfor %}
   </div>
-  <div class="btn-row" style="margin-top:16px"><button class="btn primary">{{ t('save') }}</button></div>
+  <div class="btn-row" style="margin-top:16px">
+    <button class="btn primary">{{ t('save') }}</button>
+    <button class="btn" name="goto" value="finance" formnovalidate>{{ t('save') }} &amp; {{ t('nav_finance') }} &rarr;</button>
+  </div>
 </form>
 {{ makeup_dialog() }}
 {{ makeup_script() }}

@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "partials/macros.html" import money, pay_badge, student_badge, avatar %}
+{% from "partials/macros.html" import money, pay_badge, student_badge, avatar, receipt_field, receipt_script, edit_dates_btn, edit_dates_dialog %}
 {% block title %}{{ s.full_name }}{% endblock %}
 {% block content %}
 {% macro tablink(key, label) %}
@@ -68,8 +68,7 @@
     {% for row in enrollments if row.e.status == 'active' %}
       <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--line)">
         <span><a href="{{ url_for('classes.detail', cid=row.e.class_id) }}">{{ row.e.class_name }}</a></span>
-        <span class="muted">{{ money(row.fee.amount_cents) }}
-          <span class="badge b-grey">{{ t('own_rate') if row.fee.source=='own' else t('class_default') }}</span></span>
+        <span class="muted">{{ money(row.lesson_fee) }} /Class</span>
       </div>
     {% else %}<p class="muted">{{ t('none') }}</p>{% endfor %}
   </div>
@@ -109,6 +108,7 @@
       {% if e.status=='active' %}<span class="badge b-green">{{ t('st_active') }}</span>{% else %}<span class="badge b-grey">{{ t('st_left') }}</span>{% endif %}
     </div>
     <div class="btn-row">
+      {{ edit_dates_btn(e) }}
       {% if e.status == 'active' %}
       <form class="inline-form" method="post" action="{{ url_for('classes.end_enrollment', eid=e.id) }}">
         <input type="hidden" name="back" value="{{ url_for('students.detail', sid=s.id, tab='history') }}">
@@ -122,6 +122,7 @@
       {% endif %}
     </div>
   </div>
+  {{ edit_dates_dialog(e, url_for('students.detail', sid=s.id, tab='history')) }}
   {% else %}<div class="card"><p class="empty">{{ t('nothing_here') }}</p></div>{% endfor %}
 </div>
 
@@ -137,7 +138,7 @@
     <div class="field"><label>{{ t('start_date') }}</label><input type="date" name="start_date" value="{{ ym }}-01"></div>
   </div>
   <div class="grid c2">
-    <div class="field"><label>{{ t('amount') }} (RM / {{ t('month_word') }}) <span class="muted">({{ t('optional') }})</span></label><input type="number" step="1" name="fee_amount" placeholder="{{ t('class_default') }}"></div>
+    <div class="field"><label>{{ t('lesson_fee') }} <span class="muted">({{ t('optional') }})</span></label><input type="number" step="1" name="fee_amount" placeholder="{{ t('class_default') }}"></div>
     <div class="field"><label>{{ t('special_discount') }} (RM)</label><input type="number" step="1" name="fee_discount"></div>
   </div>
   <div class="btn-row"><button class="btn primary">{{ t('add') }}</button></div>
@@ -151,7 +152,8 @@
   {% for fx in fees %}
   <div class="entity-card">
     <div class="ec-head">
-      <div class="ec-grow"><div class="ec-name">{{ fx.class_name }}</div>
+      <div class="ec-grow"><div class="ec-name">{{ fx.class_name }}
+        <span class="badge b-grey">{{ t('fee_model_per_lesson') if fx.fee_model == 'per_lesson' else t('fee_model_monthly') }}</span></div>
         <div class="ec-sub">{{ fx.effective_from }}{% if fx.effective_to %} → {{ fx.effective_to }}{% endif %}</div>
       </div>
     </div>
@@ -176,7 +178,8 @@
       <select name="class_id">{% for c in all_classes %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}</select>
     </div>
     <div class="field"><label>{{ t('effective_from') }}</label><input type="date" name="effective_from" value="{{ ym }}-01"></div>
-    <div class="field"><label>{{ t('amount') }} (RM / {{ t('month_word') }})</label><input type="number" step="1" name="amount" required></div>
+    <input type="hidden" name="fee_model" value="per_lesson">
+    <div class="field"><label>{{ t('lesson_fee') }}</label><input type="number" step="1" name="amount" required></div>
     <div class="field"><label>{{ t('special_discount') }} (RM)</label><input type="number" step="1" name="discount"></div>
     <div class="field"><label>{{ t('remarks') }}</label><input type="text" name="remarks"></div>
   </div>
@@ -196,13 +199,38 @@
     </div>
     <div class="ec-rows">
       <div class="ec-row"><span class="k">{{ t('fin_due') }}</span><span class="v">{{ money(p.expected_cents) }}</span></div>
-      <div class="ec-row"><span class="k">{{ t('paid') }}</span><span class="v">{{ money(p.paid_cents) }}</span></div>
+      <div class="ec-row"><span class="k">{{ t('paid') }}</span><span class="v">{{ money(p.paid_cents) }}{% if p.method %} · {{ t('pm_' ~ p.method) }}{% endif %}</span></div>
       <div class="ec-row"><span class="k">{{ t('outstanding') }}</span><span class="v">{{ money([p.expected_cents - p.paid_cents, 0]|max) }}</span></div>
-      {% if p.receipt_path %}<div class="ec-row"><span class="k">{{ t('receipt') }}</span><span class="v"><a href="{{ url_for('finance.receipt', name=p.receipt_path) }}" target="_blank">📎</a></span></div>{% endif %}
+    </div>
+    <div class="btn-row">
+      <button class="btn sm" onclick="document.getElementById('pay{{ p.id }}').showModal()">{{ t('record_payment') }}</button>
+      {% if p.receipt_path %}<a class="btn sm" href="{{ url_for('finance.receipt', name=p.receipt_path) }}" target="_blank">📎 {{ t('view_receipt') }}</a>{% endif %}
     </div>
   </div>
+  <dialog id="pay{{ p.id }}">
+    <div class="dlg-head">{{ s.full_name }} · {{ p.class_name }} · {{ month_label(p.month) }}
+      <a href="#" onclick="event.preventDefault();this.closest('dialog').close()">✕</a></div>
+    <form method="post" action="{{ url_for('finance.pay', pid=p.id) }}" enctype="multipart/form-data">
+      <input type="hidden" name="back" value="{{ request.full_path }}">
+      <div class="field"><label>{{ t('expected_override') }}</label>
+        <input type="number" step="1" name="expected" placeholder="{{ (p.expected_cents/100)|int }}"></div>
+      <div class="field"><label>{{ t('amount_paid') }}</label>
+        <input type="number" step="0.01" name="amount" value="{{ (p.paid_cents/100) if p.paid_cents else (p.expected_cents/100)|int }}" autofocus></div>
+      <div class="grid c2">
+        <div class="field"><label>{{ t('payment_date') }}</label><input type="date" name="payment_date" value="{{ p.payment_date or today() }}"></div>
+        <div class="field"><label>{{ t('payment_method') }}</label>
+          <select name="method">{% for m in methods %}<option value="{{ m }}" {{ 'selected' if p.method==m }}>{{ t('pm_' ~ m) }}</option>{% endfor %}</select>
+        </div>
+      </div>
+      <div class="field"><label>{{ t('reference') }}</label><input type="text" name="reference" value="{{ p.reference or '' }}"></div>
+      <div class="field"><label>{{ t('remarks') }}</label><input type="text" name="remarks" value="{{ p.remarks or '' }}"></div>
+      {{ receipt_field(p.receipt_path, url_for('finance.receipt', name=p.receipt_path) if p.receipt_path else '') }}
+      <div class="btn-row"><button class="btn primary">{{ t('save') }}</button></div>
+    </form>
+  </dialog>
   {% else %}<div class="card"><p class="empty">{{ t('nothing_here') }}</p></div>{% endfor %}
 </div>
+{{ receipt_script() }}
 {% endif %}
 
 {# ── RESULTS ── #}

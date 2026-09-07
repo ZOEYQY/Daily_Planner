@@ -13,6 +13,7 @@ const UNDOABLE_KEYS = [
   "categories", "tasks", "events", "specialDays", "customFieldDefs", "customDates",
   "showWeekTray", "showDayTray", "showTodoTargetTab", "weekStartsOn", "dayStartHour",
   "todoDeadlineRequired", "todoShowDetail", "todoUrgentThresholdHours", "timePickerStyle",
+  "todoDisplayMode", "todoSortMode", "todoOrder",
 ];
 const HISTORY_LIMIT = 50;
 
@@ -27,6 +28,35 @@ function pruneStaleOccurrenceData(item, dateField) {
   }
   const doneDates = (item.doneDates || []).filter((d) => matchesPattern(item, d, dateField));
   return { ...item, exceptions, doneDates };
+}
+
+// A per-occurrence exception snapshots the item's shared metadata (title,
+// category, color, notes) alongside its own positional overrides — a drag/resize
+// bakes in the master's current values (see occurrenceException in dayGridView.js),
+// and a "this occurrence only" edit stores whatever the form held. So a later
+// whole-series edit that changes one of those shared fields would leave every
+// such occurrence stuck showing the pre-edit value ("换了名字，日历上还是旧名字").
+// This pushes a genuinely-changed shared field down into the surviving
+// exceptions so "edit all occurrences" really does reach all of them. Only
+// fields whose value actually changed are propagated — a series edit that just
+// moves the time leaves an individually-renamed occurrence's title alone.
+// Positional overrides (startTime/endTime/movedTo/scheduled) are never touched.
+const OCCURRENCE_SHARED_FIELDS = ["title", "categoryId", "colorId", "notes"];
+function syncExceptionsToSeries(nextItem, prevItem, patch) {
+  if (!isRepeating(nextItem) || !nextItem.exceptions) return nextItem;
+  const changed = OCCURRENCE_SHARED_FIELDS.filter((k) => k in patch && patch[k] !== prevItem[k]);
+  if (changed.length === 0) return nextItem;
+  const exceptions = {};
+  for (const [key, ex] of Object.entries(nextItem.exceptions)) {
+    if (ex && !ex.deleted && OCCURRENCE_SHARED_FIELDS.some((k) => k in ex)) {
+      const next = { ...ex };
+      for (const k of changed) next[k] = patch[k];
+      exceptions[key] = next;
+    } else {
+      exceptions[key] = ex;
+    }
+  }
+  return { ...nextItem, exceptions };
 }
 
 // A rule's weekday used to be a single number; it's now a `weekdays` array (one
@@ -115,6 +145,7 @@ function persist(state, userId) {
     categories, tasks, events, specialDays, customFieldDefs, customDates,
     showWeekTray, showDayTray, showTodoTargetTab, weekTrayCollapsed, dayTrayCollapsed,
     weekStartsOn, dayStartHour, todoDeadlineRequired, todoShowDetail, todoUrgentThresholdHours,
+    todoDisplayMode, todoSortMode, todoOrder, todoPanelCollapsed, todoPanelDate,
     timePickerStyle, categoryFilterActive, categoryFilterIds, view, cursorDate, modal,
   } = state;
   try {
@@ -140,6 +171,11 @@ function persist(state, userId) {
         todoDeadlineRequired,
         todoShowDetail,
         todoUrgentThresholdHours,
+        todoDisplayMode,
+        todoSortMode,
+        todoOrder,
+        todoPanelCollapsed,
+        todoPanelDate,
         timePickerStyle,
         categoryFilterActive,
         categoryFilterIds,
@@ -191,6 +227,33 @@ function initialState(userId = null) {
     // while the deadline hasn't already passed by a full day (that's the
     // existing "Overdue" styling's job instead, see isOverdue).
     todoUrgentThresholdHours: persisted?.todoUrgentThresholdHours ?? 24,
+    // "trays" (default) = to-dos surface in the Week/Day trays, same as always.
+    // "panel" = Week view shows a dedicated 5-day-wide To-Do side panel instead
+    // (see the todo-side-panel rendering in dayGridView.js) — to-dos stop being
+    // duplicated in the trays while it's active. A Settings toggle, so it's
+    // undoable like the rest of this section (see UNDOABLE_KEYS above).
+    todoDisplayMode: persisted?.todoDisplayMode || "trays",
+    // "deadline" (default) sorts the To-Do side panel / tray to-dos by their
+    // deadline time; "manual" uses todoOrder instead, letting the user drag
+    // to-dos into a hand-picked priority order (drag handles only show in the
+    // side panel while this is "manual"). A Settings toggle, undoable.
+    todoSortMode: persisted?.todoSortMode || "deadline",
+    // Hand-picked to-do priority order (task ids, front = highest priority) —
+    // only consulted while todoSortMode is "manual". Ids missing from here
+    // (e.g. a to-do created since the last reorder) sort last, keeping their
+    // natural order. Undoable alongside todoSortMode.
+    todoOrder: persisted?.todoOrder ?? [],
+    // Session hide/show for the To-Do side panel itself — its "Hide" (✕) button
+    // collapses it to a small right-edge chevron button, which clicks it back
+    // open (see todoSidePanelHTML in dayGridView.js). Distinct from todoDisplayMode
+    // (the master on/off switch). Persisted but deliberately not undoable, same
+    // as weekTrayCollapsed/dayTrayCollapsed below.
+    todoPanelCollapsed: persisted?.todoPanelCollapsed ?? false,
+    // Which day the To-Do side panel is scoped to — the date column the user
+    // last clicked in Week view, defaulting to today. Snapped back into the
+    // visible 5-day window on render (see dayGridView.js). A view preference
+    // like cursorDate: persisted, not undoable.
+    todoPanelDate: persisted?.todoPanelDate || toISODate(today()),
     // "native" (browser's own time picker), "text" (type e.g. "2:30 PM"), or
     // "clock" (tap-to-select dial popup) — see timeInput.js, used by every
     // time field in the app (Add/Edit modal's Start/End, the To-Do deadline).
@@ -354,7 +417,9 @@ class Store {
   // or anchor date actually changes — see updateTaskOccurrence for single-occurrence edits.
   updateTask(id, patch) {
     this.set((s) => ({
-      tasks: s.tasks.map((t) => (t.id === id ? pruneStaleOccurrenceData({ ...t, ...patch }, "dueDate") : t)),
+      tasks: s.tasks.map((t) =>
+        t.id === id ? syncExceptionsToSeries(pruneStaleOccurrenceData({ ...t, ...patch }, "dueDate"), t, patch) : t
+      ),
     }));
   }
 
@@ -422,7 +487,9 @@ class Store {
 
   updateEvent(id, patch) {
     this.set((s) => ({
-      events: s.events.map((e) => (e.id === id ? pruneStaleOccurrenceData({ ...e, ...patch }, "date") : e)),
+      events: s.events.map((e) =>
+        e.id === id ? syncExceptionsToSeries(pruneStaleOccurrenceData({ ...e, ...patch }, "date"), e, patch) : e
+      ),
     }));
   }
 
@@ -551,6 +618,36 @@ class Store {
 
   setTodoUrgentThresholdHours(hours) {
     this.set({ todoUrgentThresholdHours: hours });
+  }
+
+  setTodoDisplayMode(mode) {
+    this.set({ todoDisplayMode: mode });
+  }
+
+  // "deadline" | "manual" — see todoSortMode in initialState().
+  setTodoSortMode(mode) {
+    this.set({ todoSortMode: mode });
+  }
+
+  // Full replacement of the hand-picked to-do order (task ids). Called by the
+  // side panel's drag-to-reorder — see todoOrder in initialState(). Dragging a
+  // to-do into a new position *is* the gesture for "I want manual order now",
+  // so this flips todoSortMode to "manual" too (the Settings toggle switches
+  // back to "deadline", which ignores todoOrder without discarding it).
+  setTodoOrder(ids) {
+    this.set({ todoOrder: [...ids], todoSortMode: "manual" });
+  }
+
+  // Session hide/show for the To-Do side panel — see todoPanelCollapsed's
+  // comment in initialState() for how this differs from setTodoDisplayMode.
+  setTodoPanelCollapsed(collapsed) {
+    this.set({ todoPanelCollapsed: collapsed });
+  }
+
+  // Which day the day-scoped To-Do panel shows — set by clicking a date
+  // column header in Week view. A view preference, not undoable (like cursorDate).
+  setTodoPanelDate(isoDate) {
+    this.set({ todoPanelDate: isoDate });
   }
 
   setTimePickerStyle(style) {

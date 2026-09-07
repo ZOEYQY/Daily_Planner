@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block title %}{{ t('nav_bills') }}{% endblock %}
+{% block content %}
+<div class="toolbar">
+  <h1>{{ t('nav_bills') }}</h1>
+  <span class="spacer"></span>
+  <span class="month-nav">
+    <a href="{{ url_for('bills.index', month=prev_month) }}">&larr;</a>
+    <span>{{ month_label(ym) }}</span>
+    <a href="{{ url_for('bills.index', month=next_month) }}">&rarr;</a>
+  </span>
+</div>
+
+<p class="muted rc-hint">{{ t('bills_hint') }}</p>
+
+{% macro bill_card(name, total, text, sid=None) -%}
+<div class="card bill-card">
+  <div class="bill-card-head">
+    <strong>{% if sid %}<a href="{{ url_for('students.detail', sid=sid) }}">{{ name }}</a>{% else %}{{ name }}{% endif %}</strong>
+    <span class="muted">RM {{ rm(total) }}</span>
+    {% if sid %}<a class="muted" style="font-size:.8rem" href="{{ url_for('students.edit', sid=sid) }}">· {{ t('bills_join_family') }}</a>{% endif %}
+    <span class="spacer"></span>
+    <button type="button" class="btn sm primary" onclick="copyBill(this)">{{ t('bill_copy') }}</button>
+  </div>
+  <pre class="bill-text">{{ text }}</pre>
+</div>
+{%- endmacro %}
+
+{% if not student_cards and not family_cards and not agent_cards and not unbilled %}
+  <div class="card muted">{{ t('bill_none') }}</div>
+{% endif %}
+
+{% if unbilled %}
+<div class="section-title"><h3>⚠ {{ t('bills_unbilled') }}</h3></div>
+<p class="muted rc-hint">{{ t('bills_unbilled_hint') }}</p>
+<div class="card">
+  {% for u in unbilled %}
+  <div class="ec-row" style="padding:6px 0">
+    <span class="k"><a href="{{ url_for('classes.detail', cid=u.id, tab='finance', month=ym) }}">{{ u.name }}</a>
+      <span class="badge b-grey">{{ t('bm_' ~ u.bill_mode) }}</span></span>
+    <span class="v muted">{{ t('bill_reason_' ~ u.reason) }}
+      {% if u.reason in ('no_billed_family', 'no_agent') %}
+        · <a href="{{ url_for('classes.edit', cid=u.id) }}">{{ t('edit') }}</a>
+      {% endif %}
+    </span>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+{% if agent_cards %}
+<div class="section-title"><h3>{{ t('bills_agent') }}</h3></div>
+{% for c in agent_cards %}{{ bill_card(c.name, c.total, c.text) }}{% endfor %}
+{% endif %}
+
+{% if family_cards %}
+<div class="section-title"><h3>{{ t('bills_family') }}</h3></div>
+{% for c in family_cards %}{{ bill_card(c.name, c.total, c.text) }}{% endfor %}
+{% endif %}
+
+{% if student_cards %}
+<div class="section-title"><h3>{{ t('bills_individual') }}</h3></div>
+{% for c in student_cards %}{{ bill_card(c.name, c.total, c.text, c.sid) }}{% endfor %}
+{% endif %}
+
+<script>
+function copyBill(btn){
+  var txt = btn.closest('.bill-card').querySelector('.bill-text').textContent;
+  var done = function(){
+    var old = btn.textContent;
+    btn.textContent = {{ t('bill_copied')|tojson }};
+    btn.disabled = true;
+    setTimeout(function(){ btn.textContent = old; btn.disabled = false; }, 2000);
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(txt).then(done, function(){ fallback(txt); done(); });
+  } else { fallback(txt); done(); }
+  function fallback(t){
+    var ta = document.createElement('textarea');
+    ta.value = t; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); } catch(e){}
+    document.body.removeChild(ta);
+  }
+}
+</script>
+{% endblock %}

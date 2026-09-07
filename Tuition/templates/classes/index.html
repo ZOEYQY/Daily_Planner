@@ -38,10 +38,11 @@
 {% endmacro %}
 
 {% set one2one = classes | selectattr('c.kind', 'equalto', '1v1') | list %}
+{% set one2three = classes | selectattr('c.kind', 'equalto', '1v3') | list %}
 {% set smallcls = classes | selectattr('c.kind', 'equalto', 'small') | list %}
-{% set others = classes | rejectattr('c.kind', 'in', ['1v1', 'small']) | list %}
+{% set others = classes | rejectattr('c.kind', 'in', ['1v1', '1v3', 'small']) | list %}
 
-{% for glabel, rows in [(t('kind_1v1'), one2one), (t('kind_small'), smallcls), (t('nav_classes'), others)] %}
+{% for glabel, rows in [(t('kind_1v1'), one2one), (t('kind_1v3'), one2three), (t('kind_small'), smallcls), (t('nav_classes'), others)] %}
   {% if rows %}
     <div class="section-title" style="margin-top:22px"><h2>{{ glabel }} <span class="muted">· {{ rows|length }}</span></h2></div>
     <div class="card-grid">{% for row in rows %}{{ class_card(row) }}{% endfor %}</div>

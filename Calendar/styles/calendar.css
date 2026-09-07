@@ -311,6 +311,18 @@
 }
 
 /* ---------- Time-grid view (Week / Day / Custom) ---------- */
+/* Only present when the To-Do side panel is active (state.todoDisplayMode
+   === "panel", Week view — see dayGridView.js/renderDayGridView); otherwise
+   .timegrid is #calendar-body's direct child, unchanged from before this
+   existed. Takes over the flex:1 1 auto sizing .timegrid used to own alone,
+   so the panel gets a fixed width alongside a still-fluid grid. */
+.timegrid-with-panel {
+  flex: 1 1 auto;
+  display: flex;
+  gap: 12px;
+  min-height: 0;
+}
+
 .timegrid {
   flex: 1 1 auto;
   display: flex;
@@ -320,6 +332,10 @@
   background: var(--color-surface);
   overflow: hidden;
   min-height: 0;
+  /* Only matters as a .timegrid-with-panel row-item (see above) — lets the
+     grid shrink below its content's intrinsic width instead of pushing the
+     panel out, same reasoning as .timegrid-col's own min-width:0. */
+  min-width: 0;
 }
 
 .timegrid-headrow {
@@ -347,6 +363,20 @@
 }
 .timegrid-head-col:last-child {
   border-right: none;
+}
+
+/* Week view, To-Do panel open: the date headers become the day-picker for the
+   panel (see .is-todo-pickable wiring in dayGridView.js). */
+.timegrid-head-col.is-todo-pickable {
+  cursor: pointer;
+}
+.timegrid-head-col.is-todo-pickable:hover {
+  background: var(--color-surface-alt);
+}
+.timegrid-head-col.is-todo-selected,
+.timegrid-head-col.is-todo-selected:hover {
+  background: var(--color-hover);
+  box-shadow: inset 0 -2px 0 var(--color-active);
 }
 
 .daygrid-head-weekday {
@@ -756,25 +786,29 @@
 .unscheduled-chip.is-resched-1:not(.is-dragging),
 .day-tray-chip.is-resched-1:not(.is-dragging),
 .task-chip.is-resched-1,
+.todo-panel-row.is-resched-1,
 .timegrid-task-block.is-resched-1:not(.is-dragging) {
   box-shadow: 0 0 0 1px rgba(11, 11, 11, 0.16);
 }
 .unscheduled-chip.is-resched-2:not(.is-dragging),
 .day-tray-chip.is-resched-2:not(.is-dragging),
 .task-chip.is-resched-2,
+.todo-panel-row.is-resched-2,
 .timegrid-task-block.is-resched-2:not(.is-dragging) {
   box-shadow: 0 0 0 1.5px rgba(11, 11, 11, 0.32);
 }
 .unscheduled-chip.is-resched-3:not(.is-dragging),
 .day-tray-chip.is-resched-3:not(.is-dragging),
 .task-chip.is-resched-3,
+.todo-panel-row.is-resched-3,
 .timegrid-task-block.is-resched-3:not(.is-dragging) {
   box-shadow: 0 0 0 2px rgba(11, 11, 11, 0.55);
 }
 
 /* Overdue — a muted amber, not red, and only ever on the border/text, never a filled background. */
 .day-tray-chip.is-overdue,
-.task-chip.is-overdue {
+.task-chip.is-overdue,
+.todo-panel-row.is-overdue {
   border-color: rgba(158, 108, 22, 0.5);
   box-shadow: 0 0 0 1px rgba(158, 108, 22, 0.22);
 }
@@ -787,10 +821,202 @@
    styling above, since red specifically was asked for here as a distinct,
    more urgent signal than "this is late" — background stays untinted either
    way, just the border/text carry the color. */
-.day-tray-chip.is-todo-urgent {
+.day-tray-chip.is-todo-urgent,
+.todo-panel-row.is-todo-urgent {
   border-color: rgba(196, 30, 30, 0.55);
   box-shadow: 0 0 0 1px rgba(196, 30, 30, 0.25);
   color: #b31f1f;
+}
+
+/* A to-do whose deadline has been pushed to a later day at least once
+   (rescheduleCount > 0 — see todoPostponedClass in dayGridView.js). Reads red
+   like the urgent styling above, a "you're slipping on this" flag; the ↻
+   prefix the chip renderers already add on any rescheduleCount rides along. */
+.day-tray-chip.is-todo-postponed,
+.unscheduled-chip.is-todo-postponed,
+.task-chip.is-todo-postponed,
+.todo-panel-row.is-todo-postponed {
+  border-color: rgba(196, 30, 30, 0.6);
+  box-shadow: 0 0 0 1px rgba(196, 30, 30, 0.3);
+  color: #b31f1f;
+}
+
+/* ---------- To-Do side panel (state.todoDisplayMode === "panel") ---------- */
+/* Collapsed state (panel's ✕ / "Hide" button): just a small chevron button
+   tucked against the right edge, vertically centered — click to reopen. */
+.todo-panel-reopen {
+  flex: 0 0 auto;
+  align-self: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 44px;
+  padding: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+  color: var(--color-muted);
+}
+.todo-panel-reopen:hover {
+  background: var(--color-hover);
+  color: var(--color-ink);
+  border-color: var(--color-border-strong);
+}
+
+.todo-side-panel {
+  flex: 0 0 260px;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  overflow: hidden;
+  min-height: 0;
+}
+
+.todo-side-panel-header {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface-alt);
+}
+
+.todo-side-panel-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-ink-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.todo-side-panel-icon-btn {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1px solid var(--color-border-strong);
+  background: transparent;
+  color: var(--color-ink-secondary);
+}
+.todo-side-panel-icon-btn:hover {
+  background: var(--color-hover);
+  color: var(--color-ink);
+}
+
+.todo-side-panel-hide-btn {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px 8px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--color-border-strong);
+  background: transparent;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-ink-secondary);
+}
+.todo-side-panel-hide-btn:hover {
+  background: var(--color-hover);
+  color: var(--color-ink);
+}
+
+.todo-side-panel-sort {
+  flex: 0 0 auto;
+  align-self: flex-start;
+  margin: 6px 10px 0;
+  padding: 2px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+  color: var(--color-muted);
+  font-size: 11px;
+  cursor: pointer;
+}
+.todo-side-panel-sort:hover {
+  background: var(--color-hover);
+  color: var(--color-ink);
+}
+
+.todo-side-panel-list {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+}
+
+.todo-side-panel-empty {
+  margin: auto;
+}
+
+.todo-panel-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--chip-color, var(--color-muted)) 10%, var(--color-surface));
+  border: 1px solid color-mix(in srgb, var(--chip-color, var(--color-muted)) 32%, var(--color-border));
+  cursor: pointer;
+}
+.todo-panel-row .timegrid-task-checkbox {
+  margin-top: 2px;
+}
+
+/* Grip handle — only rendered while Settings › To-Do › Sort By is "Manual"
+   (see todoPanelRow's `reorderable`). Drag it to reorder; a plain click on the
+   row still opens the edit popup. */
+.todo-panel-row-handle {
+  flex: 0 0 auto;
+  align-self: center;
+  margin: 0 -4px 0 -4px;
+  padding: 2px 1px;
+  color: var(--color-muted);
+  font-size: 15px;
+  line-height: 1;
+  letter-spacing: -1px;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+.todo-panel-row-handle:hover {
+  color: var(--color-ink);
+}
+.todo-panel-row.is-reordering {
+  opacity: 0.9;
+  box-shadow: 0 4px 14px rgba(11, 11, 11, 0.22);
+  cursor: grabbing;
+}
+
+.todo-panel-row-body {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.todo-panel-row-title {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--color-ink);
+  overflow-wrap: anywhere;
+}
+
+.todo-panel-row-deadline {
+  font-size: 10.5px;
+  color: var(--color-muted);
 }
 
 .reschedule-badge {
@@ -1038,6 +1264,13 @@
 .timegrid-event.is-compact .timegrid-event-title,
 .timegrid-task-block.is-compact .timegrid-event-title {
   font-size: 11px;
+}
+/* Compact events show the bare title (no header panel), so it doesn't inherit
+   .timegrid-event-panel's text-align:center the way a non-compact event's does
+   — center it here so both read the same. Scoped to events only; a compact
+   task keeps its title left-aligned next to the checkbox in .timegrid-task-block-row. */
+.timegrid-event.is-compact .timegrid-event-title {
+  text-align: center;
 }
 /* Compact events (<40px tall, title only, no panels — see the `compact` check
    in dayGridView.js) keep the tight pre-existing padding; there's no room for

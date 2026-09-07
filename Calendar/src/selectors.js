@@ -189,10 +189,29 @@ export function scheduledTasksOnDate(state, iso) {
   ).sort((a, b) => a.startTime.localeCompare(b.startTime));
 }
 
+// Orders a list of to-do tasks: by deadline time (default), or by the user's
+// hand-picked todoOrder when Settings' "Sort To-Dos By" is set to "manual".
+// Ids missing from todoOrder sort last, keeping their incoming order (sort is
+// stable). Callers pass a to-do-only list — plain tasks keep their own order.
+export function sortTodos(state, todos) {
+  if (state?.todoSortMode === "manual") {
+    const order = state.todoOrder || [];
+    const rank = (t) => {
+      const i = order.indexOf(t.id);
+      return i === -1 ? Number.MAX_SAFE_INTEGER : i;
+    };
+    return [...todos].sort((a, b) => rank(a) - rank(b));
+  }
+  return [...todos].sort((a, b) => (a.startTime || "99:99").localeCompare(b.startTime || "99:99"));
+}
+
 // Fully unscheduled: no date, no time — "sometime this week". A task needs a date
 // before it can repeat, so this list never contains recurring items by construction.
 export function getWeekUnscheduledTasks(state) {
-  return getVisibleTasks(state).filter((t) => !t.scheduled && !t.dueDate);
+  const list = getVisibleTasks(state).filter((t) => !t.scheduled && !t.dueDate);
+  const plain = list.filter((t) => !t.isTodo);
+  const todos = sortTodos(state, list.filter((t) => t.isTodo));
+  return [...plain, ...todos];
 }
 
 // Fully unscheduled: no date, no time — "sometime this week". Same construction
@@ -236,14 +255,42 @@ export function getDayUnscheduledTasks(state, iso) {
   const todayISO = toISODate(today());
   if (iso === todayISO) {
     const rolled = todoTasks.filter((t) => t.dueDate <= todayISO).map((t) => resolveOccurrence(t, t.dueDate, "dueDate"));
-    return [...plain, ...rolled];
+    return [...plain, ...sortTodos(state, rolled)];
   }
   const notYetDue = occurrencesOnDate(
     todoTasks.filter((t) => t.dueDate > todayISO),
     iso,
     "dueDate"
   );
-  return [...plain, ...notYetDue];
+  return [...plain, ...sortTodos(state, notYetDue)];
+}
+
+// Whether the To-Do side panel is actually showing right now — Week or Day
+// view, the "panel" mode picked in Settings, and not collapsed to its edge tab
+// via the panel's own Hide (✕) button. Shared by dayGridView.js (what to
+// render) and calendarHeader.js (which guards its 5-day-at-a-time nav to Week
+// view only) so the two can never disagree about when panel mode is "on".
+export function isTodoPanelOpen(state) {
+  return (state.view === "week" || state.view === "day") && state.todoDisplayMode === "panel" && !state.todoPanelCollapsed;
+}
+
+// The To-Do side panel is day-scoped (see dayGridView.js, active when
+// state.todoDisplayMode is "panel"): it shows the open to-dos for the one
+// day column the user picked. A future day shows only to-dos whose deadline
+// is that exact day; "today" also sweeps in everything overdue (deadline
+// already past) and everything with no deadline set — the same "roll it
+// forward onto today until it's done" rule getDayUnscheduledTasks uses for
+// the Day tray. A past day shows nothing (those to-dos rolled onto today).
+// Sorted by deadline time, no-time last.
+export function getDayTodos(state, iso) {
+  const todayISO = toISODate(today());
+  const open = getVisibleTasks(state).filter((t) => t.isTodo && !t.done);
+  const forDay = open.filter((t) =>
+    iso === todayISO
+      ? !t.dueDate || t.dueDate <= todayISO
+      : t.dueDate === iso && iso > todayISO
+  );
+  return sortTodos(state, forDay);
 }
 
 // Whether an open to-do's chip should switch to its urgent/red styling —

@@ -38,11 +38,15 @@ def index():
 
     class_rev = query(
         """SELECT c.name,
-                  COALESCE(SUM(p.expected_cents),0) expected,
-                  COALESCE(SUM(p.paid_cents),0) collected
+                  COALESCE(SUM(p.expected_cents),0)
+                    + COALESCE((SELECT expected_cents FROM class_bills
+                                 WHERE class_id=c.id AND month=?),0) expected,
+                  COALESCE(SUM(p.paid_cents),0)
+                    + COALESCE((SELECT paid_cents FROM class_bills
+                                 WHERE class_id=c.id AND month=?),0) collected
              FROM classes c
              LEFT JOIN payments p ON p.class_id = c.id AND p.month = ?
-            GROUP BY c.id ORDER BY collected DESC""", (ym,))
+            GROUP BY c.id ORDER BY collected DESC""", (ym, ym, ym))
 
     # 12-month revenue trend (closed snapshots, else live)
     trend = []

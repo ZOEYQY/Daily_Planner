@@ -6,8 +6,8 @@ from ..auth import login_required
 from ..db import query, execute, log
 from ..i18n import t
 from ..util import derive_full_name, pick_avatar_color, age_from_dob, parse_int, smartcase
-from ..engine import (this_month, resolve_fee, month_bounds, to_cents, rm,
-                      billed_expected_for, attendance_stats)
+from ..engine import (this_month, resolve_lesson_fee, month_bounds, to_cents, rm,
+                      billed_expected_for, attendance_stats, PAYMENT_METHODS)
 
 bp = Blueprint("students", __name__)
 
@@ -145,10 +145,8 @@ def detail(sid):
              FROM enrollments e JOIN classes c ON c.id = e.class_id
             WHERE e.student_id = ? ORDER BY e.status='ended', e.start_date DESC""", (sid,))
     today = this_month() + "-28"
-    enr_view = []
-    for e in enrollments:
-        fee = resolve_fee(sid, e["class_id"], today)
-        enr_view.append({"e": e, "fee": fee})
+    enr_view = [{"e": e, "lesson_fee": resolve_lesson_fee(sid, e["class_id"], today)}
+                for e in enrollments]
 
     fees = query(
         """SELECT fx.*, c.name AS class_name FROM fees fx
@@ -197,7 +195,7 @@ def detail(sid):
         "students/detail.html", s=s, tab=tab, parents=parents,
         enrollments=enr_view, fees=fees, academic=academic, spark=spark,
         payments=payments, att=att, subjects=_subjects(), ym=ym, statuses=STATUSES,
-        all_classes=all_classes, active_class_ids=active_class_ids,
+        all_classes=all_classes, active_class_ids=active_class_ids, methods=PAYMENT_METHODS,
         family=family, siblings=siblings)
 
 
@@ -306,12 +304,11 @@ def enroll(sid):
     execute("INSERT INTO enrollments (student_id, class_id, start_date, status) VALUES (?,?,?,'active')",
             (sid, class_id, start))
     if (f.get("fee_amount") or "").strip():
-        model = "monthly"
         execute(
             """INSERT INTO fees (student_id, class_id, fee_model, amount_cents, discount_cents,
                                  effective_from, remarks)
-               VALUES (?,?,?,?,?,?,?)""",
-            (sid, class_id, model, to_cents(f.get("fee_amount")), to_cents(f.get("fee_discount")),
+               VALUES (?,?,'per_lesson',?,?,?,?)""",
+            (sid, class_id, to_cents(f.get("fee_amount")), to_cents(f.get("fee_discount")),
              start, "set on enrollment"))
     else:
         cls = query("SELECT pricing FROM classes WHERE id = ?", (class_id,), one=True)
@@ -332,12 +329,13 @@ def add_fee(sid):
     if not class_id:
         flash("Choose a class.", "error")
         return redirect(url_for("students.detail", sid=sid, tab="finance"))
-    model = "monthly"
+    model = "per_lesson" if f.get("fee_model") == "per_lesson" else "monthly"
     eff = f.get("effective_from") or (this_month() + "-01")
-    # close the previous open fee for this student+class
+    # close the previous open fee of the SAME model for this student+class
     prev = query(
-        """SELECT id FROM fees WHERE student_id=? AND class_id=? AND (effective_to IS NULL OR effective_to='')
-             ORDER BY effective_from DESC LIMIT 1""", (sid, class_id), one=True)
+        """SELECT id FROM fees WHERE student_id=? AND class_id=? AND fee_model=?
+             AND (effective_to IS NULL OR effective_to='')
+             ORDER BY effective_from DESC LIMIT 1""", (sid, class_id, model), one=True)
     if prev:
         execute("UPDATE fees SET effective_to = date(?, '-1 day') WHERE id = ?", (eff, prev["id"]))
     execute(

@@ -157,6 +157,19 @@ function renderCategoriesTab(body, state, actions) {
       </div>
       <div class="settings-field-label">Turn Red This Many Hours Before Deadline</div>
       <input type="number" class="settings-select" id="todo-urgent-hours" min="1" step="1" value="${state.todoUrgentThresholdHours ?? 24}" style="max-width:100px;" />
+      <div class="settings-field-label">To-Do List Location</div>
+      <div class="type-toggle" id="todo-display-mode-toggle">
+        <button type="button" data-mode="trays" class="${(state.todoDisplayMode || "trays") === "trays" ? "active" : ""}">In Day/Week Trays</button>
+        <button type="button" data-mode="panel" class="${state.todoDisplayMode === "panel" ? "active" : ""}">Side Panel (Week / Day view)</button>
+      </div>
+      <div class="settings-field-label">Sort To-Dos By</div>
+      <div class="type-toggle" id="todo-sort-mode-toggle">
+        <button type="button" data-mode="deadline" class="${(state.todoSortMode || "deadline") === "deadline" ? "active" : ""}">Deadline</button>
+        <button type="button" data-mode="manual" class="${state.todoSortMode === "manual" ? "active" : ""}">My order</button>
+      </div>
+      <p style="font-size:12px; color:var(--color-muted); line-height:1.5; margin:6px 0 0;">
+        Drag a to-do by its ⠿ handle in the side panel to reorder — that switches this to “My order” automatically.
+      </p>
     </div>
 
     <div class="settings-section">
@@ -198,6 +211,12 @@ function wireTodoSettings(body, state, actions) {
     const hours = Math.max(1, Math.round(Number(hoursInput.value)) || 24);
     hoursInput.value = hours;
     actions.setTodoUrgentThresholdHours(hours);
+  });
+  body.querySelectorAll("#todo-display-mode-toggle button").forEach((btn) => {
+    btn.addEventListener("click", () => actions.setTodoDisplayMode(btn.dataset.mode));
+  });
+  body.querySelectorAll("#todo-sort-mode-toggle button").forEach((btn) => {
+    btn.addEventListener("click", () => actions.setTodoSortMode(btn.dataset.mode));
   });
 }
 

@@ -81,6 +81,36 @@ def _run_migrations(con):
             con.execute(f"ALTER TABLE classes ADD COLUMN {col} TEXT")
     if "pricing" not in cols("classes"):
         con.execute("ALTER TABLE classes ADD COLUMN pricing TEXT NOT NULL DEFAULT 'fixed'")
+    if "lesson_fee_cents" not in cols("classes"):
+        con.execute("ALTER TABLE classes ADD COLUMN lesson_fee_cents INTEGER NOT NULL DEFAULT 0")
+    # per-lesson billing modes (the real fee model)
+    ccols = cols("classes")
+    for col, decl in (
+        ("bill_mode", "TEXT NOT NULL DEFAULT 'student_attend'"),
+        ("base_fee_cents", "INTEGER NOT NULL DEFAULT 0"),
+        ("base_head_count", "INTEGER NOT NULL DEFAULT 0"),
+        ("per_head_cents", "INTEGER NOT NULL DEFAULT 0"),
+        ("agent_name", "TEXT"),
+        ("agent_phone", "TEXT"),
+        ("billed_family_id", "INTEGER REFERENCES families(id) ON DELETE SET NULL"),
+    ):
+        if col not in ccols:
+            con.execute(f"ALTER TABLE classes ADD COLUMN {col} {decl}")
+    # 1v1 classes always bill per the student's own attendance
+    con.execute("UPDATE classes SET bill_mode = 'student_attend' WHERE kind = '1v1'")
+    con.execute("""CREATE TABLE IF NOT EXISTS class_bills (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        class_id INTEGER NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
+        month TEXT NOT NULL,
+        expected_cents INTEGER NOT NULL DEFAULT 0,
+        paid_cents INTEGER NOT NULL DEFAULT 0,
+        status TEXT NOT NULL DEFAULT 'pending',
+        payment_date TEXT, method TEXT, reference TEXT, remarks TEXT, receipt_path TEXT,
+        auto_expected INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE(class_id, month))""")
+    con.execute("CREATE INDEX IF NOT EXISTS idx_class_bills_month ON class_bills(month)")
 
     if "makeup" not in cols("attendance"):
         con.execute("ALTER TABLE attendance ADD COLUMN makeup TEXT")

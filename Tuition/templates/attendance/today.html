@@ -21,9 +21,10 @@
   {% for b in blocks %}
   <div class="card">
     <div class="section-title">
-      <h2>{{ b.class.name }}
+      <h2><a href="{{ url_for('classes.detail', cid=b.class.id) }}">{{ b.class.name }}</a>
         {% if b.sched and b.sched.start_time %}<span class="muted" style="font-weight:400"> · {{ b.sched.start_time }}{% if b.sched.end_time %}–{{ b.sched.end_time }}{% endif %}</span>{% endif %}
       </h2>
+      <button class="btn sm" name="goto" value="finance:{{ b.class.id }}" formnovalidate>{{ t('save') }} &amp; {{ t('nav_finance') }} &rarr;</button>
     </div>
     {% if not b.students %}
       <p class="muted">{{ t('nothing_here') }}</p>

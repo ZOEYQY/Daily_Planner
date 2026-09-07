@@ -147,6 +147,13 @@ def save_today():
         _upsert_attendance(sid, cid, date, val, mk, plan, final)
     log("attendance_today", date)
     flash(t("saved"), "ok")
+    # "Save & Finance" button on a class block — jump to that class's finance.
+    goto = request.form.get("goto") or ""
+    if goto.startswith("finance:"):
+        try:
+            return redirect(url_for("classes.detail", cid=int(goto[8:]), tab="finance"))
+        except ValueError:
+            pass
     return redirect(url_for("attendance.today", date=date))
 
 
@@ -273,8 +280,12 @@ def save_matrix():
             changed += 1
     log("attendance_matrix", f"class {class_id} {ym}: {changed} changes")
     flash(t("saved"), "ok")
+    # "Save & Finance" button — straight to this class's finance instead of back
+    # to the matrix.
+    if request.form.get("goto") == "finance" and class_id:
+        return redirect(url_for("classes.detail", cid=class_id, tab="finance", month=ym))
     back = request.form.get("back")
-    if back and back.startswith("/attendance"):
+    if back and (back.startswith("/attendance") or back.startswith("/classes/")):
         return redirect(back)
     return redirect(url_for("attendance.index", **{"class": class_id, "month": ym}))
 
@@ -364,6 +375,8 @@ def session_view():
                     (sid, class_id, date, val, mk, plan, final))
         log("attendance_session", f"class {class_id} {date}")
         flash(t("saved"), "ok")
+        if request.form.get("goto") == "finance" and class_id:
+            return redirect(url_for("classes.detail", cid=class_id, tab="finance"))
         return redirect(url_for("attendance.session_view", **{"class": class_id, "date": date}))
 
     students = roster(class_id, date) if class_id else []

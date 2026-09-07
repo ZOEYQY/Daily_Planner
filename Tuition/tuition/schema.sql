@@ -77,12 +77,48 @@ CREATE TABLE IF NOT EXISTS classes (
     end_time          TEXT,                       -- legacy
     teacher           TEXT,
     location          TEXT,
-    fee_model         TEXT    NOT NULL DEFAULT 'monthly',  -- 'monthly' | 'per_lesson'
-    pricing           TEXT    NOT NULL DEFAULT 'fixed',    -- 'fixed' (class fee for all) | 'per_student'
-    default_fee_cents INTEGER NOT NULL DEFAULT 0,
+    fee_model         TEXT    NOT NULL DEFAULT 'monthly',  -- legacy, always 'monthly' now
+    pricing           TEXT    NOT NULL DEFAULT 'fixed',    -- legacy ('fixed' | 'per_student')
+    default_fee_cents INTEGER NOT NULL DEFAULT 0,          -- legacy monthly fee, unused for billing
+    -- ── per-lesson billing (the real model). every fee = amount × lessons that ran ──
+    bill_mode         TEXT    NOT NULL DEFAULT 'student_attend',
+    -- 'student_attend' : student's own per-lesson rate × that student's present dates (also forced for 1v1)
+    -- 'class_ran'      : student's own per-lesson rate × dates the class ran (absence still billed)
+    -- 'class_flat'     : one flat rate for the whole class × dates it ran -> billed to a family
+    -- 'agent_headcount': (base + per_head × extra students) × dates it ran -> billed to an agent
+    --                    where extra students = max(0, N enrolled − base_head_count)
+    lesson_fee_cents  INTEGER NOT NULL DEFAULT 0,          -- per-lesson rate / flat class rate
+    base_fee_cents    INTEGER NOT NULL DEFAULT 0,          -- agent_headcount: base per lesson
+    base_head_count   INTEGER NOT NULL DEFAULT 0,          -- agent_headcount: students the base fee already covers
+    per_head_cents    INTEGER NOT NULL DEFAULT 0,          -- agent_headcount: added per student beyond base_head_count
+    agent_name        TEXT,
+    agent_phone       TEXT,
+    billed_family_id  INTEGER REFERENCES families(id) ON DELETE SET NULL,  -- class_flat: who gets the bill
     status            TEXT    NOT NULL DEFAULT 'active',    -- active/inactive
     created_at        TEXT    NOT NULL DEFAULT (datetime('now'))
 );
+
+-- ── Whole-class bills (bill_mode 'class_flat' / 'agent_headcount') ────
+-- One bill per class per month, not split per student — mirrors the shape of
+-- `payments` but keyed by class instead of student.
+CREATE TABLE IF NOT EXISTS class_bills (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    class_id       INTEGER NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
+    month          TEXT    NOT NULL,                     -- 'YYYY-MM'
+    expected_cents INTEGER NOT NULL DEFAULT 0,
+    paid_cents     INTEGER NOT NULL DEFAULT 0,
+    status         TEXT    NOT NULL DEFAULT 'pending',   -- pending/partial/paid/overdue
+    payment_date   TEXT,
+    method         TEXT,
+    reference      TEXT,
+    remarks        TEXT,
+    receipt_path   TEXT,
+    auto_expected  INTEGER NOT NULL DEFAULT 1,
+    created_at     TEXT    NOT NULL DEFAULT (datetime('now')),
+    updated_at     TEXT    NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(class_id, month)
+);
+CREATE INDEX IF NOT EXISTS idx_class_bills_month ON class_bills(month);
 
 -- ── Class weekly schedule (a class can run several days; time may differ) ──
 CREATE TABLE IF NOT EXISTS class_schedule (

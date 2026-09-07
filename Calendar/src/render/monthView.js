@@ -69,7 +69,12 @@ function dayCell(date, cursor, t, state, todayISO) {
   const isOutside = date.getMonth() !== cursor.getMonth();
   const isToday = isSameDay(date, t);
   const dayTasks = scheduledTasksOnDate(state, iso);
-  const dayEvents = eventsOnDate(state, iso);
+  // Month cells only surface one-off events — a class that repeats every week
+  // would otherwise stamp the same name into every cell and bury the things
+  // that actually make a given day special (a duty, a one-time meeting).
+  // resolveOccurrence sets isRecurring on every resolved item (see selectors.js).
+  // Tasks and special days still show regardless of repeat.
+  const dayEvents = eventsOnDate(state, iso).filter((e) => !e.isRecurring);
   const daySpecialDays = specialDaysOnDate(state, iso);
   const items = [
     ...daySpecialDays.map((x) => ({ ...x, kind: "specialDay" })),
@@ -116,7 +121,12 @@ function specialDayChip(d) {
 function taskChip(t, todayISO) {
   const overdue = isOverdue(t, todayISO);
   const count = t.rescheduleCount || 0;
-  const severity = overdue ? "is-overdue" : count >= 3 ? "is-resched-3" : count === 2 ? "is-resched-2" : count === 1 ? "is-resched-1" : "";
+  const postponedTodo = t.isTodo && count > 0;
+  const severity = overdue
+    ? "is-overdue"
+    : postponedTodo
+      ? "is-todo-postponed"
+      : count >= 3 ? "is-resched-3" : count === 2 ? "is-resched-2" : count === 1 ? "is-resched-1" : "";
   const prefix = overdue ? "⚠ " : count > 0 ? (count >= 3 || t.overdueReschedule ? "⚠ " : "↻ ") : "";
   return `
     <div class="event-chip task-chip ${t.done ? "is-done" : ""} ${severity}" style="--chip-color:${t.color}" data-id="${t.id}" data-kind="task" data-occurrence="${t.occurrenceDate || ""}">

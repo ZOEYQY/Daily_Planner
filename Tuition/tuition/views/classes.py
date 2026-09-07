@@ -6,17 +6,46 @@ from flask import (Blueprint, render_template, request, redirect, url_for,
 from ..auth import login_required
 from ..db import query, execute, log
 from ..i18n import t, WEEKDAYS
-from ..util import parse_int, smartcase, titlecase_name, pick_avatar_color, derive_full_name
-from ..engine import (this_month, add_months, to_cents, resolve_fee, STATUS_KEYS,
-                      forecast_expected_for, class_month_finance, class_stats, sync_month)
+from ..util import (parse_int, smartcase, titlecase_name, pick_avatar_color,
+                    derive_full_name, age_from_dob)
+from ..engine import (this_month, add_months, to_cents, resolve_lesson_fee, STATUS_KEYS,
+                      forecast_expected_for, class_month_finance, class_stats, sync_month,
+                      class_bill_mode, CLASS_LEVEL_MODES, PAYMENT_METHODS)
 from .attendance import build_matrix
 
 bp = Blueprint("classes", __name__)
 
 FEE_MODELS = ("monthly", "per_lesson")
 PRICINGS = ("fixed", "per_student")
-KINDS = ("1v1", "small")
-KIND_TOKEN = {"1v1": "1v1", "small": "小班"}
+KINDS = ("1v1", "1v3", "small")
+KIND_TOKEN = {"1v1": "1v1", "1v3": "1v3", "小班": "小班", "small": "小班"}
+BILL_MODES = ("student_attend", "class_ran", "class_flat", "agent_headcount")
+
+
+def _agent_missing(bill_mode, agent_name):
+    """agent_headcount bills are addressed to an agent — that name is required.
+    Every other mode (incl. the flat class fee) never asks for one."""
+    return bill_mode == "agent_headcount" and not (agent_name or "").strip()
+
+
+def _form_bill(f, kind):
+    """(bill_mode, lesson_fee_cents, base_fee_cents, base_head_count, per_head_cents,
+        agent_name, agent_phone, billed_family_id) from the class form."""
+    mode = f.get("bill_mode") if f.get("bill_mode") in BILL_MODES else "student_attend"
+    if kind == "1v1":
+        mode = "student_attend"
+    agent = mode == "agent_headcount"
+    fam = parse_int(f.get("billed_family_id")) if mode == "class_flat" else None
+    return (
+        mode,
+        to_cents(f.get("lesson_fee")),
+        to_cents(f.get("base_fee")) if agent else 0,
+        max(0, parse_int(f.get("base_heads")) or 0) if agent else 0,
+        to_cents(f.get("per_head")) if agent else 0,
+        smartcase(f.get("agent_name")) if agent else None,
+        (f.get("agent_phone") or "").strip() or None if agent else None,
+        fam,
+    )
 
 
 def _subject_lang(subject):
@@ -130,14 +159,21 @@ def new():
         kind = f.get("kind") if f.get("kind") in KINDS else None
         pricing = "fixed" if kind == "1v1" else _form_pricing(f)
         fee_cents = 0 if pricing == "per_student" else to_cents(f.get("default_fee"))
+        bm, lesson_fee, base_fee, base_heads, per_head, agent_name, agent_phone, fam_id = _form_bill(f, kind)
+        if _agent_missing(bm, agent_name):
+            flash(t("agent_required"), "error")
+            return redirect(url_for("classes.new"))
         cid = execute(
             """INSERT INTO classes (name, subject, level, kind, teacher,
-                                    fee_model, pricing, default_fee_cents, status)
-               VALUES (?,?,?,?,?,?,?,?,?)""",
+                                    fee_model, pricing, default_fee_cents, status,
+                                    bill_mode, lesson_fee_cents, base_fee_cents, base_head_count,
+                                    per_head_cents, agent_name, agent_phone, billed_family_id)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (_resolve_class_name(f), smartcase(f.get("subject")), smartcase(f.get("level")),
              kind, smartcase(f.get("teacher")),
              _form_fee_model(f), pricing, fee_cents,
-             "active" if f.get("status", "active") == "active" else "inactive"))
+             "active" if f.get("status", "active") == "active" else "inactive",
+             bm, lesson_fee, base_fee, base_heads, per_head, agent_name, agent_phone, fam_id))
         _save_schedule(cid, f)
         _add_students_inline(cid, f)
         log("class_add", str(cid))
@@ -145,40 +181,72 @@ def new():
         return redirect(url_for("classes.detail", cid=cid))
     return render_template(
         "classes/form.html", cls=None, schedule={}, kinds=KINDS,
+        families=query("SELECT id, name FROM families ORDER BY name"),
         students=query("SELECT id, full_name FROM students WHERE status != 'left' ORDER BY full_name"))
 
 
-def _add_students_inline(cid, f):
-    """Enroll picked students + create-and-enroll any typed new names, with an
-    optional shared fee, from the add-class form."""
-    start = this_month() + "-01"
-    sids = []
-    for raw in f.getlist("enroll_ids"):
-        sid = parse_int(raw)
-        if sid:
-            sids.append(sid)
-    for line in (f.get("new_students") or "").splitlines():
-        name = titlecase_name(line)
-        if not name:
+NEW_STUDENT_FIELDS = ("name_en", "name_zh", "phone", "gender", "dob", "age",
+                      "school", "grade", "start", "fee", "status",
+                      "family_id", "new_family", "remarks")
+
+
+def _create_inline_students(f):
+    """Full-detail new students entered in the add-class form's repeatable
+    'New students' block (same columns as the standalone Add Student form, plus
+    a per-row class join date and per-lesson fee). Returns
+    [{id, start, fee_cents}] so each can be enrolled on its own terms. Rows with
+    no name at all are skipped."""
+    columns = [f.getlist(f"ns_{name}") for name in NEW_STUDENT_FIELDS]
+    default_start = this_month() + "-01"
+    out = []
+    for row in zip(*columns):
+        d = dict(zip(NEW_STUDENT_FIELDS, row))
+        name_en = titlecase_name(d["name_en"])
+        name_zh = (d["name_zh"] or "").strip()
+        if not (name_en or name_zh):
             continue
-        full = derive_full_name(name, "")
-        sids.append(execute(
-            "INSERT INTO students (name_en, full_name, avatar_color, status) VALUES (?,?,?,'active')",
-            (name, full, pick_avatar_color(full))))
-    fee_cents = to_cents(f.get("student_fee"))
-    for sid in sids:
+        full = derive_full_name(name_en, name_zh)
+        if (d["new_family"] or "").strip():
+            fam = execute("INSERT INTO families (name) VALUES (?)", (smartcase(d["new_family"]),))
+        else:
+            fam = parse_int(d["family_id"]) or None
+        status = d["status"] if d["status"] in ("active", "trial", "inactive", "left") else "active"
+        sid = execute(
+            """INSERT INTO students
+                 (name_zh, name_en, full_name, phone, gender, dob, age, school, grade,
+                  family_id, status, avatar_color, remarks)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (name_zh, name_en, full, (d["phone"] or "").strip(), d["gender"] or "",
+             d["dob"] or None, parse_int(d["age"]) or age_from_dob(d["dob"]),
+             smartcase(d["school"]), smartcase(d["grade"]), fam, status,
+             pick_avatar_color(full), (d["remarks"] or "").strip()))
+        out.append({"id": sid, "start": d["start"] or default_start, "fee_cents": to_cents(d["fee"])})
+    return out
+
+
+def _add_students_inline(cid, f):
+    """Enroll picked existing students + create-and-enroll the new students
+    entered inline, each on its own join date with its own per-lesson fee."""
+    default_start = this_month() + "-01"
+    rows = [{"id": parse_int(r), "start": default_start, "fee_cents": 0}
+            for r in f.getlist("enroll_ids") if parse_int(r)]
+    rows += _create_inline_students(f)
+    touched = False
+    for r in rows:
+        sid = r["id"]
         if query("SELECT 1 FROM enrollments WHERE student_id=? AND class_id=? AND status='active'",
                  (sid, cid), one=True):
             continue
         execute("INSERT INTO enrollments (student_id, class_id, start_date, status) VALUES (?,?,?,'active')",
-                (sid, cid, start))
-        if fee_cents:
+                (sid, cid, r["start"]))
+        if r["fee_cents"]:
             execute(
                 """INSERT INTO fees (student_id, class_id, fee_model, amount_cents,
                                      discount_cents, effective_from, remarks)
                    VALUES (?,?,?,?,0,?,?)""",
-                (sid, cid, "monthly", fee_cents, start, "set when class created"))
-    if sids:
+                (sid, cid, "per_lesson", r["fee_cents"], r["start"], "set when class created"))
+        touched = True
+    if touched:
         sync_month(this_month())
 
 
@@ -197,7 +265,8 @@ def detail(cid):
              FROM enrollments e JOIN students s ON s.id = e.student_id
             WHERE e.class_id = ? ORDER BY e.status='ended', s.full_name""", (cid,))
     today = ym + "-28"
-    enr_view = [{"e": e, "fee": resolve_fee(e["student_id"], cid, today)} for e in enrollments]
+    enr_view = [{"e": e, "lesson_fee": resolve_lesson_fee(e["student_id"], cid, today)}
+                for e in enrollments]
 
     all_students = query("SELECT id, full_name FROM students WHERE status != 'left' ORDER BY full_name")
     enrolled_ids = {e["student_id"] for e in enrollments if e["status"] == "active"}
@@ -210,7 +279,7 @@ def detail(cid):
         "classes/detail.html", c=c, tab=tab, ym=ym, schedule=_schedule(cid), stats=stats,
         prev_month=add_months(ym, -1), next_month=add_months(ym, 1),
         enrollments=enr_view, all_students=all_students, enrolled_ids=enrolled_ids,
-        finance=finance, matrix=matrix,
+        finance=finance, matrix=matrix, methods=PAYMENT_METHODS,
         statuses=STATUS_KEYS)
 
 
@@ -225,19 +294,30 @@ def edit(cid):
         kind = f.get("kind") if f.get("kind") in KINDS else None
         pricing = "fixed" if kind == "1v1" else _form_pricing(f)
         fee_cents = 0 if pricing == "per_student" else to_cents(f.get("default_fee"))
+        bm, lesson_fee, base_fee, base_heads, per_head, agent_name, agent_phone, fam_id = _form_bill(f, kind)
+        if _agent_missing(bm, agent_name):
+            flash(t("agent_required"), "error")
+            return redirect(url_for("classes.edit", cid=cid))
         execute(
             """UPDATE classes SET name=?, subject=?, level=?, kind=?, teacher=?,
-                  fee_model=?, pricing=?, default_fee_cents=?, status=?
+                  fee_model=?, pricing=?, default_fee_cents=?, status=?,
+                  bill_mode=?, lesson_fee_cents=?, base_fee_cents=?, base_head_count=?, per_head_cents=?,
+                  agent_name=?, agent_phone=?, billed_family_id=?
                 WHERE id=?""",
             (_resolve_class_name(f, cid=cid), smartcase(f.get("subject")), smartcase(f.get("level")),
              kind, smartcase(f.get("teacher")),
              _form_fee_model(f), pricing, fee_cents,
-             "active" if f.get("status", "active") == "active" else "inactive", cid))
+             "active" if f.get("status", "active") == "active" else "inactive",
+             bm, lesson_fee, base_fee, base_heads, per_head, agent_name, agent_phone, fam_id, cid))
         _save_schedule(cid, f)
+        # bill_mode may have flipped per-student <-> class-level: resync so stale
+        # payments / class_bills rows for the current month get cleaned up.
+        sync_month(this_month())
         log("class_edit", str(cid))
         flash(t("saved"), "ok")
         return redirect(url_for("classes.detail", cid=cid))
-    return render_template("classes/form.html", cls=c, kinds=KINDS,
+    families = query("SELECT id, name FROM families ORDER BY name")
+    return render_template("classes/form.html", cls=c, kinds=KINDS, families=families,
                            schedule={r["weekday"]: r for r in _schedule(cid)})
 
 
@@ -296,6 +376,29 @@ def enroll(cid):
     log("enroll", f"student {sid} -> class {cid}")
     flash(t("saved"), "ok")
     return redirect(url_for("classes.detail", cid=cid, tab="students"))
+
+
+@bp.route("/enrollments/<int:eid>/dates", methods=["POST"])
+@login_required
+def edit_enrollment(eid):
+    """Adjust an enrollment's join (start) date and, optionally, its end date.
+    An end date implies the enrollment has ended; clearing it re-activates it.
+    Re-syncs every affected month so this month's fees reflect the new window."""
+    e = query("SELECT * FROM enrollments WHERE id = ?", (eid,), one=True)
+    if not e:
+        abort(404)
+    f = request.form
+    start = f.get("start_date") or e["start_date"]
+    end = (f.get("end_date") or "").strip() or None
+    status = "ended" if end else "active"
+    execute("UPDATE enrollments SET start_date=?, end_date=?, status=? WHERE id=?",
+            (start, end, status, eid))
+    for ym in {this_month(), (start or "")[:7], (end or "")[:7], (e["start_date"] or "")[:7]}:
+        if ym:
+            sync_month(ym)  # no-ops on a closed month
+    log("enroll_dates", f"enrollment {eid}: {start} -> {end or '—'}")
+    flash(t("saved"), "ok")
+    return redirect(f.get("back") or url_for("classes.detail", cid=e["class_id"], tab="students"))
 
 
 @bp.route("/enrollments/<int:eid>/end", methods=["POST"])

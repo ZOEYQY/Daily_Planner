@@ -84,6 +84,7 @@ def create_app(data_dir=None):
     from .views.classes import bp as classes_bp
     from .views.attendance import bp as attendance_bp
     from .views.finance import bp as finance_bp
+    from .views.bills import bp as bills_bp
     from .views.reports import bp as reports_bp
     from .views.settings import bp as settings_bp
 
@@ -92,6 +93,7 @@ def create_app(data_dir=None):
     app.register_blueprint(classes_bp, url_prefix="/classes")
     app.register_blueprint(attendance_bp, url_prefix="/attendance")
     app.register_blueprint(finance_bp, url_prefix="/finance")
+    app.register_blueprint(bills_bp, url_prefix="/bills")
     app.register_blueprint(reports_bp, url_prefix="/reports")
     app.register_blueprint(settings_bp, url_prefix="/settings")
 

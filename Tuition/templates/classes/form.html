@@ -8,14 +8,16 @@
 </div>
 
 <form method="post" class="card">
-  <div class="grid c3">
+  <div class="grid c2">
     <div class="field"><label>{{ t('subject') }}</label><input type="text" name="subject" value="{{ c.subject or '' if c }}" placeholder="BM / English"></div>
     <div class="field"><label>{{ t('class_level') }}</label><input type="text" name="level" value="{{ c.level or '' if c }}" placeholder="Form 3 / Std 4"></div>
-    <div class="field"><label>{{ t('class_kind') }}</label>
-      <select name="kind">
-        <option value="">—</option>
-        {% for k in kinds %}<option value="{{ k }}" {{ 'selected' if c and c.kind==k }}>{{ t('kind_' ~ k) }}</option>{% endfor %}
-      </select>
+  </div>
+  <div class="field"><label>{{ t('class_kind') }}</label>
+    <div class="seg">
+      <label><input type="radio" name="kind" value="" {{ 'checked' if not c or not c.kind }}><span>—</span></label>
+      {% for k in kinds %}
+      <label><input type="radio" name="kind" value="{{ k }}" {{ 'checked' if c and c.kind==k }}><span>{{ t('kind_' ~ k) }}</span></label>
+      {% endfor %}
     </div>
   </div>
   <div class="field">
@@ -26,10 +28,10 @@
   <div class="grid c2">
     <div class="field"><label>{{ t('teacher') }}</label><input type="text" name="teacher" value="{{ c.teacher or '' if c }}"></div>
     <div class="field"><label>{{ t('status') }}</label>
-      <select name="status">
-        <option value="active" {{ 'selected' if not c or c.status=='active' }}>{{ t('st_active') }}</option>
-        <option value="inactive" {{ 'selected' if c and c.status=='inactive' }}>{{ t('st_inactive') }}</option>
-      </select>
+      <div class="seg">
+        <label><input type="radio" name="status" value="active" {{ 'checked' if not c or c.status=='active' }}><span>{{ t('st_active') }}</span></label>
+        <label><input type="radio" name="status" value="inactive" {{ 'checked' if c and c.status=='inactive' }}><span>{{ t('st_inactive') }}</span></label>
+      </div>
     </div>
   </div>
   <hr>
@@ -48,17 +50,50 @@
     {% endfor %}
   </div>
   <hr>
-  <h3>{{ t('default_fee') }}</h3>
-  <p class="muted rc-hint">{{ t('fee_rule_hint') }}</p>
-  <div class="fee-block">
-    <div class="field pricing-choice">
-      <label>{{ t('pricing') }}</label>
-      <label class="opt"><input type="radio" name="pricing" value="fixed" {{ 'checked' if not c or c.pricing != 'per_student' }}> {{ t('pricing_fixed') }}</label>
-      <label class="opt"><input type="radio" name="pricing" value="per_student" {{ 'checked' if c and c.pricing == 'per_student' }}> {{ t('pricing_per_student') }}</label>
+  <h3>{{ t('bill_mode') }}</h3>
+  <p class="muted rc-hint">{{ t('bill_mode_hint') }}</p>
+  <div class="bill-block">
+    <div class="field bill-mode-pick">
+      <div class="seg seg-stack">
+        {% for m in ['student_attend','class_ran','class_flat','agent_headcount'] %}
+        <label><input type="radio" name="bill_mode" value="{{ m }}" {{ 'checked' if (c.bill_mode if c else 'student_attend') == m }}><span>{{ t('bm_' ~ m) }}</span></label>
+        {% endfor %}
+      </div>
     </div>
-    <div class="field fee-amt" style="max-width:240px"><label>{{ t('default_fee') }} (RM / {{ t('month_word') }})</label>
-      <input type="number" step="1" name="default_fee" value="{{ (c.default_fee_cents / 100)|int if c and c.default_fee_cents else '' }}">
-      <span class="rc-hint muted one2one-note">{{ t('fee_1v1_note') }}</span>
+
+    <div class="field bm-pricing">
+      <label>{{ t('pricing_q') }}</label>
+      <div class="seg seg-stack">
+        <label><input type="radio" name="pricing" value="fixed" {{ 'checked' if not c or c.pricing != 'per_student' }}><span>{{ t('pricing_same') }}</span></label>
+        <label><input type="radio" name="pricing" value="per_student" {{ 'checked' if c and c.pricing == 'per_student' }}><span>{{ t('pricing_each') }}</span></label>
+      </div>
+    </div>
+
+    <div class="field bm-lesson" style="max-width:240px">
+      <label>{{ t('lesson_fee') }}</label>
+      <input type="number" step="1" name="lesson_fee" value="{{ (c.lesson_fee_cents / 100)|int if c and c.lesson_fee_cents else '' }}">
+    </div>
+
+    <div class="field bm-flat-fam" style="max-width:280px">
+      <label>{{ t('billed_family') }} <span class="muted">({{ t('optional') }})</span></label>
+      <select name="billed_family_id">
+        <option value="">—</option>
+        {% for fam in families %}<option value="{{ fam.id }}" {{ 'selected' if c and c.billed_family_id == fam.id }}>{{ fam.name }}</option>{% endfor %}
+      </select>
+      <span class="rc-hint muted">{{ t('billed_family_hint') }}</span>
+    </div>
+
+    <div class="grid c2 bm-agent">
+      <div class="field"><label>{{ t('base_fee') }} (RM /Class)</label>
+        <input type="number" step="1" name="base_fee" value="{{ (c.base_fee_cents / 100)|int if c and c.base_fee_cents else '' }}"></div>
+      <div class="field"><label>{{ t('base_heads') }}</label>
+        <input type="number" step="1" min="0" name="base_heads" value="{{ c.base_head_count if c and c.base_head_count else '' }}" placeholder="0"></div>
+      <div class="field"><label>{{ t('per_head') }} (RM)</label>
+        <input type="number" step="1" name="per_head" value="{{ (c.per_head_cents / 100)|int if c and c.per_head_cents else '' }}"></div>
+      <div class="field"><label>{{ t('agent') }}</label>
+        <input type="text" name="agent_name" value="{{ c.agent_name or '' if c }}"></div>
+      <div class="field"><label>{{ t('agent_phone') }}</label>
+        <input type="text" name="agent_phone" value="{{ c.agent_phone or '' if c }}"></div>
     </div>
   </div>
 
@@ -75,11 +110,36 @@
   {% endif %}
   <div class="field" style="margin-top:12px">
     <label>{{ t('new_students_label') }}</label>
-    <textarea name="new_students" rows="3" placeholder="{{ t('new_students_ph') }}"></textarea>
-  </div>
-  <div class="field" style="max-width:240px">
-    <label>{{ t('student_fee_all') }} (RM / {{ t('month_word') }})</label>
-    <input type="number" step="1" name="student_fee" placeholder="{{ t('class_default') }}">
+    <div id="ns-list">
+      <div class="ns-row">
+        <div class="grid c3">
+          <div class="field"><label>{{ t('name_en') }}</label><input type="text" name="ns_name_en"></div>
+          <div class="field"><label>{{ t('name_zh') }}</label><input type="text" name="ns_name_zh"></div>
+          <div class="field"><label>{{ t('phone') }}</label><input type="text" name="ns_phone"></div>
+          <div class="field"><label>{{ t('gender') }}</label>
+            <select name="ns_gender"><option value="">—</option><option value="F">F</option><option value="M">M</option></select></div>
+          <div class="field"><label>{{ t('dob') }}</label><input type="date" name="ns_dob"></div>
+          <div class="field"><label>{{ t('age') }} <span class="muted">({{ t('optional') }})</span></label><input type="number" name="ns_age"></div>
+          <div class="field"><label>{{ t('school') }}</label><input type="text" name="ns_school"></div>
+          <div class="field"><label>{{ t('grade') }}</label><input type="text" name="ns_grade"></div>
+          <div class="field"><label>{{ t('start_date') }}</label><input type="date" name="ns_start"></div>
+          <div class="field ns-row-fee"><label>{{ t('lesson_fee') }}</label><input type="number" step="1" name="ns_fee"></div>
+          <div class="field"><label>{{ t('status') }}</label>
+            <select name="ns_status">
+              {% for st in ['active','trial','inactive'] %}<option value="{{ st }}">{{ t('st_' ~ st) }}</option>{% endfor %}
+            </select></div>
+          <div class="field"><label>{{ t('family') }}</label>
+            <select name="ns_family_id">
+              <option value="">—</option>
+              {% for fam in families %}<option value="{{ fam.id }}">{{ fam.name }}</option>{% endfor %}
+            </select></div>
+          <div class="field"><label>{{ t('new_family') }}</label><input type="text" name="ns_new_family" placeholder="{{ t('optional') }}"></div>
+          <div class="field" style="grid-column:span 2"><label>{{ t('remarks') }}</label><input type="text" name="ns_remarks"></div>
+        </div>
+        <div class="btn-row"><button type="button" class="btn sm danger ns-remove" hidden>✕ {{ t('delete') }}</button></div>
+      </div>
+    </div>
+    <button type="button" class="btn sm" id="ns-add">+ {{ t('add_another_student') }}</button>
   </div>
   {% endif %}
 
@@ -91,9 +151,14 @@
   var form = document.currentScript.previousElementSibling;
   var subj = form.querySelector('[name=subject]');
   var lvl  = form.querySelector('[name=level]');
-  var kind = form.querySelector('[name=kind]');
   var nameEl = form.querySelector('[name=name]');
-  var KT = { '1v1': '1v1', 'small': '小班' };
+  var KT = { '1v1': '1v1', '1v3': '1v3', 'small': '小班' };
+
+  // Read the checked value of a radio group (the segmented pickers).
+  function segVal(name) {
+    var el = form.querySelector('[name="' + name + '"]:checked');
+    return el ? el.value : '';
+  }
   function tc(s) {
     s = (s || '').trim();
     if (s && s === s.toUpperCase() && s !== s.toLowerCase())
@@ -101,17 +166,72 @@
     return s;
   }
   function build() {
-    return [tc(subj.value), tc(lvl.value), KT[kind.value] || ''].filter(Boolean).join(' ');
+    return [tc(subj.value), tc(lvl.value), KT[segVal('kind')] || ''].filter(Boolean).join(' ');
   }
   // start unlocked: changing subject/level/type rebuilds the name.
   // typing in the name box locks it (until cleared).
   var locked = false;
   function apply() { if (!locked) nameEl.value = build(); }
   nameEl.addEventListener('input', function () { locked = nameEl.value.trim() !== ''; });
-  [subj, lvl, kind].forEach(function (el) {
-    el.addEventListener('input', apply);
-    el.addEventListener('change', apply);
+  [subj, lvl].forEach(function (el) { el.addEventListener('input', apply); });
+
+  // ── billing mode: show only the fields the chosen mode needs ──
+  function show(sel, on) {
+    form.querySelectorAll(sel).forEach(function (el) { el.hidden = !on; });
+  }
+  function applyBM() {
+    var oneToOne = segVal('kind') === '1v1';
+    var m = oneToOne ? 'student_attend' : (segVal('bill_mode') || 'student_attend');
+    var perStudentMode = (m === 'student_attend' || m === 'class_ran');
+    var eachOwnRate = perStudentMode && segVal('pricing') === 'per_student';
+    form.querySelector('.bill-mode-pick').hidden = oneToOne;
+    // "Same for all / each their own rate" only applies to the per-student modes.
+    show('.bm-pricing', perStudentMode);
+    // One class-wide per-lesson fee: the flat-class rate, or the shared rate
+    // when every student pays the same. Hidden when each student sets their own.
+    show('.bm-lesson', m === 'class_flat' || (perStudentMode && !eachOwnRate));
+    show('.bm-flat-fam', m === 'class_flat');
+    show('.bm-agent', m === 'agent_headcount');
+    // A per-student fee box on each new-student row — only when students set
+    // their own rate.
+    show('.ns-row-fee', eachOwnRate);
+    // agent_headcount bills are addressed to an agent — that name is required
+    // (server enforces it too); clear the constraint when the field is hidden
+    // so an unrelated mode can still submit.
+    var agent = form.querySelector('[name=agent_name]');
+    if (agent) agent.required = (m === 'agent_headcount');
+  }
+  form.addEventListener('change', function (e) {
+    var n = e.target && e.target.name;
+    if (n === 'kind') { apply(); applyBM(); }
+    else if (n === 'bill_mode' || n === 'pricing') applyBM();
   });
+  applyBM();
+
+  // ── repeatable "new student" rows (add-class form only) ──
+  var nsList = document.getElementById('ns-list');
+  var nsAdd = document.getElementById('ns-add');
+  function syncNsRemove() {
+    var rows = nsList.querySelectorAll('.ns-row');
+    rows.forEach(function (row) { row.querySelector('.ns-remove').hidden = rows.length < 2; });
+  }
+  if (nsAdd && nsList) {
+    nsAdd.addEventListener('click', function () {
+      var clone = nsList.querySelector('.ns-row').cloneNode(true);
+      clone.querySelectorAll('input').forEach(function (el) { el.value = ''; });
+      clone.querySelectorAll('select').forEach(function (el) { el.selectedIndex = 0; });
+      nsList.appendChild(clone);
+      syncNsRemove();
+      applyBM();  // keep the new row's per-student fee box in sync
+    });
+    nsList.addEventListener('click', function (e) {
+      if (e.target.classList.contains('ns-remove')) {
+        e.target.closest('.ns-row').remove();
+        syncNsRemove();
+      }
+    });
+    syncNsRemove();
+  }
 })();
 </script>
 

@@ -4,6 +4,7 @@ import {
   parseISODate, toISODate, addDays, addMonths, startOfMonth, startOfWeek,
   formatMonthYear, formatWeekRange, formatFullDate, today,
 } from "../dateUtils.js";
+import { isTodoPanelOpen } from "../selectors.js";
 
 const VIEWS = [
   { id: "month", label: "Month" },
@@ -20,7 +21,12 @@ function shortDateLabel(iso) {
 function periodLabel(state) {
   const cursor = parseISODate(state.cursorDate);
   if (state.view === "month") return formatMonthYear(cursor);
-  if (state.view === "week") return formatWeekRange(startOfWeek(cursor, state.weekStartsOn));
+  if (state.view === "week") {
+    // The To-Do side panel shows a 5-day window starting at the cursor date
+    // itself, not the calendar week's Monday/Sunday (see isTodoPanelOpen) —
+    // the label follows suit rather than naming a "week" that isn't fully shown.
+    return isTodoPanelOpen(state) ? formatWeekRange(cursor, 4) : formatWeekRange(startOfWeek(cursor, state.weekStartsOn));
+  }
   if (state.view === "day") return formatFullDate(cursor);
   return [...state.customDates].sort().map(shortDateLabel).join(", ");
 }
@@ -28,7 +34,10 @@ function periodLabel(state) {
 function step(state, dir) {
   const cursor = parseISODate(state.cursorDate);
   if (state.view === "month") return toISODate(addMonths(startOfMonth(cursor), dir));
-  if (state.view === "week") return toISODate(addDays(cursor, dir * 7));
+  // Panel mode's 5-day window pages by 5 days too, so paging never skips a
+  // day (a plain 7-day step would leave 2 days out of every window) — see
+  // isTodoPanelOpen.
+  if (state.view === "week") return toISODate(addDays(cursor, dir * (isTodoPanelOpen(state) ? 5 : 7)));
   return toISODate(addDays(cursor, dir));
 }
 

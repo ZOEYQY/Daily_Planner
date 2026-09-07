@@ -5,6 +5,7 @@ import {
 import {
   eventsOnDate, scheduledTasksOnDate, specialDaysOnDate, getWeekUnscheduledTasks, getWeekUnscheduledEvents,
   getDayUnscheduledTasks, getDayUnscheduledEvents, resolveOccurrence, isRepeating, isTodoUrgent,
+  isTodoPanelOpen, getDayTodos,
 } from "../selectors.js";
 import { icons } from "../icons.js";
 import { esc } from "../utils.js";
@@ -13,7 +14,7 @@ import { layoutDayEvents, HOUR_ROW_PX, minutesToTop } from "../timeLayout.js";
 import { startPointerInteraction, snapMinutes, createAutoScroller } from "../dragUtils.js";
 import { isOverdue, computeReschedulePatch } from "../rescheduleTracking.js";
 import { handleOccurrenceClick } from "./recurrenceUI.js";
-import { showToast, openFormPopup } from "./notify.js";
+import { showToast, openFormPopup, showConfirm } from "./notify.js";
 import { timeInputHTML, wireTimeInput } from "./timeInput.js";
 
 const HOURS = Array.from({ length: 24 }, (_, h) => h);
@@ -123,6 +124,30 @@ function rescheduleSeverityClass(count) {
   return "";
 }
 
+// A to-do whose deadline has been postponed at least once reads red (see
+// is-todo-postponed in calendar.css) — a stronger, more "you're slipping"
+// signal than the neutral is-resched-N shadow a plain scheduled task gets.
+function todoPostponedClass(item) {
+  return item.isTodo && (item.rescheduleCount || 0) > 0 ? "is-todo-postponed" : "";
+}
+
+// Folds a freshly reordered slice of the to-do list (only ever one day's worth,
+// as shown in the side panel) back into the full, cross-day todoOrder: the
+// non-visible ids keep their slots, the visible ones take on their new relative
+// sequence. Trailing dedupe guards the (shouldn't-happen) case of an id landing
+// in twice.
+function mergeTodoOrder(existing, visibleNewSeq) {
+  const visibleSet = new Set(visibleNewSeq);
+  const out = [];
+  let vi = 0;
+  for (const id of existing) {
+    if (visibleSet.has(id)) out.push(vi < visibleNewSeq.length ? visibleNewSeq[vi++] : id);
+    else out.push(id);
+  }
+  while (vi < visibleNewSeq.length) out.push(visibleNewSeq[vi++]);
+  return [...new Set(out)];
+}
+
 function rescheduleHistoryText(task) {
   const chain = [...(task.rescheduleHistory || []), { date: task.dueDate, startTime: task.startTime }];
   return chain
@@ -187,7 +212,7 @@ function openTodoQuickAdd(actions, state, fixedDate, existingItem = null) {
   const optionalSuffix = requireDeadline ? "" : " (optional)";
   const askDate = !fixedDate || !!existingItem;
 
-  openFormPopup({
+  const popup = openFormPopup({
     title: existingItem ? "Edit To-Do" : "Add To-Do",
     submitLabel: existingItem ? "Save" : "Add",
     bodyHTML: `
@@ -195,10 +220,23 @@ function openTodoQuickAdd(actions, state, fixedDate, existingItem = null) {
       ${askDate ? `<div class="field"><label>Deadline Date${optionalSuffix}</label><input type="date" id="todo-date" value="${esc(existingItem?.dueDate || "")}" /></div>` : ""}
       <div class="field"><label>Deadline Time${askDate ? " (optional)" : optionalSuffix}</label>${timeInputHTML("todo-time", existingItem?.startTime || "", state)}</div>
       ${showDetail ? `<div class="field"><label>Detail</label><textarea id="todo-detail" rows="3" placeholder="Optional notes">${esc(existingItem?.notes || "")}</textarea></div>` : ""}
+      ${existingItem ? `<button type="button" class="btn btn-danger-ghost" id="todo-delete" style="width:100%; margin-top:2px;">Delete To-Do</button>` : ""}
     `,
     onMount: (panel) => {
       panel.querySelector("#todo-title").focus();
       wireTimeInput(panel, "todo-time");
+      panel.querySelector("#todo-delete")?.addEventListener("click", async () => {
+        const ok = await showConfirm({
+          title: "Delete this to-do?",
+          message: esc(existingItem.title || "Untitled to-do"),
+          confirmLabel: "Delete",
+          danger: true,
+        });
+        if (!ok) return;
+        popup.close(); // assigned from openFormPopup's return value below
+        actions.removeTask(existingItem.id);
+        showToast("To-do deleted", { variant: "danger" });
+      });
     },
     onSubmit: ({ panel, close }) => {
       const titleInput = panel.querySelector("#todo-title");
@@ -240,7 +278,13 @@ function openTodoQuickAdd(actions, state, fixedDate, existingItem = null) {
         notes: detailInput ? detailInput.value.trim() : "",
       };
       if (existingItem) {
-        actions.updateTask(existingItem.id, patch);
+        // Pushing a to-do's deadline to a strictly later date counts as a
+        // postponement — computeReschedulePatch bumps rescheduleCount/history,
+        // which the tray/panel/month chips render red (see is-todo-postponed).
+        // An earlier date, a same-day time change, or first-ever scheduling
+        // never counts. The non-date fields ride along via its `extra` arg.
+        const { dueDate, startTime, endTime, ...rest } = patch;
+        actions.updateTask(existingItem.id, computeReschedulePatch(existingItem, dueDate, startTime, endTime, rest));
         showToast("To-do updated");
       } else {
         actions.addTask({
@@ -269,19 +313,57 @@ export function renderDayGridView(root, state, actions, currentUser) {
   const t = today();
   const todayISO = toISODate(t);
   const startHour = state.dayStartHour ?? SCROLL_TO_HOUR;
+  // "Active" = the Settings toggle picked panel mode, for Week or Day view —
+  // true even while the panel is collapsed to its edge chevron (its own Hide ✕
+  // button), so that reopen button always has somewhere to render. "Open" adds
+  // "and it's not currently collapsed" — this is what actually changes the day
+  // count and de-dupes the trays. See isTodoPanelOpen in selectors.js.
+  const todoPanelActive = (state.view === "week" || state.view === "day") && state.todoDisplayMode === "panel";
+  const todoPanelOpen = isTodoPanelOpen(state);
+  // Only Week view's panel narrows the grid to a cursor-anchored 5-day window
+  // with clickable day headers; Day view keeps its single column and just pins
+  // the panel to that day.
+  const todoPanelPickable = todoPanelOpen && state.view === "week";
 
   let days;
   if (state.view === "week") {
-    const start = startOfWeek(cursor, state.weekStartsOn);
-    days = Array.from({ length: 7 }, (_, i) => addDays(start, i));
+    if (todoPanelOpen) {
+      // The To-Do panel's 5-day window starts at the cursor date itself, not
+      // the calendar week's Monday/Sunday — see calendarHeader.js's step()/
+      // periodLabel(), which page and label this same window.
+      days = Array.from({ length: 5 }, (_, i) => addDays(cursor, i));
+    } else {
+      const start = startOfWeek(cursor, state.weekStartsOn);
+      days = Array.from({ length: 7 }, (_, i) => addDays(start, i));
+    }
   } else if (state.view === "day") {
     days = [cursor];
   } else {
     days = [...state.customDates].sort().map(parseISODate);
   }
 
+  // The To-Do panel is scoped to one day — the date-column header the user
+  // last clicked (state.todoPanelDate), always snapped back into the visible
+  // 5-day window (a stored date from a week you've since navigated away from
+  // would otherwise leave the panel showing a day that isn't on screen).
+  // Falls back to today when it's visible, else the first visible day.
+  let panelDate = null;
+  if (todoPanelOpen) {
+    const visibleISO = days.map(toISODate);
+    panelDate = visibleISO.includes(state.todoPanelDate)
+      ? state.todoPanelDate
+      : visibleISO.includes(todayISO)
+        ? todayISO
+        : visibleISO[0];
+  }
+
+  // While the To-Do panel is open it becomes the sole place to-dos show (see
+  // dayTrayCol below for the Day tray's own half of this) — isTodo tasks drop
+  // out of the Week tray rather than appearing in both places.
   const weekItems = [
-    ...getWeekUnscheduledTasks(state).map((t) => ({ item: t, kind: "task" })),
+    ...getWeekUnscheduledTasks(state)
+      .filter((task) => !todoPanelOpen || !task.isTodo)
+      .map((task) => ({ item: task, kind: "task" })),
     ...getWeekUnscheduledEvents(state).map((e) => ({ item: e, kind: "event" })),
   ];
 
@@ -294,7 +376,20 @@ export function renderDayGridView(root, state, actions, currentUser) {
   const prevScrollEl = root.querySelector("#timegrid-scroll");
   const prevScrollTop = prevScrollEl ? prevScrollEl.scrollTop : null;
 
+  // While a card/chip is being dragged it's reparented to <body> and given
+  // position:fixed (see the pointer handlers below), then removed on drop. If a
+  // re-render lands mid-drag, or a drop handler throws before its own cleanup,
+  // that node is orphaned on <body> — it keeps floating over the calendar with
+  // whatever text/title it had when the drag started, and no later re-render
+  // touches it (they only replace #calendar-body's contents). That's the
+  // "外面没有变化 / 日历上还是旧名字" symptom: the real card underneath did
+  // update, but a stale ghost sits on top. Sweep any such leftovers each render.
+  document
+    .querySelectorAll("body > .timegrid-event, body > .timegrid-task-block, body > .unscheduled-chip, body > .day-tray-chip")
+    .forEach((el) => el.remove());
+
   root.innerHTML = `
+    ${todoPanelActive ? `<div class="timegrid-with-panel">` : ""}
     <div class="timegrid">
       <div class="timegrid-headrow">
         <div class="timegrid-gutter-spacer corner-unhide-cell">
@@ -311,13 +406,17 @@ export function renderDayGridView(root, state, actions, currentUser) {
         </div>
         <div class="timegrid-headcols" style="grid-template-columns: repeat(${days.length}, 1fr);">
           ${days
-            .map(
-              (d) => `
-            <div class="timegrid-head-col ${isSameDay(d, t) ? "is-today" : ""}">
+            .map((d) => {
+              const iso = toISODate(d);
+              const pick = todoPanelPickable
+                ? ` is-todo-pickable${iso === panelDate ? " is-todo-selected" : ""}`
+                : "";
+              return `
+            <div class="timegrid-head-col ${isSameDay(d, t) ? "is-today" : ""}${pick}" data-date="${iso}">
               <div class="daygrid-head-weekday">${WEEKDAY_LABELS[d.getDay()]}</div>
               <div class="daygrid-head-num">${d.getDate()}</div>
-            </div>`
-            )
+            </div>`;
+            })
             .join("")}
         </div>
       </div>
@@ -335,7 +434,11 @@ export function renderDayGridView(root, state, actions, currentUser) {
             : ""
         }
         <button type="button" class="tray-add-btn tray-add-specialday-btn tray-add-btn-floating" id="week-add-specialday-btn" aria-label="Add a special day" title="Add a special day — birthday, exam, anniversary…">🎉</button>
-        <button type="button" class="tray-add-btn tray-add-todo-btn tray-add-btn-floating" id="week-add-todo-btn" aria-label="Add a to-do for sometime this week" title="Add a to-do — rolls forward to today until done">${icons.checkSmall}</button>
+        ${
+          todoPanelOpen
+            ? ""
+            : `<button type="button" class="tray-add-btn tray-add-todo-btn tray-add-btn-floating" id="week-add-todo-btn" aria-label="Add a to-do for sometime this week" title="Add a to-do — rolls forward to today until done">${icons.checkSmall}</button>`
+        }
         <button type="button" class="tray-add-btn tray-add-btn-floating" id="week-add-btn" aria-label="Add a task for sometime this week">${icons.plusSmall}</button>
       </div>`
           : ""
@@ -366,6 +469,8 @@ export function renderDayGridView(root, state, actions, currentUser) {
         </div>
       </div>
     </div>
+    ${todoPanelActive ? todoSidePanelHTML(state, panelDate) : ""}
+    ${todoPanelActive ? `</div>` : ""}
   `;
 
   const scrollEl = root.querySelector("#timegrid-scroll");
@@ -714,6 +819,7 @@ export function renderDayGridView(root, state, actions, currentUser) {
         onEnd: (ev, { ctx }) => {
           ctx?.autoScroll.stop();
           if (!ctx || !ctx.picked) return;
+          try {
           const finalRect = card.getBoundingClientRect();
           const cx = finalRect.left + finalRect.width / 2;
           const cy = finalRect.top + finalRect.height / 2;
@@ -778,6 +884,11 @@ export function renderDayGridView(root, state, actions, currentUser) {
             commitOccurrencePatch(actions, kind, ctx.item, "dueDate", { dueDate: date, startTime, endTime, scheduled: true });
           } else {
             actions.updateTask(id, computeReschedulePatch(ctx.item, date, startTime, endTime, { scheduled: true }));
+          }
+          } finally {
+            // Backstop: whatever branch ran (or threw), never leave the dragged
+            // node orphaned on <body> floating over the calendar as a stale ghost.
+            if (card.parentElement === document.body) card.remove();
           }
         },
         onClick: () => {
@@ -953,6 +1064,65 @@ export function renderDayGridView(root, state, actions, currentUser) {
   // from showWeekTray/showDayTray, the master on/off switch for the feature.
   root.querySelector("#week-tray-toggle-btn")?.addEventListener("click", () => actions.setWeekTrayCollapsed(!state.weekTrayCollapsed));
   root.querySelector("#day-tray-toggle-btn")?.addEventListener("click", () => actions.setDayTrayCollapsed(!state.dayTrayCollapsed));
+
+  // ---- To-Do side panel: "Hide" (✕) collapses it to the thin right-edge
+  // arrow tab, which clicks it back open (see todoSidePanelHTML). Both just
+  // flip the session collapsed flag — see todoPanelCollapsed's comment in state.js.
+  root.querySelector("#todo-panel-hide-btn")?.addEventListener("click", () => actions.setTodoPanelCollapsed(true));
+  root.querySelector("#todo-panel-reopen-btn")?.addEventListener("click", () => actions.setTodoPanelCollapsed(false));
+  // New to-dos land on the day the panel is currently showing.
+  root.querySelector("#todo-panel-add-btn")?.addEventListener("click", () => openTodoQuickAdd(actions, state, panelDate));
+  root.querySelector("#todo-panel-sort-btn")?.addEventListener("click", () =>
+    actions.setTodoSortMode(state.todoSortMode === "manual" ? "deadline" : "manual"));
+  root.querySelectorAll(".todo-panel-row").forEach((row) => {
+    row.addEventListener("click", (e) => {
+      if (e.target.closest(".timegrid-task-checkbox") || e.target.closest(".todo-panel-row-handle")) return;
+      const master = state.tasks.find((x) => x.id === row.dataset.id);
+      if (master) openTodoQuickAdd(actions, state, null, master);
+    });
+  });
+
+  // ---- Drag a to-do's grip handle to reorder the list. Reorders the rows in
+  // place as the pointer moves, then commits the new sequence merged back into
+  // the global todoOrder on drop (which also flips todoSortMode to "manual" —
+  // see setTodoOrder in state.js), so it works straight from the default
+  // deadline sort with no Settings trip.
+  if (todoPanelOpen) {
+    const listEl = root.querySelector(".todo-side-panel-list");
+    root.querySelectorAll(".todo-panel-row.is-reorderable .todo-panel-row-handle").forEach((handle) => {
+      handle.addEventListener("pointerdown", (e) => {
+        const row = handle.closest(".todo-panel-row");
+        startPointerInteraction(e, {
+          onStart: () => {
+            row.classList.add("is-reordering");
+            return { row };
+          },
+          onMove: (ev, { ctx }) => {
+            const siblings = [...listEl.querySelectorAll(".todo-panel-row")].filter((r) => r !== ctx.row);
+            const before = siblings.find((r) => {
+              const box = r.getBoundingClientRect();
+              return ev.clientY < box.top + box.height / 2;
+            });
+            if (before) listEl.insertBefore(ctx.row, before);
+            else listEl.appendChild(ctx.row);
+          },
+          onEnd: (ev, { ctx }) => {
+            ctx.row.classList.remove("is-reordering");
+            const visibleIds = [...listEl.querySelectorAll(".todo-panel-row")].map((r) => r.dataset.id);
+            actions.setTodoOrder(mergeTodoOrder(state.todoOrder || [], visibleIds));
+          },
+        });
+      });
+    });
+  }
+
+  // Click a date-column header (only interactive while the panel is open) to
+  // point the panel at that day.
+  if (todoPanelPickable) {
+    root.querySelectorAll(".timegrid-head-col.is-todo-pickable").forEach((col) => {
+      col.addEventListener("click", () => actions.setTodoPanelDate(col.dataset.date));
+    });
+  }
 }
 
 // Flattens every timed to-do item (item.todoList entries carrying their own .time)
@@ -1012,8 +1182,13 @@ function dayColumn(date, state, todayISO) {
 
 function dayTrayCol(date, state, todayISO) {
   const iso = toISODate(date);
+  // See the matching comment on weekItems in renderDayGridView — while the
+  // To-Do panel is open, to-dos live there instead of also showing here.
+  const panelOpen = isTodoPanelOpen(state);
   const items = [
-    ...getDayUnscheduledTasks(state, iso).map((t) => ({ item: t, kind: "task" })),
+    ...getDayUnscheduledTasks(state, iso)
+      .filter((task) => !panelOpen || !task.isTodo)
+      .map((task) => ({ item: task, kind: "task" })),
     ...getDayUnscheduledEvents(state, iso).map((e) => ({ item: e, kind: "event" })),
   ];
   const specialDays = specialDaysOnDate(state, iso);
@@ -1030,8 +1205,83 @@ function dayTrayCol(date, state, todayISO) {
           : ""
       }
       <button type="button" class="tray-add-btn tray-add-specialday-btn tray-add-btn-floating" data-date="${iso}" aria-label="Add a special day" title="Add a special day — birthday, exam, anniversary…">🎉</button>
-      <button type="button" class="tray-add-btn tray-add-todo-btn tray-add-btn-floating" data-date="${iso}" aria-label="Add a to-do for this day" title="Add a to-do — rolls forward to today until done">${icons.checkSmall}</button>
+      ${
+        panelOpen
+          ? ""
+          : `<button type="button" class="tray-add-btn tray-add-todo-btn tray-add-btn-floating" data-date="${iso}" aria-label="Add a to-do for this day" title="Add a to-do — rolls forward to today until done">${icons.checkSmall}</button>`
+      }
       <button type="button" class="tray-add-btn day-tray-add-btn tray-add-btn-floating" data-date="${iso}" aria-label="Add a task for this day">${icons.plusSmall}</button>
+    </div>
+  `;
+}
+
+// ---- To-Do side panel (state.todoDisplayMode === "panel", Week view only —
+// see isTodoPanelOpen in selectors.js). Day-scoped: it shows the open to-dos
+// for `panelDate` — the date-column header the user last clicked in Week view
+// (see the .is-todo-pickable wiring) — replacing their usual spread across the
+// Week/Day trays while it's open (see the panelOpen filters on weekItems/
+// dayTrayCol above). getDayTodos decides what "that day's to-dos" means.
+function todoSidePanelHTML(state, panelDate) {
+  // Hidden via the panel's own "Hide" (✕) button — it collapses to a small
+  // chevron button on the right edge (Week view back to its 7-day layout, see
+  // todoPanelOpen in renderDayGridView), which clicks back open. This is the
+  // only way back once hidden, so it has to stay visible.
+  if (state.todoPanelCollapsed) {
+    return `
+      <button type="button" class="todo-panel-reopen" id="todo-panel-reopen-btn" title="Show the To-Do panel" aria-label="Show the To-Do panel">${icons.chevronLeft}</button>
+    `;
+  }
+  const todayISO = toISODate(today());
+  const isToday = panelDate === todayISO;
+  const todos = getDayTodos(state, panelDate);
+  // Every to-do row has a drag handle — dragging one to reorder is always
+  // available and switches the list to manual order on drop (see setTodoOrder
+  // in state.js). Settings › To-Do › Sort By flips back to "deadline".
+  const sortNote = state.todoSortMode === "manual" ? "My order" : "By deadline";
+  const d = parseISODate(panelDate);
+  const dayLabel = `${WEEKDAY_LABELS[d.getDay()].slice(0, 3)} · ${formatFullDate(d).split(", ")[1]}${isToday ? " · Today" : ""}`;
+  return `
+    <div class="todo-side-panel">
+      <div class="todo-side-panel-header">
+        <div class="todo-side-panel-title" title="${esc(dayLabel)}">${esc(dayLabel)}</div>
+        <button type="button" class="todo-side-panel-icon-btn" id="todo-panel-add-btn" aria-label="Add a to-do" title="Add a to-do for this day">${icons.plusSmall}</button>
+        <button type="button" class="todo-side-panel-hide-btn" id="todo-panel-hide-btn" title="Hide the To-Do panel">${icons.close}<span>Hide</span></button>
+      </div>
+      <button type="button" class="todo-side-panel-sort" id="todo-panel-sort-btn" title="Switch between deadline order and your own drag order">⇅ ${sortNote}</button>
+      <div class="todo-side-panel-list">
+        ${
+          todos.length === 0
+            ? `<div class="empty-hint todo-side-panel-empty">Nothing to do ${isToday ? "today" : "this day"} 🎉</div>`
+            : todos.map((item) => todoPanelRow(item, todayISO, state)).join("")
+        }
+      </div>
+    </div>
+  `;
+}
+
+// Reuses .timegrid-task-checkbox (auto-wired by the generic checkbox listener
+// in renderDayGridView, same as every other to-do checkbox) so no dedicated
+// click handler is needed here beyond the row's own click-to-edit below.
+function todoPanelRow(item, todayISO, state) {
+  const overdue = isOverdue(item, todayISO);
+  const urgent = !overdue && isTodoUrgent(item, state?.todoUrgentThresholdHours ?? 24, todayISO);
+  const postponed = todoPostponedClass(item);
+  const severity = postponed ? "" : rescheduleSeverityClass(item.rescheduleCount || 0);
+  // The panel is already scoped to one day, so the row only needs the deadline
+  // *time* — plus the original date when this is an overdue item rolled onto
+  // today's view (its due day is no longer the day being shown).
+  const bits = [];
+  if (overdue && item.dueDate && item.dueDate < todayISO) bits.push(esc(formatFullDate(parseISODate(item.dueDate)).split(", ")[1]));
+  if (item.startTime) bits.push(esc(formatTime(item.startTime)));
+  const deadline = bits.length ? `<span class="todo-panel-row-deadline">${bits.join(" · ")}</span>` : "";
+  return `
+    <div class="todo-panel-row is-reorderable ${overdue ? "is-overdue" : postponed || (urgent ? "is-todo-urgent" : severity)}" style="--chip-color:${item.color}" data-id="${item.id}" title="${esc(item.title)} · Click to edit">
+      <span class="todo-panel-row-handle" aria-hidden="true" title="Drag to reorder">⠿</span>
+      <button type="button" class="timegrid-task-checkbox" data-id="${item.id}" data-occurrence="" aria-label="Toggle done"></button>
+      <div class="todo-panel-row-body">
+        <span class="todo-panel-row-title">${esc(item.title)}</span>
+        ${deadline}
+      </div>
     </div>
   `;
 }
@@ -1056,14 +1306,15 @@ function specialDayTrayChip(d) {
 // rather than needing a whole separate chip renderer.
 function weekTrayChip(item, todayISO, kind = "task", state) {
   const isTask = kind === "task";
-  const severity = isTask ? rescheduleSeverityClass(item.rescheduleCount || 0) : "";
+  const postponed = todoPostponedClass(item);
+  const severity = isTask && !postponed ? rescheduleSeverityClass(item.rescheduleCount || 0) : "";
   const prefix = isTask && item.rescheduleCount ? (item.rescheduleCount >= 3 || item.overdueReschedule ? "⚠ " : "↻ ") : "";
   const dragHint = isTask ? "Drag onto a day or the timeline" : "Drag onto the timeline to schedule";
   // Same click-to-select/click-again-to-open pattern as dayTrayChip — only
   // for to-dos, see the reasoning there.
   const selected = item.isTodo && isSelected(state, kind, item.id, item.occurrenceDate || null);
   return `
-    <div class="unscheduled-chip ${isTask && item.done ? "is-done" : ""} ${severity} ${selected ? "is-selected" : ""}" style="--chip-color:${item.color}" data-id="${item.id}" data-kind="${kind}" data-occurrence="${item.occurrenceDate || ""}" title="${esc(item.title)} · ${dragHint}${isTask && item.rescheduleCount ? `\n${esc(rescheduleHistoryText(item))}` : ""}">
+    <div class="unscheduled-chip ${isTask && item.done ? "is-done" : ""} ${severity} ${postponed} ${selected ? "is-selected" : ""}" style="--chip-color:${item.color}" data-id="${item.id}" data-kind="${kind}" data-occurrence="${item.occurrenceDate || ""}" title="${esc(item.title)} · ${dragHint}${isTask && item.rescheduleCount ? `\n${esc(rescheduleHistoryText(item))}` : ""}">
       ${isTask ? `<button type="button" class="timegrid-task-checkbox" data-id="${item.id}" data-occurrence="${item.occurrenceDate || ""}" aria-label="Toggle done"></button>` : ""}
       <div class="day-tray-chip-body">
         <span class="unscheduled-chip-label">${prefix}${esc(item.title)}</span>
@@ -1094,7 +1345,8 @@ function dayTrayChip(item, todayISO, kind = "task", state) {
   const isTask = kind === "task";
   const overdue = isTask && isOverdue(item, todayISO);
   const urgent = isTask && !overdue && isTodoUrgent(item, state?.todoUrgentThresholdHours ?? 24, todayISO);
-  const severity = isTask ? rescheduleSeverityClass(item.rescheduleCount || 0) : "";
+  const postponed = todoPostponedClass(item);
+  const severity = isTask && !postponed ? rescheduleSeverityClass(item.rescheduleCount || 0) : "";
   const prefix = overdue ? "⚠ " : isTask && item.rescheduleCount ? (item.rescheduleCount >= 3 || item.overdueReschedule ? "⚠ " : "↻ ") : "";
   const historyLine = isTask && (overdue || item.rescheduleCount) ? `\n${esc(rescheduleHistoryText(item))}` : "";
   // Only a to-do supports the click-to-select/click-again-to-open pattern (see
@@ -1102,7 +1354,7 @@ function dayTrayChip(item, todayISO, kind = "task", state) {
   // directly on a single click, same as always.
   const selected = item.isTodo && isSelected(state, kind, item.id, item.occurrenceDate || null);
   return `
-    <div class="day-tray-chip ${isTask && item.done ? "is-done" : ""} ${overdue ? "is-overdue" : urgent ? "is-todo-urgent" : severity} ${selected ? "is-selected" : ""}" style="--chip-color:${item.color}" data-id="${item.id}" data-kind="${kind}" data-occurrence="${item.occurrenceDate || ""}" title="${esc(item.title)} · Drag onto the timeline to set a time${historyLine}">
+    <div class="day-tray-chip ${isTask && item.done ? "is-done" : ""} ${overdue ? "is-overdue" : postponed || (urgent ? "is-todo-urgent" : severity)} ${selected ? "is-selected" : ""}" style="--chip-color:${item.color}" data-id="${item.id}" data-kind="${kind}" data-occurrence="${item.occurrenceDate || ""}" title="${esc(item.title)} · Drag onto the timeline to set a time${historyLine}">
       ${isTask ? `<button type="button" class="timegrid-task-checkbox" data-id="${item.id}" data-occurrence="${item.occurrenceDate || ""}" aria-label="Toggle done"></button>` : ""}
       <div class="day-tray-chip-body">
         <span class="unscheduled-chip-label">${prefix}${esc(item.title)}</span>
@@ -1175,8 +1427,14 @@ function itemBlock({ event: item, col, cols, startMin, endMin }, todayISO, state
   const height = Math.max(minutesToTop(endMin - startMin) - CARD_BOTTOM_GAP, 20);
   const widthPct = 100 / cols;
   const leftPct = col * widthPct;
-  const compact = height < 40;
   const isTask = item.kind === "task";
+  // A selected card is grown to at least 160px (see .is-selected in calendar.css)
+  // and gets the full-width column, so it always has room for the header + info
+  // panels — never strip it down to the compact (title-only, no time, no Extra
+  // Fields) form just because its natural time-slot height is small. That's what
+  // "放大后所有 detail 都 show 出来" needs.
+  const selected = item.kind !== "todoItem" && isSelected(state, isTask ? "task" : "event", item.id, item.occurrenceDate || null);
+  const compact = height < 40 && !selected;
   const resizeHandles = `<div class="resize-handle" data-edge="top"></div><div class="resize-handle" data-edge="bottom"></div>`;
 
   // No resize/drag — there's nothing to reschedule to but the item's own
@@ -1191,8 +1449,6 @@ function itemBlock({ event: item, col, cols, startMin, endMin }, todayISO, state
       </div>
     `;
   }
-
-  const selected = isSelected(state, isTask ? "task" : "event", item.id, item.occurrenceDate || null);
 
   // Selecting a short card grows it (min-height:160px, see .is-selected in
   // calendar.css) so its full info panel has room to show. Left at a plain

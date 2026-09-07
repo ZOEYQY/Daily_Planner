@@ -29,7 +29,9 @@
   {% include "partials/all_matrix.html" %}
 {% elif matrix %}
   <div class="card">
-    <div class="section-title"><h2>{{ matrix.class.name }} — {{ t('attendance_matrix') }}</h2></div>
+    <div class="section-title">
+      <h2><a href="{{ url_for('classes.detail', cid=matrix.class.id) }}">{{ matrix.class.name }}</a> — {{ t('attendance_matrix') }}</h2>
+    </div>
     {% include "partials/matrix.html" %}
   </div>
 {% else %}

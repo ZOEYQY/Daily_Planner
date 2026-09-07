@@ -71,6 +71,10 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent); box-sha
 textarea { min-height: 70px; resize: vertical; }
 label { display: block; font-size: .82rem; font-weight: 600; color: #545b69; margin-bottom: 4px; }
 .field { margin-bottom: 14px; }
+/* The `hidden` attribute must always win — otherwise `.grid`/`.flex` etc. keep
+   a JS-hidden block (e.g. the billing-mode fields the chosen mode doesn't use)
+   on screen. */
+[hidden] { display: none !important; }
 .grid { display: grid; gap: 14px; }
 .grid.c2 { grid-template-columns: 1fr 1fr; }
 .grid.c3 { grid-template-columns: repeat(3, 1fr); }
@@ -97,6 +101,17 @@ label { display: block; font-size: .82rem; font-weight: 600; color: #545b69; mar
 }
 .card + .card { margin-top: 18px; }
 .section-title { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 14px; }
+
+/* ── Monthly bills ── */
+.bill-card { margin-top: 14px; }
+.bill-card-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.bill-card-head .spacer { flex: 1; }
+.bill-text {
+  white-space: pre-wrap; word-break: break-word; margin: 0;
+  font-family: inherit; font-size: .92rem; line-height: 1.6;
+  background: var(--bg, #f7f8fa); border: 1px solid var(--line);
+  border-radius: 10px; padding: 14px;
+}
 .section-title h2, .section-title h3 { margin: 0; }
 
 /* ── stat tiles ── */
@@ -248,12 +263,24 @@ label.opt, .opt { display: flex; align-items: center; gap: 8px; font-weight: 400
 .opt input[type=radio], .opt input[type=checkbox] { width: auto; margin: 0; flex-shrink: 0; }
 .opt input[type=date] { width: auto; }
 .opt span, .opt label { display: inline; margin: 0; font-weight: 400; color: var(--ink); }
-.fee-block:has(input[name=pricing][value=per_student]:checked) .fee-amt { display: none; }
-/* 1-to-1: no pricing choice — one person IS the whole class fee */
-form:has(select[name=kind] option[value="1v1"]:checked) .pricing-choice { display: none; }
-form:has(select[name=kind] option[value="1v1"]:checked) .fee-amt { display: block !important; }
-.one2one-note { display: none; }
-form:has(select[name=kind] option[value="1v1"]:checked) .one2one-note { display: block; }
+
+/* ── segmented picker: a row of buttons instead of a <select> for short
+   enum choices (class type, status, billing mode, pricing) ── */
+.seg { display: flex; flex-wrap: wrap; gap: 6px; }
+.seg.seg-stack { flex-direction: column; align-items: stretch; max-width: 420px; }
+.seg > label {
+  margin: 0; display: flex; align-items: center; gap: 6px;
+  padding: 8px 13px; border: 1px solid var(--line); border-radius: 9px;
+  background: #fff; cursor: pointer; font-weight: 600; color: var(--ink);
+  font-size: .9rem; line-height: 1.25;
+}
+.seg > label > input { position: absolute; width: 1px; height: 1px; opacity: 0; margin: 0; }
+.seg > label > span { display: inline; margin: 0; font-weight: 600; color: inherit; }
+.seg > label:hover { border-color: #d4d8e0; }
+.seg > label:has(input:checked) {
+  background: var(--accent-ink); border-color: var(--accent-ink); color: #fff;
+}
+.seg > label:has(input:focus-visible) { box-shadow: 0 0 0 3px var(--accent-soft); }
 
 /* ── class weekly schedule picker ── */
 .sched-grid { display: flex; flex-direction: column; gap: 6px; max-width: 440px; }
@@ -336,6 +363,15 @@ details.add-panel > summary::before { content: "+ "; }
 details.add-panel[open] > summary { border-bottom: 1px solid var(--line); }
 details.add-panel[open] > summary::before { content: "\2212  "; }
 details.add-panel > form { padding: 20px; }
+
+/* ── repeatable "new student" rows in the add-class form ── */
+#ns-list { display: flex; flex-direction: column; gap: 12px; }
+.ns-row {
+  border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 14px; background: var(--bg);
+}
+.ns-row + .ns-row { margin-top: 0; }
+#ns-add { margin-top: 12px; }
 
 /* ── results laid out as a comparable row of columns ── */
 .result-cols {

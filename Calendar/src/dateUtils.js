@@ -78,8 +78,11 @@ export function formatMonthYear(date) {
   return `${MONTH_LABELS[date.getMonth()]} ${date.getFullYear()}`;
 }
 
-export function formatWeekRange(weekStart) {
-  const weekEnd = addDays(weekStart, 6);
+// spanDays: how many days *after* weekStart the range covers — 6 (a full
+// 7-day calendar week) by default. The To-Do side panel's 5-day window
+// (see dayGridView.js/calendarHeader.js) passes 4 instead.
+export function formatWeekRange(weekStart, spanDays = 6) {
+  const weekEnd = addDays(weekStart, spanDays);
   const sameMonth = weekStart.getMonth() === weekEnd.getMonth();
   const startStr = `${MONTH_LABELS[weekStart.getMonth()].slice(0, 3)} ${weekStart.getDate()}`;
   const endStr = sameMonth
