@@ -45,7 +45,7 @@ CREATE TABLE IF NOT EXISTS students (
     trial_remarks TEXT,
     left_date     TEXT,
     left_reason   TEXT,
-    avatar_color  TEXT    NOT NULL DEFAULT '#2f4b7c',
+    avatar_color  TEXT    NOT NULL DEFAULT '#c2456f',
     remarks       TEXT,
     created_at    TEXT    NOT NULL DEFAULT (datetime('now')),
     updated_at    TEXT    NOT NULL DEFAULT (datetime('now'))

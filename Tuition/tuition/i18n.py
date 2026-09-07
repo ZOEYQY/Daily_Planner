@@ -286,9 +286,10 @@ STRINGS = {
     "closing_desc": {"en": "Save a permanent financial snapshot for this month. Future edits will not change closed months.", "zh": "为这个月保存一份永久财务快照。之后修改资料不会影响已结算的月份。", "ms": "Simpan gambaran kewangan kekal untuk bulan ini."},
 
     # ── bills (parent-facing fee messages) ──
-    "bills_hint": {"en": "One ready-to-send bilingual message per student, family and agent. Total = per-lesson fee × lessons held this month.",
-                   "zh": "每个学生 / 家庭 / 代理一则可直接发送的中英账单。总额 = 每堂费 × 该月上课次数。",
-                   "ms": "Satu mesej dwibahasa sedia hantar bagi setiap pelajar, keluarga dan ejen. Jumlah = yuran sekelas × kelas diadakan bulan ini."},
+    "bills_hint": {"en": "One ready-to-send message per student, family and agent. Pick EN or 华语 for the whole page. Total = per-lesson fee × lessons held this month.",
+                   "zh": "每个学生 / 家庭 / 代理一则可直接发送的账单。整页选择英文或华语。总额 = 每堂费 × 该月上课次数。",
+                   "ms": "Satu mesej sedia hantar bagi setiap pelajar, keluarga dan ejen. Pilih EN atau 华语 untuk seluruh halaman. Jumlah = yuran sekelas × kelas diadakan bulan ini."},
+    "bill_lang_hint": {"en": "Language of the parent-facing bill messages", "zh": "家长账单信息的语言", "ms": "Bahasa mesej bil untuk ibu bapa"},
     "bills_individual": {"en": "Individual", "zh": "个人账单", "ms": "Individu"},
     "bills_family": {"en": "Family", "zh": "家庭账单", "ms": "Keluarga"},
     "bills_agent": {"en": "Agent", "zh": "代理账单", "ms": "Ejen"},

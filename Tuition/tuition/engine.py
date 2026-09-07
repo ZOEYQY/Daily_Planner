@@ -773,50 +773,83 @@ def agent_bills(ym):
 
 _BILL_DIVIDER = "───────────────"
 
+# Parent-facing bill text is sent as a single language (the teacher picks EN or
+# 华语 per batch on the Bills page) rather than the bilingual "中文 | English"
+# every line used to carry — see render_bill_text's `lang` arg.
+_BILL_TEXT = {
+    "en": {
+        "fee": "Fee: RM{fee} / Class",
+        "count": "Number of Classes: {count}",
+        "line_total": "Total: RM{total}",
+        "grand_total": "💰 Total: RM{total}",
+        "payment": "💳 Payment Methods",
+        "reminder": ("🔔 Please remember to send me a photo/screenshot of the "
+                     "payment once it has been made. 🤗"),
+        "thanks": "Thank you for your kind cooperation! 💗",
+    },
+    "zh": {
+        "fee": "收费：RM{fee} / 堂",
+        "count": "上课次数：{count}",
+        "line_total": "上课总费用：RM{total}",
+        "grand_total": "💰 总额：RM{total}",
+        "payment": "💳 付款方式",
+        "reminder": "🔔 付款后，请记得发送付款截图给我哦！🤗",
+        "thanks": "谢谢您的配合！💗",
+    },
+}
 
-def _bill_month_title(ym):
+
+def _bill_lang(lang):
+    return "zh" if lang == "zh" else "en"
+
+
+def _bill_month_title(ym, lang="en"):
     from .i18n import MONTHS
     y, m = ym.split("-")
-    return f"{y}年{int(m)}月补习学费 | Tuition Fee ({MONTHS['en'][int(m) - 1]} {y})"
+    if _bill_lang(lang) == "zh":
+        return f"{y}年{int(m)}月补习学费"
+    return f"Tuition Fee ({MONTHS['en'][int(m) - 1]} {y})"
 
 
-def _bill_line_block(line, head=None):
+def _bill_line_block(line, lang="en", head=None):
+    s = _BILL_TEXT[_bill_lang(lang)]
     prefix = f"📖 {head}\n" if head else ""
     return (f"{prefix}"
-            f"收费 | Fee: RM{rm(line['lesson_fee'])} / Class\n"
-            f"上课次数 | Number of Classes: {line['count']}\n"
-            f"上课总费用 | Total: RM{rm(line['subtotal'])}")
+            f"{s['fee'].format(fee=rm(line['lesson_fee']))}\n"
+            f"{s['count'].format(count=line['count'])}\n"
+            f"{s['line_total'].format(total=rm(line['subtotal']))}")
 
 
-def render_bill_text(bill, ym, payment_info):
+def render_bill_text(bill, ym, payment_info, lang="en"):
     """`bill` is a student_bill, a family_bill ('family' key), or a combined
-    agent bill ('agent_name' key). Always bilingual, regardless of app language."""
+    agent bill ('agent_name' key). Rendered in a single language — "en" or "zh"
+    (anything else falls back to English) — chosen by the teacher on the Bills
+    page, independent of the app's own UI language."""
+    lang = _bill_lang(lang)
+    s = _BILL_TEXT[lang]
     if "agent_name" in bill:  # combined agent bill — plain per-class lines
-        body = "\n\n".join(_bill_line_block(ln, head=ln["class_name"]) for ln in bill["lines"])
+        body = "\n\n".join(_bill_line_block(ln, lang, head=ln["class_name"]) for ln in bill["lines"])
     elif "family" in bill:
         blocks = [
-            _bill_line_block(ln, head=f"{b['student']['full_name']} · {ln['class_name']}")
+            _bill_line_block(ln, lang, head=f"{b['student']['full_name']} · {ln['class_name']}")
             for b in bill["bills"] for ln in b["lines"]
-        ] + [_bill_line_block(ln, head=ln["class_name"]) for ln in bill.get("flat_lines", [])]
+        ] + [_bill_line_block(ln, lang, head=ln["class_name"]) for ln in bill.get("flat_lines", [])]
         body = "\n\n".join(blocks)
     else:
         multi = len(bill["lines"]) > 1
         body = "\n\n".join(
-            _bill_line_block(ln, head=ln["class_name"] if multi else None)
+            _bill_line_block(ln, lang, head=ln["class_name"] if multi else None)
             for ln in bill["lines"])
     return (
-        f"📚 {_bill_month_title(ym)}\n\n"
+        f"📚 {_bill_month_title(ym, lang)}\n\n"
         f"{body}\n\n"
-        f"💰 总额 | Total: RM{rm(bill['total'])}\n"
+        f"{s['grand_total'].format(total=rm(bill['total']))}\n"
         f"{_BILL_DIVIDER}\n"
-        f"💳 付款方式 | Payment Methods\n\n"
+        f"{s['payment']}\n\n"
         f"{(payment_info or '').strip()}\n"
         f"{_BILL_DIVIDER}\n"
-        f"🔔 付款后，请记得发送付款截图给我哦！🤗\n"
-        f"Please remember to send me a photo/screenshot of the payment "
-        f"once the payment has been made.\n\n"
-        f"谢谢您的配合！💗\n"
-        f"Thank you for your kind cooperation!"
+        f"{s['reminder']}\n\n"
+        f"{s['thanks']}"
     )
 
 

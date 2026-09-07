@@ -1,12 +1,15 @@
-"""Monthly Bills — parent-facing bilingual fee messages, ready to copy-paste.
+"""Monthly Bills — parent-facing fee messages, ready to copy-paste.
 
 Same numbers as the Finance page (per-lesson billing), just formatted for the
-teacher to send to each parent / family / agent.
+teacher to send to each parent / family / agent. Each message goes out in a
+single language — EN or 华语, chosen with the toolbar toggle (?bill_lang=),
+defaulting to the app's UI language.
 """
 from flask import Blueprint, render_template, request
 
 from ..auth import login_required
 from ..db import query
+from ..i18n import current_lang
 from ..engine import (this_month, add_months, student_bill, family_bill,
                       agent_bills, render_bill_text, held_lesson_count,
                       sync_month, is_closed)
@@ -23,9 +26,16 @@ def index():
     pay_info = (query("SELECT payment_info FROM settings WHERE id = 1", one=True)
                 or {"payment_info": ""})["payment_info"]
 
+    # The parent-facing message goes out in ONE language. Default follows the
+    # app's UI language (华语 → zh, otherwise English); ?bill_lang= overrides it
+    # via the toggle in the toolbar.
+    bill_lang = request.args.get("bill_lang")
+    if bill_lang not in ("en", "zh"):
+        bill_lang = "zh" if current_lang() == "zh" else "en"
+
     def card(name, bill, sid=None):
         return {"name": name, "total": bill["total"], "sid": sid,
-                "text": render_bill_text(bill, ym, pay_info)}
+                "text": render_bill_text(bill, ym, pay_info, bill_lang)}
 
     billed_classes = set()  # class ids that landed on some card this month
 
@@ -86,7 +96,7 @@ def index():
                          "bill_mode": c["bill_mode"], "reason": reason})
 
     return render_template(
-        "bills/index.html", ym=ym,
+        "bills/index.html", ym=ym, bill_lang=bill_lang,
         student_cards=student_cards, family_cards=family_cards, agent_cards=agent_cards,
         unbilled=unbilled,
         prev_month=add_months(ym, -1), next_month=add_months(ym, 1))

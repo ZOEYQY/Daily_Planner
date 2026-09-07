@@ -1,8 +1,10 @@
 """Small shared helpers."""
 import datetime as dt
 
-AVATAR_COLORS = ["#2f4b7c", "#665191", "#a05195", "#d45087",
-                 "#f95d6a", "#ff7c43", "#3c8d5f", "#1f7a8c"]
+# Pink / rose / plum family, to match the app's pink theme (see --accent in
+# tuition.css). All dark enough for white initials to read on them.
+AVATAR_COLORS = ["#c2456f", "#a83f6b", "#c85f8e", "#b5487e",
+                 "#9c5a86", "#cc5b6a", "#8f4a7a", "#a85585"]
 
 
 def smartcase(value):

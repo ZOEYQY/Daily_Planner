@@ -200,7 +200,7 @@ document.addEventListener('paste', function(e){
 {% macro avatar(name, color, big=False) -%}
 {% set parts = name.split() %}
 {% set ini = (parts[0][0] ~ (parts[-1][0] if parts|length > 1 else (parts[0][1] if parts[0]|length > 1 else '')))|upper %}
-<span class="avatar {{ 'lg' if big }}" style="background: {{ color or '#2f4b7c' }}">{{ ini }}</span>
+<span class="avatar {{ 'lg' if big }}" style="background: {{ color or '#c25d87' }}">{{ ini }}</span>
 {%- endmacro %}
 
 {# Edit an enrollment's join (start) date and optional end date. Pair the

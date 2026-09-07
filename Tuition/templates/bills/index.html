@@ -4,10 +4,16 @@
 <div class="toolbar">
   <h1>{{ t('nav_bills') }}</h1>
   <span class="spacer"></span>
+  <span class="btn-row" title="{{ t('bill_lang_hint') }}">
+    <a class="btn sm{% if bill_lang == 'en' %} primary{% endif %}"
+       href="{{ url_for('bills.index', month=ym, bill_lang='en') }}">EN</a>
+    <a class="btn sm{% if bill_lang == 'zh' %} primary{% endif %}"
+       href="{{ url_for('bills.index', month=ym, bill_lang='zh') }}">华语</a>
+  </span>
   <span class="month-nav">
-    <a href="{{ url_for('bills.index', month=prev_month) }}">&larr;</a>
+    <a href="{{ url_for('bills.index', month=prev_month, bill_lang=bill_lang) }}">&larr;</a>
     <span>{{ month_label(ym) }}</span>
-    <a href="{{ url_for('bills.index', month=next_month) }}">&rarr;</a>
+    <a href="{{ url_for('bills.index', month=next_month, bill_lang=bill_lang) }}">&rarr;</a>
   </span>
 </div>
 

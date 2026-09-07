@@ -33,7 +33,7 @@
       {% for st in b.students %}
       {% set cur = b.current.get(st.id, '') %}
       <div class="today-row">
-        <span class="tr-name">{{ avatar(st.full_name, '#5b7fbd') }}<span>{{ st.full_name }}</span>
+        <span class="tr-name">{{ avatar(st.full_name, '#c25d87') }}<span>{{ st.full_name }}</span>
           {% if st.student_status == 'trial' %}<span class="badge b-purple">{{ t('trial') }}</span>{% endif %}
         </span>
         <select name="st_{{ b.class.id }}_{{ st.id }}" onchange="cellStatus(this)">

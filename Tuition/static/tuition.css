@@ -4,9 +4,9 @@
   --ink: #2b303c;
   --ink-soft: #7b828f;
   --line: #ecedf1;
-  --accent: #5b7fbd;
-  --accent-ink: #3f5f96;
-  --accent-soft: #eef3fa;
+  --accent: #d67aa0;
+  --accent-ink: #b1547f;
+  --accent-soft: #fbeef4;
   --green: #3a9163;   --green-bg: #ecf6f0;
   --amber: #c08a3e;   --amber-bg: #fbf3e6;
   --red: #cf5c50;     --red-bg: #fbeeec;
@@ -88,7 +88,7 @@ label { display: block; font-size: .82rem; font-weight: 600; color: #545b69; mar
 }
 .btn:hover { border-color: #d4d8e0; text-decoration: none; }
 .btn.primary { background: var(--accent-ink); border-color: var(--accent-ink); color: #fff; }
-.btn.primary:hover { background: #345085; }
+.btn.primary:hover { background: #9a4770; }
 .btn.danger { color: var(--red); border-color: #eccac6; }
 .btn.danger:hover { background: var(--red-bg); }
 .btn.sm { padding: 5px 10px; font-size: .85rem; }
