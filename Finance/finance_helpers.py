@@ -315,6 +315,9 @@ _SHOPPING_DEFAULTS = {
     "expense_created": False,
     "purchased_at": "",
     "actual_price": None,
+    # Last AI purchase-advice result for this item, or None. Shape:
+    # {recommendation, reasoning, suggested_wait_days, confidence, generated_at}
+    "ai_suggestion": None,
 }
 
 

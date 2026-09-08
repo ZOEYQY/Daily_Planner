@@ -50,6 +50,23 @@
         details.shop-edit { margin-top: 10px; }
         details.shop-edit summary { cursor: pointer; font-size: 13px; color: var(--text-muted); }
         details.shop-edit .summary-grid { margin-top: 10px; }
+
+        .shop-advice { margin-top: 10px; }
+        .shop-advise-btn {
+            font-size: 12px; padding: 5px 10px; border: 1px solid var(--border-strong);
+            border-radius: var(--radius-sm); background: var(--surface); cursor: pointer;
+            color: var(--text-main);
+        }
+        .shop-advise-btn:disabled { opacity: 0.55; cursor: default; }
+        .shop-advice-status { font-size: 12px; margin-left: 8px; color: var(--text-muted); }
+        .shop-advice-status.is-error { color: var(--text-main); font-weight: 700; }
+        .shop-advice-card {
+            margin-top: 8px; padding: 10px 12px; border: 1px solid var(--border);
+            border-radius: var(--radius-sm); background: var(--surface-alt);
+        }
+        .shop-advice-card .rec { font-weight: 700; font-size: 13px; }
+        .shop-advice-card p { font-size: 13px; margin: 6px 0; white-space: pre-wrap; }
+        .shop-advice-card small { font-size: 11px; color: var(--text-muted); }
     </style>
 </head>
 
@@ -219,6 +236,34 @@
             <div class="shop-meta">Notes: {{ it.notes }}</div>
             {% endif %}
 
+            <!-- AI PURCHASE ADVISOR -->
+            {% if it.status != 'bought' %}
+            <div class="shop-advice" data-item="{{ it.id }}">
+                <button type="button" class="shop-advise-btn"
+                        data-advise-url="{{ url_for('finance.shopping_advise') }}">
+                    {% if it.ai_suggestion %}✨ Ask AI again{% else %}✨ Ask AI whether to buy{% endif %}
+                </button>
+                <span class="shop-advice-status" aria-live="polite"></span>
+                <div class="shop-advice-result" {% if not it.ai_suggestion %}hidden{% endif %}>
+                    {% if it.ai_suggestion %}
+                    {% set s = it.ai_suggestion %}
+                    <div class="shop-advice-card">
+                        <div class="rec">
+                            AI:
+                            {% if s.recommendation == 'buy' %}Buy
+                            {% elif s.recommendation == 'dont_buy' %}Don't buy
+                            {% else %}Wait{% endif %}
+                            {% if s.suggested_wait_days %} · wait ~{{ s.suggested_wait_days }} days{% endif %}
+                            · {{ s.confidence }} confidence
+                        </div>
+                        <p>{{ s.reasoning }}</p>
+                        <small>Generated {{ s.generated_at }} · advice only — you decide.</small>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+            {% endif %}
+
             <!-- DECISION + STATUS ACTIONS -->
             {% if it.status != 'bought' %}
             <div class="shop-row-forms" style="margin-top:10px;">
@@ -348,6 +393,8 @@
     </div>
 
 </div>
+
+<script src="{{ url_for('static', filename='shopping_ai.js') }}"></script>
 
 </body>
 </html>

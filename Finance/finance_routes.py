@@ -1736,6 +1736,216 @@ def shopping():
     return _render_shopping(items)
 
 
+# ================= SHOPPING: AI PURCHASE ADVISOR =================
+# ================= 购物：AI 购买建议 =================
+# 同一套 OpenAI 管道（key 从 Finance/.env 读，严格 JSON schema，不存图，
+# 没配 key 就返回 503、页面照常用）。给一个购物清单条目 + 用户真实的
+# 财务情况，让模型给出 buy / wait / dont_buy 的建议。建议只是参考，
+# 最终决定权仍然在用户手里。结果会存回该条目的 ai_suggestion 字段。
+# Same OpenAI plumbing as the receipt feature (key from Finance/.env,
+# strict JSON schema, image never stored, missing key -> 503 and the page
+# still works). Given one shopping item plus the user's real finance
+# context, the model recommends buy / wait / dont_buy. It's advice only —
+# the user still decides. The result is stored back on the item's
+# ai_suggestion field.
+
+PURCHASE_ADVICE_TIMEOUT = 30  # seconds
+PURCHASE_ADVICE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "recommendation": {"type": "string", "enum": ["buy", "wait", "dont_buy"]},
+        "reasoning": {"type": "string"},
+        "suggested_wait_days": {"type": ["integer", "null"]},
+        "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
+    },
+    "required": ["recommendation", "reasoning", "suggested_wait_days", "confidence"],
+    "additionalProperties": False,
+}
+
+
+def _purchase_context(item):
+    """The real finance figures the advisor sees alongside the item itself:
+    this month's income/expense/balance, category spend + budget headroom,
+    and how many other purchases are already lined up."""
+    records = load_data(f_expense, [])
+    month = datetime.now().strftime("%Y-%m")
+    month_records = [r for r in records if r.get("date", "").startswith(month)]
+
+    income = round(sum(
+        r.get("amount", 0) for r in month_records
+        if r.get("type") == "income" and r.get("category") != "Transfer In"
+    ), 2)
+    expense = round(sum(
+        r.get("amount", 0) for r in month_records
+        if r.get("type") == "expense" and r.get("category") != "Transfer Out"
+    ), 2)
+
+    category = item.get("category") or ""
+    category_spent_month = round(sum(
+        r.get("amount", 0) for r in month_records
+        if r.get("type") == "expense" and r.get("category") == category
+    ), 2) if category else 0.0
+
+    category_budget = None
+    if category:
+        for b in load_data(f_budget, []):
+            if b.get("category") == category:
+                period = b.get("period", "monthly")
+                period_records = _get_period_records(records, period)
+                spent = round(sum(
+                    r.get("amount", 0) for r in period_records
+                    if r.get("type") == "expense" and r.get("category") == category
+                ), 2)
+                limit = b.get("amount", 0)
+                category_budget = {
+                    "period": period,
+                    "limit": limit,
+                    "spent": spent,
+                    "remaining": round(limit - spent, 2),
+                }
+                break
+
+    others = [
+        it for it in load_shopping()
+        if it.get("id") != item.get("id")
+        and it.get("status") == "open" and it.get("decision") == "buy"
+    ]
+
+    return {
+        "month": month,
+        "income_this_month": income,
+        "expense_this_month": expense,
+        "balance_this_month": round(income - expense, 2),
+        "category_spent_this_month": category_spent_month,
+        "category_budget": category_budget,
+        "other_items_planned_to_buy": len(others),
+        "other_planned_value": round(
+            sum(float(o.get("estimated_price") or 0) for o in others), 2
+        ),
+    }
+
+
+def _normalise_purchase_advice(result):
+    recommendation = result.get("recommendation")
+    if recommendation not in {"buy", "wait", "dont_buy"}:
+        recommendation = "wait"
+
+    reasoning = result.get("reasoning")
+    reasoning = (reasoning.strip()[:600]
+                 if isinstance(reasoning, str) and reasoning.strip()
+                 else "No reasoning was returned.")
+
+    wait_days = result.get("suggested_wait_days")
+    try:
+        wait_days = int(wait_days)
+        if wait_days <= 0 or wait_days > 365:
+            wait_days = None
+    except (TypeError, ValueError):
+        wait_days = None
+
+    confidence = result.get("confidence")
+    if confidence not in {"high", "medium", "low"}:
+        confidence = "low"
+
+    return {
+        "recommendation": recommendation,
+        "reasoning": reasoning,
+        "suggested_wait_days": wait_days,
+        "confidence": confidence,
+        "generated_at": today_iso(),
+    }
+
+
+def _advise_purchase(item, context):
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        raise RuntimeError("AI purchase advice is not configured")
+
+    try:
+        from openai import OpenAI, AuthenticationError
+    except ImportError as exc:
+        raise RuntimeError("The OpenAI package is not installed") from exc
+
+    payload = {
+        "currency": "RM",
+        "item": {
+            "name": item.get("name"),
+            "estimated_price": item.get("estimated_price"),
+            "category": item.get("category") or None,
+            "priority": item.get("priority"),
+            "reasons_to_buy": item.get("reasons_for") or None,
+            "reasons_not_to_buy": item.get("reasons_against") or None,
+            "notes": item.get("notes") or None,
+            "target_date": item.get("target_date") or None,
+            "added_on": item.get("date_added"),
+        },
+        "finance_context": context,
+    }
+
+    prompt = (
+        "You are a level-headed personal finance assistant helping the user "
+        "avoid impulse spending. Using the shopping item and the user's real "
+        "finance context below, recommend exactly one of: buy, wait, dont_buy.\n"
+        "- Put needs above wants: a broken essential or a genuine study/work "
+        "need is a strong reason to buy; \"I just want it\" is weak.\n"
+        "- Weigh their budget headroom, this month's balance, and how many "
+        "other purchases they have already lined up.\n"
+        "- If you choose \"wait\", set suggested_wait_days (e.g. 7, 14, 30); "
+        "otherwise set it to null.\n"
+        "- reasoning: 2-3 short sentences spoken directly to the user, no "
+        "preamble.\n\n"
+        f"DATA:\n{json.dumps(payload, ensure_ascii=False)}"
+    )
+
+    client = OpenAI(api_key=api_key, timeout=PURCHASE_ADVICE_TIMEOUT)
+    try:
+        response = client.responses.create(
+            model=os.environ.get("OPENAI_RECEIPT_MODEL", "gpt-4o-mini"),
+            store=False,
+            max_output_tokens=400,
+            text={
+                "format": {
+                    "type": "json_schema",
+                    "name": "purchase_advice",
+                    "strict": True,
+                    "schema": PURCHASE_ADVICE_SCHEMA,
+                },
+            },
+            input=[{
+                "role": "user",
+                "content": [{"type": "input_text", "text": prompt}],
+            }],
+        )
+    except AuthenticationError as exc:
+        raise RuntimeError("AI purchase advice is not configured correctly") from exc
+    return _normalise_purchase_advice(_json_from_model_text(response.output_text))
+
+
+@finance_bp.route("/shopping/advise", methods=["POST"])
+def shopping_advise():
+    """Return an AI buy / wait / don't-buy recommendation for one item, and
+    store it on that item. JSON in, JSON out (no page reload)."""
+    items = load_shopping()
+    item = find_shopping_item(items, request.form.get("id"))
+    if not item:
+        return jsonify(error="That shopping item no longer exists."), 404
+    if item.get("status") == "bought":
+        return jsonify(error="This item has already been bought."), 400
+
+    try:
+        advice = _advise_purchase(item, _purchase_context(item))
+    except RuntimeError as exc:
+        return jsonify(error=str(exc)), 503
+    except (ValueError, json.JSONDecodeError):
+        return jsonify(error="The AI response could not be read. Please try again."), 422
+    except Exception:
+        return jsonify(error="AI advice is temporarily unavailable. Please try again shortly."), 502
+
+    item["ai_suggestion"] = advice
+    save_shopping(items)
+    return jsonify(advice=advice)
+
+
 # ================= FINANCE HOME =================
 # ================= 财务首页 =================
 
