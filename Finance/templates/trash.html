@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <title>Trash</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='finance.css') }}">
+</head>
+
+<body>
+
+<div class="topbar">
+    <div class="topbar-title">Trash</div>
+    <div class="topbar-links">
+        <a href="{{ url_for('finance.finance_home') }}">Dashboard</a>
+        <a href="{{ url_for('finance.add_financial') }}">Add</a>
+        <a href="{{ url_for('finance.view_financial') }}">View</a>
+        <a href="{{ url_for('finance.summary') }}">Summary</a>
+        <a href="{{ url_for('finance.budget') }}">Budget</a>
+        <a href="{{ url_for('finance.goals') }}">Goals</a>
+        <a href="{{ url_for('finance.accounts') }}">Accounts</a>
+        <a href="{{ url_for('finance.shopping') }}">Shopping</a>
+        <a href="{{ url_for('finance.categories') }}">Categories</a>
+        <a href="{{ url_for('finance.data_tools') }}">Data</a>
+    </div>
+</div>
+
+<div class="summary-wrapper">
+    <div class="summary-card hover-card">
+
+        <div class="view-header">
+            <div>
+                <h2>Trash</h2>
+                <p>Deleted records are kept here. Restore them, or delete them permanently.</p>
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                <a href="{{ url_for('finance.view_financial') }}" class="secondary-btn">Back to Records</a>
+                {% if records %}
+                <form method="post" action="{{ url_for('finance.trash_empty') }}"
+                      onsubmit="return confirm('Permanently delete all {{ records|length }} trashed records? This cannot be undone.')"
+                      style="display:inline;">
+                    <button type="submit" class="delete-btn">Empty Trash</button>
+                </form>
+                {% endif %}
+            </div>
+        </div>
+
+        {% if not records %}
+        <div class="empty-card">
+            <h3>Trash is empty</h3>
+            <p>Records you delete from the View page will appear here.</p>
+        </div>
+        {% else %}
+        <div class="table-wrapper">
+            <table class="records-table">
+                <tr>
+                    <th>Deleted</th>
+                    <th>Date</th>
+                    <th>Type</th>
+                    <th>Category</th>
+                    <th>Account</th>
+                    <th>Item</th>
+                    <th>Amount</th>
+                    <th>Actions</th>
+                </tr>
+                {% for r in records %}
+                <tr>
+                    <td>{{ r.deleted_at|replace('T', ' ') }}</td>
+                    <td>{{ r.date }}</td>
+                    <td><span class="badge {{ r.type }}">{{ r.type }}</span></td>
+                    <td>{{ r.category|default('-') }}</td>
+                    <td>{{ r.account|default('-') }}</td>
+                    <td>{{ r.item|default('-') }}</td>
+                    <td>RM {{ "%.2f"|format(r.amount) }}</td>
+                    <td>
+                        <div class="action-buttons">
+                            <form method="post" action="{{ url_for('finance.trash_restore', rid=r.id) }}" style="display:inline;">
+                                <button type="submit" class="edit-btn">Restore</button>
+                            </form>
+                            <form method="post" action="{{ url_for('finance.trash_purge', rid=r.id) }}"
+                                  onsubmit="return confirm('Permanently delete this record?')" style="display:inline;">
+                                <button type="submit" class="delete-btn">Delete forever</button>
+                            </form>
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </table>
+        </div>
+        {% endif %}
+
+    </div>
+</div>
+
+</body>
+</html>

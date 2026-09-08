@@ -29,6 +29,7 @@
         <a href="{{ url_for('finance.accounts') }}">Accounts</a>
         <a href="{{ url_for('finance.shopping') }}">Shopping</a>
         <a href="{{ url_for('finance.categories') }}">Categories</a>
+        <a href="{{ url_for('finance.data_tools') }}">Data</a>
     </div>
 
 </div>
@@ -553,11 +554,12 @@
 
 <script>
 
-// Route bases for URLs built in JS below. Taken from url_for() so they carry
-// whatever prefix the app is mounted under (e.g. "/finance" in the combined
-// Daily Planner app, "" when Finance runs standalone). idx=0 then trim the "0".
-const UPDATE_URL_BASE = "{{ url_for('finance.update_financial', idx=0) }}".slice(0, -1);
-const DELETE_URL_BASE = "{{ url_for('finance.delete_financial', idx=0) }}".slice(0, -1);
+// Route templates for URLs built in JS below. Taken from url_for() so they
+// carry whatever prefix the app is mounted under (e.g. "/finance" in the
+// combined Daily Planner app, "" when Finance runs standalone). Records are
+// addressed by their stable string id, substituted in for the "RID" marker.
+const UPDATE_URL_TMPL = "{{ url_for('finance.update_financial', rid='RID') }}";
+const DELETE_URL_TMPL = "{{ url_for('finance.delete_financial', rid='RID') }}";
 
 // ================= SORT DROPDOWNS =================
 // ================= 排序下拉框 =================
@@ -607,8 +609,8 @@ function openContributions(contributions, goalName) {
                 '</div>' +
                 '<div style="display:flex;align-items:center;gap:12px;">' +
                     '<span style="font-size:14px;font-weight:700;">+RM ' + Number(c.amount).toFixed(2) + '</span>' +
-                    '<a href="' + UPDATE_URL_BASE + c.edit_idx + '?source=goal" title="Edit" style="text-decoration:none;font-size:13px;font-weight:700;">Edit</a>' +
-                    '<a href="#" title="Delete" style="text-decoration:none;font-size:13px;font-weight:700;" onclick="deleteContribution(' + c.delete_idx + '); return false;">✕</a>' +
+                    '<a href="' + UPDATE_URL_TMPL.replace('RID', c.id) + '?source=goal" title="Edit" style="text-decoration:none;font-size:13px;font-weight:700;">Edit</a>' +
+                    '<a href="#" title="Delete" style="text-decoration:none;font-size:13px;font-weight:700;" onclick="deleteContribution(&quot;' + c.id + '&quot;); return false;">✕</a>' +
                 '</div>' +
             '</div>';
         }).join('');
@@ -620,14 +622,18 @@ function closeContributions() {
     document.getElementById('contribModal').style.display = 'none';
 }
 
-// /delete/<idx> only accepts POST (state-changing routes can't be plain
+// /delete/<rid> only accepts POST (state-changing routes can't be plain
 // GET links), so this contribution-row delete button submits a real POST
-// form instead of just navigating to the URL.
-function deleteContribution(idx) {
-    if (!confirm('Delete this contribution?')) return;
+// form instead of just navigating to the URL. source=goal keeps the user
+// on the Goals page after the (soft) delete.
+function deleteContribution(rid) {
+    if (!confirm('Move this contribution to Trash?')) return;
     const form = document.createElement('form');
     form.method = 'POST';
-    form.action = DELETE_URL_BASE + idx;
+    form.action = DELETE_URL_TMPL.replace('RID', rid);
+    const src = document.createElement('input');
+    src.type = 'hidden'; src.name = 'source'; src.value = 'goal';
+    form.appendChild(src);
     document.body.appendChild(form);
     form.submit();
 }

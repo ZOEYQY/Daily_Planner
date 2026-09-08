@@ -1,0 +1,181 @@
+{
+  "schema_version": 1,
+  "categories": [
+    {
+      "id": "c7cad444b4cf4e6d93f86d100b147d5f",
+      "name": "Salary",
+      "kind": "income",
+      "icon": "",
+      "color": "",
+      "order": 0,
+      "archived": false,
+      "is_default": false,
+      "created_at": "2026-09-08"
+    },
+    {
+      "id": "45a928e9280e4ee28181c03395b5e4c2",
+      "name": "Freelance",
+      "kind": "income",
+      "icon": "",
+      "color": "",
+      "order": 1,
+      "archived": false,
+      "is_default": false,
+      "created_at": "2026-09-08"
+    },
+    {
+      "id": "726e7b81b2f9436aafab3053492edb81",
+      "name": "Business",
+      "kind": "income",
+      "icon": "",
+      "color": "",
+      "order": 2,
+      "archived": false,
+      "is_default": false,
+      "created_at": "2026-09-08"
+    },
+    {
+      "id": "ed33641723a94c5eafd0160f7db7cd48",
+      "name": "Gift",
+      "kind": "income",
+      "icon": "",
+      "color": "",
+      "order": 3,
+      "archived": false,
+      "is_default": false,
+      "created_at": "2026-09-08"
+    },
+    {
+      "id": "ef41f7df4b2c466c92f66993015d34cf",
+      "name": "Bonus",
+      "kind": "income",
+      "icon": "",
+      "color": "",
+      "order": 4,
+      "archived": false,
+      "is_default": false,
+      "created_at": "2026-09-08"
+    },
+    {
+      "id": "b8510cfd13aa47f98246ba4900e5ca2a",
+      "name": "Food",
+      "kind": "expense",
+      "icon": "",
+      "color": "",
+      "order": 0,
+      "archived": false,
+      "is_default": false,
+      "created_at": "2026-09-08"
+    },
+    {
+      "id": "1477ce21059d40f28b0e393b54f3a04b",
+      "name": "Transport",
+      "kind": "expense",
+      "icon": "",
+      "color": "",
+      "order": 1,
+      "archived": false,
+      "is_default": false,
+      "created_at": "2026-09-08"
+    },
+    {
+      "id": "bf3f6f4b73a74a2ca12f4207ce3f5b96",
+      "name": "Travel",
+      "kind": "expense",
+      "icon": "",
+      "color": "",
+      "order": 2,
+      "archived": false,
+      "is_default": false,
+      "created_at": "2026-09-08"
+    },
+    {
+      "id": "87b9de4d61a24c4e9aebbce1dfa2371d",
+      "name": "Entertainment",
+      "kind": "expense",
+      "icon": "",
+      "color": "",
+      "order": 3,
+      "archived": false,
+      "is_default": false,
+      "created_at": "2026-09-08"
+    },
+    {
+      "id": "21ee6c587f2f4dd28cb7f26a5df1af5a",
+      "name": "Rent",
+      "kind": "expense",
+      "icon": "",
+      "color": "",
+      "order": 4,
+      "archived": false,
+      "is_default": false,
+      "created_at": "2026-09-08"
+    },
+    {
+      "id": "dcc5247f7934483e91caa979681cb9eb",
+      "name": "Bills",
+      "kind": "expense",
+      "icon": "",
+      "color": "",
+      "order": 5,
+      "archived": false,
+      "is_default": false,
+      "created_at": "2026-09-08"
+    },
+    {
+      "id": "3efb730721fb4e3bbcbd54f4619ff3a1",
+      "name": "Education",
+      "kind": "expense",
+      "icon": "",
+      "color": "",
+      "order": 6,
+      "archived": false,
+      "is_default": false,
+      "created_at": "2026-09-08"
+    },
+    {
+      "id": "7a6a165a4ea94a26b3edb701c0bd42e6",
+      "name": "Other",
+      "kind": "expense",
+      "icon": "",
+      "color": "",
+      "order": 7,
+      "archived": false,
+      "is_default": false,
+      "created_at": "2026-09-08"
+    },
+    {
+      "id": "c7e97357768b43bf80d6cb4298dee686",
+      "name": "Savings",
+      "kind": "saving",
+      "icon": "",
+      "color": "",
+      "order": 0,
+      "archived": false,
+      "is_default": false,
+      "created_at": "2026-09-08"
+    },
+    {
+      "id": "af827c7604f744b9b0e259b11f6f14b1",
+      "name": "Investment",
+      "kind": "saving",
+      "icon": "",
+      "color": "",
+      "order": 1,
+      "archived": false,
+      "is_default": false,
+      "created_at": "2026-09-08"
+    },
+    {
+      "id": "93c267ca85d441a5b88149bf30e370ed",
+      "name": "Emergency Fund",
+      "kind": "saving",
+      "icon": "",
+      "color": "",
+      "order": 2,
+      "archived": false,
+      "is_default": false,
+      "created_at": "2026-09-08"
+    }
+  ]
+}

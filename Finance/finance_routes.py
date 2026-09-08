@@ -1,10 +1,13 @@
 from flask import Blueprint, render_template, request, redirect, url_for, Response, jsonify
 import base64
+import csv
+import io
 import json
 import math
 import mimetypes
 import os
 import uuid
+import zipfile
 from datetime import datetime, timedelta
 from werkzeug.utils import secure_filename
 try:
@@ -54,6 +57,68 @@ f_expense = os.path.join(DATA_DIR, "expenses.json")
 f_budget = os.path.join(DATA_DIR, "budget.json")
 f_accounts = os.path.join(DATA_DIR, "accounts.json")
 f_goals = os.path.join(DATA_DIR, "goals.json")
+
+
+def _store_paths():
+    """``{filename: absolute path}`` for every JSON store a backup / restore
+    round-trips. Read live (not a module constant) so tests that repoint the
+    data directory still see the right paths. ``finance_helpers`` owns
+    ``categories.json`` + ``shopping.json``; the rest live in this module."""
+    try:
+        from . import finance_helpers as _fh
+    except ImportError:
+        import finance_helpers as _fh
+    return {
+        "expenses.json": f_expense,
+        "budget.json": f_budget,
+        "accounts.json": f_accounts,
+        "goals.json": f_goals,
+        "categories.json": _fh.f_categories,
+        "shopping.json": _fh.f_shopping,
+    }
+
+
+# ================= TRANSACTION RECORD STORE =================
+# ================= 交易记录存储 =================
+# expenses.json 是一个记录列表。以前用"在列表里的位置"来标识一条记录
+# （编辑/删除靠下标），很脆弱：一旦插入/排序/删除，其他记录的下标就变了。
+# 现在每条记录都有一个稳定的 uuid `id`，编辑/删除都按 id 定位。
+# 删除是"软删除"：打上 deleted_at 时间戳、从各处统计里排除，可在
+# Trash 页面恢复或彻底删除。
+# expenses.json is a list of records. They used to be identified by list
+# position (edit/delete by index), which is fragile — any insert / sort /
+# delete shifts every later index. Now every record carries a stable uuid
+# `id` and edit/delete look records up by it. Delete is a *soft* delete: a
+# `deleted_at` timestamp is set, the record drops out of every total, and
+# it can be restored or purged from the Trash page.
+
+def _backfill_record_ids(records):
+    changed = False
+    for r in records:
+        if not r.get("id"):
+            r["id"] = new_id()
+            changed = True
+    return changed
+
+
+def load_records(include_deleted=False):
+    """Every transaction record, each guaranteed to have an ``id``.
+    Soft-deleted records are excluded unless ``include_deleted=True``."""
+    records = load_data(f_expense, [])
+    if _backfill_record_ids(records):
+        save_data(f_expense, records)
+    if include_deleted:
+        return records
+    return [r for r in records if not r.get("deleted_at")]
+
+
+def save_records(records):
+    save_data(f_expense, records)
+
+
+def _find_record(records, rid):
+    return next((r for r in records if r.get("id") == rid), None)
+
 
 RECEIPTS_DIR = os.path.join(BASE_DIR, "static", "receipts")
 ALLOWED_EXTENSIONS = {"jpg", "jpeg", "png", "gif", "webp"}
@@ -382,8 +447,9 @@ def add_financial():
             # the other account) — this keeps each account's own balance
             # total correct (a simplified form of double-entry bookkeeping).
 
-            records = load_data(f_expense, [])
+            records = load_records()
             records.append({
+                "id": new_id(),
                 "date": form.get("date"),
                 "type": "expense",
                 "category": "Transfer Out",
@@ -392,6 +458,7 @@ def add_financial():
                 "amount": amount
             })
             records.append({
+                "id": new_id(),
                 "date": form.get("date"),
                 "type": "income",
                 "category": "Transfer In",
@@ -399,7 +466,7 @@ def add_financial():
                 "item": f"Transfer from {account}",
                 "amount": amount
             })
-            save_data(f_expense, records)
+            save_records(records)
             return redirect(url_for("finance.add_financial", added="transfer"))
 
         # 非转账记录：类型必须是已知的收入/支出/储蓄之一，
@@ -429,6 +496,7 @@ def add_financial():
             receipt_filename = _save_receipt(receipt_file)
 
         record = {
+            "id": new_id(),
             "date": form.get("date"),
             "type": record_type,
             "category": category,
@@ -438,9 +506,9 @@ def add_financial():
             "receipt": receipt_filename
         }
 
-        records = load_data(f_expense, [])
+        records = load_records()
         records.append(record)
-        save_data(f_expense, records)
+        save_records(records)
         return redirect(url_for("finance.add_financial", added="1"))
 
     # After a successful save the POST above redirects back here (PRG), so the
@@ -466,64 +534,47 @@ def add_financial():
 
 @finance_bp.route("/view")
 def view_financial():
-    records = load_data(f_expense, [])
+    records = load_records()
     accounts = load_data(f_accounts, [])
 
     selected_account = request.args.get("account")
     start = request.args.get("start")
     end = request.args.get("end")
 
-    # Attach global index (position in full records list) before sorting
-    # 在筛选/排序之前，先把每条记录在"原始完整列表"里的位置号记下来
-    # （用 enumerate 配对 (下标, 记录)）。因为筛选和排序之后顺序会变，
-    # 但网页上的"编辑"/"删除"链接需要知道这条记录在原始 JSON 文件里
-    # 到底排第几个，才能准确地改到/删到正确的那一条。
-    # Before filtering/sorting, remember each record's position in the
-    # *original* full list (pairing (index, record) via enumerate).
-    # Filtering and sorting change the display order, but the page's
-    # Edit/Delete links need to know exactly which position this record
-    # sits at in the underlying JSON file, so they can act on the right one.
-
-    indexed = list(enumerate(records))
+    # Records already carry a stable `id`; Edit/Delete links use that, so the
+    # display list can be filtered and sorted freely without tracking
+    # positions in the underlying file.
     if selected_account and selected_account != "All Accounts":
-        indexed = [(i, r) for i, r in indexed if r.get("account") == selected_account]
+        records = [r for r in records if r.get("account") == selected_account]
     if start and end:
-        indexed = [(i, r) for i, r in indexed if start <= r["date"] <= end]
-    indexed.sort(key=lambda x: x[1]["date"], reverse=True)
+        records = [r for r in records if start <= r.get("date", "") <= end]
+    records = sorted(records, key=lambda r: r.get("date", ""), reverse=True)
 
-    display_records = []
-    for global_idx, r in indexed:
-        # dict(r)：复制一份记录，而不是直接改原始数据，
-        # 这样加上 "_global_idx" 这个额外字段只影响要显示的这一份，
-        # 不会污染保存在 JSON 文件里的原始记录结构。
-        # dict(r): makes a copy of the record rather than mutating the
-        # original, so adding the extra "_global_idx" field only affects
-        # this display copy — it never pollutes the record structure
-        # that's actually saved in the JSON file.
-        rc = dict(r)
-        rc["_global_idx"] = global_idx
-        display_records.append(rc)
+    trash_count = sum(1 for r in load_records(include_deleted=True) if r.get("deleted_at"))
 
     return render_template(
         "view.html",
-        records=display_records,
+        records=records,
         accounts=accounts,
         selected_account=selected_account,
+        trash_count=trash_count,
     )
 
 # ================= DELETE =================
 # ================= 删除记录 =================
 
-@finance_bp.route("/delete/<int:idx>", methods=["POST"])
-def delete_financial(idx):
-    records = load_data(f_expense, [])
+@finance_bp.route("/delete/<rid>", methods=["POST"])
+def delete_financial(rid):
+    """Soft delete: flag the record, keep it (and its receipt) so it can be
+    restored or purged from /trash."""
+    records = load_records(include_deleted=True)
+    record = _find_record(records, rid)
+    if record and not record.get("deleted_at"):
+        record["deleted_at"] = datetime.now().isoformat(timespec="seconds")
+        save_records(records)
 
-    if idx < 0 or idx >= len(records):
-        return redirect(url_for("finance.view_financial"))
-
-    _delete_receipt(records[idx].get("receipt"))
-    records.pop(idx)
-    save_data(f_expense, records)
+    if request.form.get("source") == "goal":
+        return redirect(url_for("finance.goals"))
     return redirect(url_for("finance.view_financial"))
 
 # ================= UPDATE =================
@@ -542,14 +593,14 @@ def _categories_for_record(record):
     return cats
 
 
-@finance_bp.route("/update/<int:idx>", methods=["GET", "POST"])
-def update_financial(idx):
-    records = load_data(f_expense, [])
+@finance_bp.route("/update/<rid>", methods=["GET", "POST"])
+def update_financial(rid):
+    records = load_records()
+    record = _find_record(records, rid)
 
-    if idx < 0 or idx >= len(records):
+    if record is None:
         return redirect(url_for("finance.view_financial"))
 
-    record = records[idx]
     accounts = load_data(f_accounts, [])
 
     # source 记录"这次编辑是从哪个页面点进来的"（比如从 Goals 页面
@@ -618,7 +669,7 @@ def update_financial(idx):
         record["account"] = account
         record["amount"] = amount
 
-        save_data(f_expense, records)
+        save_records(records)
         if source == "goal":
             return redirect(url_for("finance.goals"))
         return redirect(url_for("finance.view_financial"))
@@ -637,7 +688,7 @@ def update_financial(idx):
 @finance_bp.route("/budget", methods=["GET", "POST"])
 def budget():
     budgets = load_data(f_budget, [])
-    records = load_data(f_expense, [])
+    records = load_records()
     # Budgets only apply to spending, so the picker is the user's active
     # expense categories (with the seed list as a non-empty fallback).
     expense_categories = expense_category_names()
@@ -787,7 +838,7 @@ def delete_budget(category):
 
 @finance_bp.route("/summary")
 def summary():
-    records = load_data(f_expense, [])
+    records = load_records()
     now = datetime.now()
 
     selected_month = request.args.get("month", now.strftime("%m"))
@@ -982,9 +1033,9 @@ def goals():
             # New goal's id: find the largest existing id among all goals
             # and add 1. default=0 means if there are no goals yet at all,
             # it starts counting from 0 (so the first goal becomes 1).
-            new_id = max([g.get("id", 0) for g in goals_list], default=0) + 1
+            next_goal_id = max([g.get("id", 0) for g in goals_list], default=0) + 1
             goals_list.append({
-                "id": new_id,
+                "id": next_goal_id,
                 "name": name,
                 "type": goal_type,
                 "target": target,
@@ -1019,8 +1070,9 @@ def goals():
             # be recalculated by summing records with this category and
             # goal_id, instead of maintaining a separate running total.
 
-            records = load_data(f_expense, [])
+            records = load_records()
             records.append({
+                "id": new_id(),
                 "date": datetime.now().strftime("%Y-%m-%d"),
                 "type": "expense",
                 "category": "Goal Savings",
@@ -1029,28 +1081,11 @@ def goals():
                 "item": f"Goal: {goal_name}",
                 "amount": amount,
             })
-            save_data(f_expense, records)
+            save_records(records)
             return redirect(url_for("finance.goals"))
 
-    records = load_data(f_expense, [])
+    records = load_records()
     short_goals, long_goals, active_goals, completed_goals = [], [], [], []
-
-    records_sorted = sorted(records, key=lambda x: x.get("date", ""), reverse=True)
-    # id(r)：Python 里每个对象在内存里的唯一编号。因为
-    # records 和 records_sorted 里其实是同一批字典对象，只是顺序不同，
-    # 所以可以用 id(r) 当作字典的 key，把"这条记录在未排序列表里排第几"
-    # 和"在排序后列表里排第几"分别记下来 —— 前者用来生成"删除"链接
-    # （要对应原始文件的位置），后者用来生成"编辑"链接（要对应
-    # /update/<idx> 用的那个位置）。
-    # id(r): every Python object has a unique in-memory identity number.
-    # Since records and records_sorted actually contain the very same dict
-    # objects (just in a different order), id(r) can be used as a dict key
-    # to separately remember "this record's position in the unsorted
-    # list" and "its position in the sorted list" — the former builds the
-    # Delete link (must match the raw file's position), the latter builds
-    # the Edit link (must match what /update/<idx> expects).
-    delete_idx_map = {id(r): i for i, r in enumerate(records)}
-    edit_idx_map = {id(r): i for i, r in enumerate(records_sorted)}
 
     for g in goals_list:
         saved = sum(r.get("amount", 0) for r in records if r.get("category") == "Goal Savings" and r.get("goal_id") == g.get("id"))
@@ -1067,11 +1102,10 @@ def goals():
         contrib_sorted = sorted(contrib_raw, key=lambda x: x.get("date", ""), reverse=True)
         contributions = [
             {
+                "id": r.get("id"),
                 "date": r.get("date", ""),
                 "account": r.get("account", ""),
                 "amount": r.get("amount", 0),
-                "delete_idx": delete_idx_map.get(id(r), -1),
-                "edit_idx": edit_idx_map.get(id(r), -1),
             }
             for r in contrib_sorted
         ]
@@ -1234,7 +1268,7 @@ def edit_goal(goal_id):
 @finance_bp.route("/accounts", methods=["GET", "POST"])
 def accounts():
     accounts_data = load_data(f_accounts, [])
-    records = load_data(f_expense, [])
+    records = load_records()
 
     if request.method == "POST":
         name = request.form.get("name", "").strip()
@@ -1278,7 +1312,7 @@ def accounts():
 @finance_bp.route("/edit_account/<name>", methods=["GET", "POST"])
 def edit_account(name):
     accounts_data = load_data(f_accounts, [])
-    records = load_data(f_expense, [])
+    records = load_records(include_deleted=True)  # trashed rows keep a valid account name too
 
     account = next((a for a in accounts_data if a.get("name") == name), None)
     if not account:
@@ -1306,7 +1340,7 @@ def edit_account(name):
                 for r in records:
                     if r.get("account") == name:
                         r["account"] = new_name
-                save_data(f_expense, records)
+                save_records(records)
             account["name"]    = new_name
             account["purpose"] = new_purpose
             save_data(f_accounts, accounts_data)
@@ -1358,12 +1392,13 @@ def _rename_category_everywhere(old_name, new_name):
     if old_name == new_name:
         return
 
-    records = load_data(f_expense, [])
+    # include trashed records — a restored record must keep a valid category
+    records = load_records(include_deleted=True)
     if any(r.get("category") == old_name for r in records):
         for r in records:
             if r.get("category") == old_name:
                 r["category"] = new_name
-        save_data(f_expense, records)
+        save_records(records)
 
     budgets = load_data(f_budget, [])
     if any(b.get("category") == old_name for b in budgets):
@@ -1381,7 +1416,8 @@ def _rename_category_everywhere(old_name, new_name):
 
 
 def _category_in_use(name):
-    if any(r.get("category") == name for r in load_data(f_expense, [])):
+    # trashed records count too — deleting the category would orphan them on restore
+    if any(r.get("category") == name for r in load_records(include_deleted=True)):
         return "existing records"
     if any(b.get("category") == name for b in load_data(f_budget, [])):
         return "a budget"
@@ -1496,7 +1532,7 @@ def _handle_category_action(action, cats):
 
 
 def _render_categories(cats, error=None):
-    used_names = {r.get("category") for r in load_data(f_expense, [])}
+    used_names = {r.get("category") for r in load_records(include_deleted=True)}
     used_names |= {b.get("category") for b in load_data(f_budget, [])}
 
     grouped = {}
@@ -1656,8 +1692,9 @@ def _handle_shopping_action(form, items):
         if not category or (expense_categories and category not in expense_categories):
             category = expense_categories[0] if expense_categories else "Other"
 
-        records = load_data(f_expense, [])
+        records = load_records()
         records.append({
+            "id": new_id(),
             "date": purchase_date,
             "type": "expense",
             "category": category,
@@ -1667,7 +1704,7 @@ def _handle_shopping_action(form, items):
             "receipt": None,
             "source": "shopping_list",
         })
-        save_data(f_expense, records)
+        save_records(records)
 
         item["status"] = "bought"
         item["decision"] = "buy"
@@ -1767,7 +1804,7 @@ def _purchase_context(item):
     """The real finance figures the advisor sees alongside the item itself:
     this month's income/expense/balance, category spend + budget headroom,
     and how many other purchases are already lined up."""
-    records = load_data(f_expense, [])
+    records = load_records()
     month = datetime.now().strftime("%Y-%m")
     month_records = [r for r in records if r.get("date", "").startswith(month)]
 
@@ -1946,12 +1983,155 @@ def shopping_advise():
     return jsonify(advice=advice)
 
 
+# ================= TRASH (soft-deleted records) =================
+# ================= 回收站（软删除的记录） =================
+
+@finance_bp.route("/trash")
+def trash():
+    deleted = [r for r in load_records(include_deleted=True) if r.get("deleted_at")]
+    deleted.sort(key=lambda r: r.get("deleted_at", ""), reverse=True)
+    return render_template("trash.html", records=deleted)
+
+
+@finance_bp.route("/trash/<rid>/restore", methods=["POST"])
+def trash_restore(rid):
+    records = load_records(include_deleted=True)
+    record = _find_record(records, rid)
+    if record and record.get("deleted_at"):
+        record.pop("deleted_at", None)
+        save_records(records)
+    return redirect(url_for("finance.trash"))
+
+
+@finance_bp.route("/trash/<rid>/purge", methods=["POST"])
+def trash_purge(rid):
+    records = load_records(include_deleted=True)
+    record = _find_record(records, rid)
+    if record and record.get("deleted_at"):
+        _delete_receipt(record.get("receipt"))
+        records.remove(record)
+        save_records(records)
+    return redirect(url_for("finance.trash"))
+
+
+@finance_bp.route("/trash/empty", methods=["POST"])
+def trash_empty():
+    records = load_records(include_deleted=True)
+    kept = []
+    for r in records:
+        if r.get("deleted_at"):
+            _delete_receipt(r.get("receipt"))
+        else:
+            kept.append(r)
+    save_records(kept)
+    return redirect(url_for("finance.trash"))
+
+
+# ================= DATA: EXPORT / BACKUP / RESTORE =================
+# ================= 数据：导出 / 备份 / 恢复 =================
+
+CSV_COLUMNS = ["id", "date", "type", "category", "account", "item", "amount",
+               "receipt", "goal_id", "source", "deleted_at"]
+
+
+def _data_counts():
+    records_all = load_records(include_deleted=True)
+    return {
+        "records": sum(1 for r in records_all if not r.get("deleted_at")),
+        "trashed": sum(1 for r in records_all if r.get("deleted_at")),
+        "accounts": len(load_data(f_accounts, [])),
+        "budgets": len(load_data(f_budget, [])),
+        "goals": len(load_data(f_goals, [])),
+        "categories": len(load_categories()),
+        "shopping": len(load_shopping()),
+    }
+
+
+@finance_bp.route("/data")
+def data_tools():
+    return render_template("data_tools.html", counts=_data_counts())
+
+
+@finance_bp.route("/data/export.csv")
+def data_export_csv():
+    """All transaction records (including trashed, flagged in deleted_at) as CSV."""
+    include_trashed = request.args.get("trashed") == "1"
+    records = load_records(include_deleted=include_trashed)
+
+    buffer = io.StringIO()
+    writer = csv.DictWriter(buffer, fieldnames=CSV_COLUMNS, extrasaction="ignore")
+    writer.writeheader()
+    for r in sorted(records, key=lambda r: r.get("date", "")):
+        writer.writerow(r)
+
+    stamp = datetime.now().strftime("%Y%m%d")
+    return Response(
+        buffer.getvalue(),
+        mimetype="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="finance-records-{stamp}.csv"'},
+    )
+
+
+@finance_bp.route("/data/backup.zip")
+def data_backup():
+    """Zip of every JSON store — the whole dataset, restorable via /data/restore."""
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        for name, path in _store_paths().items():
+            if os.path.exists(path):
+                zf.write(path, arcname=name)
+    buffer.seek(0)
+
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    return Response(
+        buffer.getvalue(),
+        mimetype="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="finance-backup-{stamp}.zip"'},
+    )
+
+
+@finance_bp.route("/data/restore", methods=["POST"])
+def data_restore():
+    """Replace the JSON stores from an uploaded backup zip. Every file in the
+    zip is validated as JSON before anything is written."""
+    upload = request.files.get("backup")
+    if not upload or not upload.filename:
+        return render_template("data_tools.html", counts=_data_counts(),
+                               error="Choose a backup .zip file first."), 400
+
+    known = _store_paths()
+    try:
+        with zipfile.ZipFile(upload.stream) as zf:
+            staged = {}
+            for name in zf.namelist():
+                base = os.path.basename(name)
+                if base not in known:
+                    continue
+                try:
+                    staged[base] = json.loads(zf.read(name).decode("utf-8"))
+                except (ValueError, UnicodeDecodeError):
+                    return render_template("data_tools.html", counts=_data_counts(),
+                                           error=f"{base} in the backup is not valid JSON."), 400
+    except zipfile.BadZipFile:
+        return render_template("data_tools.html", counts=_data_counts(),
+                               error="That file is not a valid .zip backup."), 400
+
+    if not staged:
+        return render_template("data_tools.html", counts=_data_counts(),
+                               error="The zip contained no recognised Finance data files."), 400
+
+    for base, parsed in staged.items():
+        save_data(known[base], parsed)
+
+    return redirect(url_for("finance.data_tools", restored=len(staged)))
+
+
 # ================= FINANCE HOME =================
 # ================= 财务首页 =================
 
 @finance_bp.route("/finance")
 def finance_home():
-    records = load_data(f_expense, [])
+    records = load_records()
     budgets = load_data(f_budget, [])
     goals_list = load_data(f_goals, [])
     accounts = load_data(f_accounts, [])

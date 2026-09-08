@@ -107,6 +107,7 @@ def test_archived_category_still_editable_on_a_record(client, load):
     cid = category_id(load, "Food", "expense")
     client.post("/categories", data={"action": "archive", "id": cid})
 
-    edit_page = client.get("/update/0").get_data(as_text=True)
+    rid = load("expenses.json")[0]["id"]
+    edit_page = client.get(f"/update/{rid}").get_data(as_text=True)
     # archived category re-injected so the edit dropdown can still show it
     assert '"Food"' in edit_page
