@@ -27,6 +27,8 @@
         <a href="{{ url_for('finance.budget') }}">Budget</a>
         <a href="{{ url_for('finance.goals') }}">Goals</a>
         <a href="{{ url_for('finance.accounts') }}">Accounts</a>
+        <a href="{{ url_for('finance.shopping') }}">Shopping</a>
+        <a href="{{ url_for('finance.categories') }}">Categories</a>
     </div>
 
 </div>
@@ -470,6 +472,17 @@
 
 </script>
 
+<!-- 每种类型的"默认分类"（用户可在 Categories 页面设置）——     -->
+<!-- 新建表单里，如果用户还没自己选过分类，就自动帮他选中默认分类。 -->
+<!-- The per-kind default category (set on the Categories page). On a  -->
+<!-- fresh Add form, if the user hasn't picked a category yet, the      -->
+<!-- default for the chosen type is auto-selected.                      -->
+<script id="category-defaults" type="application/json">
+
+{{ default_categories | tojson if default_categories else '{}' }}
+
+</script>
+
 <script src="{{ url_for('static', filename='receipt_ai.js') }}"></script>
 
 <script>
@@ -498,6 +511,16 @@ document.addEventListener("DOMContentLoaded", function () {
         // If the JSON turns out to be empty or malformed, fall back to an
         // empty object instead of letting the whole page break with an error.
         categories = {};
+    }
+
+    let categoryDefaults = {};
+
+    try {
+        categoryDefaults = JSON.parse(
+            document.getElementById("category-defaults").textContent
+        );
+    } catch {
+        categoryDefaults = {};
     }
 
     const typeSelect =
@@ -561,6 +584,13 @@ document.addEventListener("DOMContentLoaded", function () {
                 categorySelect.appendChild(option);
 
             });
+
+            // No prior choice on this form? Fall back to the user's default
+            // category for this type, if they set one.
+            if (!selectedCategory && categoryDefaults[type]
+                && categories[type].includes(categoryDefaults[type])) {
+                categorySelect.value = categoryDefaults[type];
+            }
         }
     }
 
