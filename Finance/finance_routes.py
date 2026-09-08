@@ -12,14 +12,28 @@ try:
     # Finance.finance_routes (e.g. by a parent project's app.py).
     from .finance_helpers import (
         load_data, save_data, save_file, load_file, delete_file,
-        CATEGORY_MAP, BASE_DIR, DATA_DIR
+        BASE_DIR, DATA_DIR,
+        KINDS, RESERVED_CATEGORY_NAMES, new_id, today_iso,
+        clean_color, clean_icon,
+        load_categories, save_categories, find_category,
+        active_categories, categories_by_kind, default_categories,
+        expense_category_names,
+        load_shopping, save_shopping, find_shopping_item,
+        SHOPPING_PRIORITIES, SHOPPING_STATUSES, SHOPPING_DECISIONS,
     )
 except ImportError:
     # Plain import: used when running Finance/app.py directly, where
     # Finance/ itself (not its parent) is on sys.path.
     from finance_helpers import (
         load_data, save_data, save_file, load_file, delete_file,
-        CATEGORY_MAP, BASE_DIR, DATA_DIR
+        BASE_DIR, DATA_DIR,
+        KINDS, RESERVED_CATEGORY_NAMES, new_id, today_iso,
+        clean_color, clean_icon,
+        load_categories, save_categories, find_category,
+        active_categories, categories_by_kind, default_categories,
+        expense_category_names,
+        load_shopping, save_shopping, find_shopping_item,
+        SHOPPING_PRIORITIES, SHOPPING_STATUSES, SHOPPING_DECISIONS,
     )
 
 # Load Finance/.env (if present) so OPENAI_API_KEY / OPENAI_RECEIPT_MODEL can
@@ -56,22 +70,26 @@ RECEIPT_MIME_TYPES = {
     "gif": "image/gif",
     "webp": "image/webp",
 }
-RECEIPT_RESPONSE_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "merchant": {"type": ["string", "null"]},
-        "date": {"type": ["string", "null"]},
-        "total": {"type": ["number", "null"]},
-        "category": {"type": ["string", "null"], "enum": [*CATEGORY_MAP["expense"], None]},
-        "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
-    },
-    "required": ["merchant", "date", "total", "category", "confidence"],
-    "additionalProperties": False,
-}
+def _receipt_response_schema(expense_categories):
+    # The category enum is built per request from the user's *active* expense
+    # categories (expense_category_names() already falls back to the seed list
+    # so this is never empty).
+    return {
+        "type": "object",
+        "properties": {
+            "merchant": {"type": ["string", "null"]},
+            "date": {"type": ["string", "null"]},
+            "total": {"type": ["number", "null"]},
+            "category": {"type": ["string", "null"], "enum": [*expense_categories, None]},
+            "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
+        },
+        "required": ["merchant", "date", "total", "category", "confidence"],
+        "additionalProperties": False,
+    }
 
 
-def _receipt_analysis_prompt():
-    categories = ", ".join(CATEGORY_MAP["expense"])
+def _receipt_analysis_prompt(expense_categories):
+    categories = ", ".join(expense_categories)
     return f"""Extract transaction details from this receipt image.
 
 Use the final amount charged as total, not a subtotal, tax, discount, change,
@@ -96,7 +114,7 @@ def _json_from_model_text(text):
     return data
 
 
-def _normalise_receipt_result(result):
+def _normalise_receipt_result(result, expense_categories):
     merchant = result.get("merchant")
     merchant = merchant.strip()[:160] if isinstance(merchant, str) and merchant.strip() else None
 
@@ -117,7 +135,7 @@ def _normalise_receipt_result(result):
         total = None
 
     category = result.get("category")
-    category_lookup = {name.casefold(): name for name in CATEGORY_MAP["expense"]}
+    category_lookup = {name.casefold(): name for name in expense_categories}
     category = category_lookup.get(category.casefold()) if isinstance(category, str) else None
 
     confidence = result.get("confidence")
@@ -132,7 +150,7 @@ def _normalise_receipt_result(result):
     }
 
 
-def _analyse_receipt(image_bytes, mime_type):
+def _analyse_receipt(image_bytes, mime_type, expense_categories):
     api_key = os.environ.get("OPENAI_API_KEY")
     if not api_key:
         raise RuntimeError("Receipt analysis is not configured")
@@ -154,20 +172,20 @@ def _analyse_receipt(image_bytes, mime_type):
                     "type": "json_schema",
                     "name": "receipt_fields",
                     "strict": True,
-                    "schema": RECEIPT_RESPONSE_SCHEMA,
+                    "schema": _receipt_response_schema(expense_categories),
                 },
             },
             input=[{
                 "role": "user",
                 "content": [
-                    {"type": "input_text", "text": _receipt_analysis_prompt()},
+                    {"type": "input_text", "text": _receipt_analysis_prompt(expense_categories)},
                     {"type": "input_image", "image_url": data_url, "detail": "high"},
                 ],
             }],
         )
     except AuthenticationError as exc:
         raise RuntimeError("Receipt analysis is not configured correctly") from exc
-    return _normalise_receipt_result(_json_from_model_text(response.output_text))
+    return _normalise_receipt_result(_json_from_model_text(response.output_text), expense_categories)
 
 def _allowed_file(filename):
     # 只要文件名里有"."，并且最后一段扩展名（小写化后）
@@ -220,7 +238,7 @@ def analyze_receipt():
         return jsonify(error="Use a JPG, PNG, GIF, or WEBP receipt image."), 400
 
     try:
-        fields = _analyse_receipt(image_bytes, mime_type)
+        fields = _analyse_receipt(image_bytes, mime_type, expense_category_names())
     except RuntimeError as exc:
         return jsonify(error=str(exc)), 503
     except (ValueError, json.JSONDecodeError):
@@ -306,7 +324,8 @@ def add_financial():
         form = request.form
         template_data = {
             "accounts": accounts,
-            "categories": CATEGORY_MAP,
+            "categories": categories_by_kind(),
+            "default_categories": default_categories(),
             "form_data": form,
         }
 
@@ -383,6 +402,27 @@ def add_financial():
             save_data(f_expense, records)
             return redirect(url_for("finance.add_financial", added="transfer"))
 
+        # 非转账记录：类型必须是已知的收入/支出/储蓄之一，
+        # 分类必须是用户在该类型下的现有分类（分类清单现在由用户自定义，
+        # 见 /categories）。
+        # Non-transfer record: the type must be a known income/expense/saving
+        # kind, and the category must be one the user actually has for that
+        # kind (categories are user-defined now — see /categories).
+        record_type = form.get("type")
+        if record_type not in KINDS:
+            return render_template("add.html", error="Choose a valid transaction type", **template_data)
+
+        category = form.get("category")
+        allowed_categories = template_data["categories"].get(record_type, [])
+        if not category:
+            return render_template("add.html", error="Category is required", **template_data)
+        if allowed_categories and category not in allowed_categories:
+            return render_template(
+                "add.html",
+                error=f'"{category}" is not one of your {record_type} categories',
+                **template_data,
+            )
+
         receipt_file = request.files.get("receipt")
         receipt_filename = None
         if receipt_file and receipt_file.filename and _allowed_file(receipt_file.filename):
@@ -390,8 +430,8 @@ def add_financial():
 
         record = {
             "date": form.get("date"),
-            "type": form.get("type"),
-            "category": form.get("category"),
+            "type": record_type,
+            "category": category,
             "account": account,
             "item": form.get("item"),
             "amount": amount,
@@ -416,7 +456,8 @@ def add_financial():
     return render_template(
         "add.html",
         accounts=accounts,
-        categories=CATEGORY_MAP,
+        categories=categories_by_kind(),
+        default_categories=default_categories(),
         success=success,
     )
 
@@ -488,6 +529,19 @@ def delete_financial(idx):
 # ================= UPDATE =================
 # ================= 修改记录 =================
 
+def _categories_for_record(record):
+    """``categories_by_kind()`` with this record's current category force-
+    included in its own kind — so editing a record whose category was later
+    archived or renamed still shows (and can keep) that value instead of
+    silently dropping it."""
+    cats = {kind: list(names) for kind, names in categories_by_kind().items()}
+    kind = record.get("type")
+    name = record.get("category")
+    if kind in cats and name and name not in cats[kind]:
+        cats[kind].append(name)
+    return cats
+
+
 @finance_bp.route("/update/<int:idx>", methods=["GET", "POST"])
 def update_financial(idx):
     records = load_data(f_expense, [])
@@ -523,14 +577,14 @@ def update_financial(idx):
         amount_raw = form.get("amount")
 
         if not amount_raw:
-            return render_template("update.html", record=record, accounts=accounts, source=source, categories=CATEGORY_MAP, error="Amount is required")
+            return render_template("update.html", record=record, accounts=accounts, source=source, categories=_categories_for_record(record), error="Amount is required")
 
         try:
             amount = float(amount_raw)
             if amount <= 0:
                 raise ValueError
         except:
-            return render_template("update.html", record=record, accounts=accounts, source=source, categories=CATEGORY_MAP, error="Amount must be greater than 0")
+            return render_template("update.html", record=record, accounts=accounts, source=source, categories=_categories_for_record(record), error="Amount must be greater than 0")
 
         account = form.get("account")
         new_account = form.get("new_account")
@@ -574,7 +628,7 @@ def update_financial(idx):
         record=record,
         accounts=accounts,
         source=source,
-        categories=CATEGORY_MAP,
+        categories=_categories_for_record(record),
     )
 
 # ================= BUDGET =================
@@ -584,6 +638,9 @@ def update_financial(idx):
 def budget():
     budgets = load_data(f_budget, [])
     records = load_data(f_expense, [])
+    # Budgets only apply to spending, so the picker is the user's active
+    # expense categories (with the seed list as a non-empty fallback).
+    expense_categories = expense_category_names()
 
     if request.method == "POST":
         category = request.form.get("category")
@@ -593,7 +650,7 @@ def budget():
         if not category or not amount:
             return render_template(
                 "budget.html",
-                budgets=[], categories=CATEGORY_MAP["expense"],
+                budgets=[], categories=expense_categories,
                 warnings=[], error="Category and amount required",
             )
 
@@ -602,7 +659,7 @@ def budget():
         except Exception:
             return render_template(
                 "budget.html",
-                budgets=[], categories=CATEGORY_MAP["expense"],
+                budgets=[], categories=expense_categories,
                 warnings=[], error="Invalid amount",
             )
 
@@ -662,7 +719,7 @@ def budget():
     return render_template(
         "budget.html",
         budgets=budget_display,
-        categories=CATEGORY_MAP["expense"],
+        categories=expense_categories,
         warnings=warnings,
     )
 
@@ -676,6 +733,12 @@ def edit_budget(category):
 
     if not budget:
         return redirect(url_for("finance.budget"))
+
+    # Keep this budget's own category in the picker even if it was archived,
+    # so the edit form can still display and re-save it.
+    category_options = expense_category_names()
+    if budget["category"] not in category_options:
+        category_options = category_options + [budget["category"]]
 
     if request.method == "POST":
         new_category = request.form.get("category", budget["category"])
@@ -693,7 +756,7 @@ def edit_budget(category):
                 return render_template(
                     "edit_budget.html",
                     budget=budget,
-                    categories=CATEGORY_MAP["expense"],
+                    categories=category_options,
                     error=f"You already have a budget for {new_category}.",
                 )
             budget["category"] = new_category
@@ -706,7 +769,7 @@ def edit_budget(category):
     return render_template(
         "edit_budget.html",
         budget=budget,
-        categories=CATEGORY_MAP["expense"],
+        categories=category_options,
     )
 
 # ================= DELETE BUDGET =================
@@ -1258,6 +1321,420 @@ def delete_account(name):
     accounts_data = [a for a in accounts_data if a.get("name") != name]
     save_data(f_accounts, accounts_data)
     return redirect(url_for("finance.accounts"))
+
+
+# ================= SHARED MONEY PARSING =================
+# ================= 金额解析（多处复用） =================
+
+def _parse_money(raw, field="Amount", allow_zero=True):
+    """Return ``(value, error)``. ``value`` is a non-negative float rounded to
+    2dp, or ``None`` when ``error`` is set."""
+    if raw is None or str(raw).strip() == "":
+        return (0.0, None) if allow_zero else (None, f"{field} is required.")
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return None, f"{field} must be a number."
+    if not math.isfinite(value) or value < 0:
+        return None, f"{field} cannot be negative."
+    if value == 0 and not allow_zero:
+        return None, f"{field} must be greater than 0."
+    return round(value, 2), None
+
+
+# ================= CATEGORIES =================
+# ================= 分类管理 =================
+# 用户自定义分类的增删改查。一个 POST 端点，用 action 字段区分操作
+# （沿用 goals / budget 的写法）。分类被历史记录引用时不能真正删除，
+# 只能归档（archived=True），这样旧交易仍然有效。
+# CRUD for the user's own categories. One POST endpoint switched on an
+# `action` field (same style as goals / budget). A category referenced by
+# existing records can't be hard-deleted — only archived — so historical
+# transactions stay valid.
+
+def _rename_category_everywhere(old_name, new_name):
+    """Point every stored reference (records, budgets, shopping items) at the
+    category's new name, the same way edit_account rewrites account names."""
+    if old_name == new_name:
+        return
+
+    records = load_data(f_expense, [])
+    if any(r.get("category") == old_name for r in records):
+        for r in records:
+            if r.get("category") == old_name:
+                r["category"] = new_name
+        save_data(f_expense, records)
+
+    budgets = load_data(f_budget, [])
+    if any(b.get("category") == old_name for b in budgets):
+        for b in budgets:
+            if b.get("category") == old_name:
+                b["category"] = new_name
+        save_data(f_budget, budgets)
+
+    items = load_shopping()
+    if any(it.get("category") == old_name for it in items):
+        for it in items:
+            if it.get("category") == old_name:
+                it["category"] = new_name
+        save_shopping(items)
+
+
+def _category_in_use(name):
+    if any(r.get("category") == name for r in load_data(f_expense, [])):
+        return "existing records"
+    if any(b.get("category") == name for b in load_data(f_budget, [])):
+        return "a budget"
+    return None
+
+
+def _handle_category_action(action, cats):
+    form = request.form
+
+    if action == "create":
+        name = (form.get("name") or "").strip()
+        kind = form.get("kind")
+        if not name:
+            return "Category name is required."
+        if kind not in KINDS:
+            return "Choose a valid type (income, expense or saving)."
+        if name in RESERVED_CATEGORY_NAMES:
+            return f'"{name}" is reserved by the app.'
+        if any(c["name"].casefold() == name.casefold() and c["kind"] == kind for c in cats):
+            return f'A {kind} category named "{name}" already exists.'
+        order = max([c.get("order", 0) for c in cats if c["kind"] == kind], default=-1) + 1
+        cats.append({
+            "id": new_id(),
+            "name": name,
+            "kind": kind,
+            "icon": clean_icon(form.get("icon")),
+            "color": clean_color(form.get("color")),
+            "order": order,
+            "archived": False,
+            "is_default": False,
+            "created_at": today_iso(),
+        })
+        save_categories(cats)
+        return None
+
+    cat = find_category(cats, form.get("id"))
+    if not cat:
+        return "That category no longer exists."
+
+    if action == "rename":
+        new_name = (form.get("name") or "").strip()
+        if not new_name:
+            return "Category name is required."
+        if new_name in RESERVED_CATEGORY_NAMES:
+            return f'"{new_name}" is reserved by the app.'
+        if new_name.casefold() != cat["name"].casefold() and any(
+            c is not cat and c["name"].casefold() == new_name.casefold()
+            and c["kind"] == cat["kind"] for c in cats
+        ):
+            return f'A {cat["kind"]} category named "{new_name}" already exists.'
+        _rename_category_everywhere(cat["name"], new_name)
+        cat["name"] = new_name
+        save_categories(cats)
+        return None
+
+    if action == "style":
+        cat["icon"] = clean_icon(form.get("icon"))
+        cat["color"] = clean_color(form.get("color"))
+        save_categories(cats)
+        return None
+
+    if action == "archive":
+        cat["archived"] = True
+        cat["is_default"] = False
+        save_categories(cats)
+        return None
+
+    if action == "unarchive":
+        cat["archived"] = False
+        save_categories(cats)
+        return None
+
+    if action == "delete":
+        used = _category_in_use(cat["name"])
+        if used:
+            return (f'"{cat["name"]}" is used by {used} — archive it instead so '
+                    f"the history stays valid.")
+        cats.remove(cat)
+        save_categories(cats)
+        return None
+
+    if action == "set_default":
+        for c in cats:
+            if c["kind"] == cat["kind"]:
+                c["is_default"] = (c is cat)
+        cat["archived"] = False
+        save_categories(cats)
+        return None
+
+    if action == "clear_default":
+        cat["is_default"] = False
+        save_categories(cats)
+        return None
+
+    if action == "move":
+        if cat.get("archived"):
+            return None
+        siblings = sorted(
+            [c for c in cats if c["kind"] == cat["kind"] and not c.get("archived")],
+            key=lambda c: c.get("order", 0),
+        )
+        pos = siblings.index(cat)
+        swap = pos - 1 if form.get("direction") == "up" else pos + 1
+        if 0 <= swap < len(siblings):
+            cat["order"], siblings[swap]["order"] = (
+                siblings[swap].get("order", 0), cat.get("order", 0),
+            )
+            save_categories(cats)
+        return None
+
+    return "Unknown action."
+
+
+def _render_categories(cats, error=None):
+    used_names = {r.get("category") for r in load_data(f_expense, [])}
+    used_names |= {b.get("category") for b in load_data(f_budget, [])}
+
+    grouped = {}
+    for kind in KINDS:
+        rows = sorted(
+            (c for c in cats if c.get("kind") == kind),
+            key=lambda c: (c.get("archived", False), c.get("order", 0), c.get("name", "").lower()),
+        )
+        grouped[kind] = [
+            {**c, "in_use": c.get("name") in used_names} for c in rows
+        ]
+
+    return render_template(
+        "categories.html",
+        grouped=grouped,
+        kinds=KINDS,
+        error=error,
+    )
+
+
+@finance_bp.route("/categories", methods=["GET", "POST"])
+def categories():
+    cats = load_categories()
+
+    if request.method == "POST":
+        error = _handle_category_action(request.form.get("action", "create"), cats)
+        if error:
+            return _render_categories(cats, error=error)
+        return redirect(url_for("finance.categories"))
+
+    return _render_categories(cats)
+
+
+# ================= SHOPPING LIST =================
+# ================= 购物清单 / 消费决策 =================
+# 购物清单不只是待办列表：每一项都记录"为什么该买"和"为什么不该买"，
+# 帮用户克制冲动消费。决定 Buy 之后可以一键生成一笔支出，不用重新输入。
+# The shopping list is a purchase-decision tool, not a checklist: each item
+# records the case *for* and *against* buying it. Once the decision is
+# "buy", recording the purchase creates a Finance expense in one step
+# without re-typing the details.
+
+def _shopping_fields_from_form(form, expense_categories):
+    """Pull + validate the editable fields shared by create/update.
+    Returns ``(data, error)``."""
+    name = (form.get("name") or "").strip()
+    if not name:
+        return None, "Item name is required."
+
+    price, price_error = _parse_money(form.get("estimated_price"), "Estimated price")
+    if price_error:
+        return None, price_error
+
+    priority = form.get("priority", "medium")
+    if priority not in SHOPPING_PRIORITIES:
+        priority = "medium"
+
+    category = (form.get("category") or "").strip()
+    if category and expense_categories and category not in expense_categories:
+        return None, f'"{category}" is not one of your expense categories.'
+
+    return {
+        "name": name[:160],
+        "estimated_price": price,
+        "category": category,
+        "priority": priority,
+        "reasons_for": (form.get("reasons_for") or "").strip(),
+        "reasons_against": (form.get("reasons_against") or "").strip(),
+        "notes": (form.get("notes") or "").strip(),
+        "target_date": (form.get("target_date") or "").strip(),
+    }, None
+
+
+def _handle_shopping_action(form, items):
+    action = form.get("action", "create")
+    expense_categories = [c["name"] for c in active_categories("expense")]
+
+    if action == "create":
+        data, error = _shopping_fields_from_form(form, expense_categories)
+        if error:
+            return error
+        item = {
+            "id": new_id(),
+            "date_added": today_iso(),
+            "status": "open",
+            "decision": "undecided",
+            "decision_date": "",
+            "expense_created": False,
+            "purchased_at": "",
+            "actual_price": None,
+            **data,
+        }
+        items.append(item)
+        save_shopping(items)
+        return None
+
+    item = find_shopping_item(items, form.get("id"))
+    if not item:
+        return "That shopping item no longer exists."
+
+    if action == "update":
+        data, error = _shopping_fields_from_form(form, expense_categories)
+        if error:
+            return error
+        item.update(data)
+        save_shopping(items)
+        return None
+
+    if action == "decide":
+        decision = form.get("decision")
+        if decision not in SHOPPING_DECISIONS:
+            return "Choose a valid decision."
+        item["decision"] = decision
+        item["decision_date"] = today_iso() if decision != "undecided" else ""
+        # Deciding against it (or parking it) also resolves the item; picking
+        # "buy" / "wait" / clearing the decision keeps it on the open list.
+        if decision == "dont_buy":
+            item["status"] = "dismissed"
+        elif item["status"] == "dismissed":
+            item["status"] = "open"
+        save_shopping(items)
+        return None
+
+    if action == "reopen":
+        item["status"] = "open"
+        save_shopping(items)
+        return None
+
+    if action == "dismiss":
+        item["status"] = "dismissed"
+        save_shopping(items)
+        return None
+
+    if action == "delete":
+        items.remove(item)
+        save_shopping(items)
+        return None
+
+    if action == "purchase":
+        # Turn the item into a real expense without re-entering anything.
+        accounts = load_data(f_accounts, [])
+        account = form.get("account")
+        if not account or not any(a["name"] == account for a in accounts):
+            return "Choose an account to record the purchase against."
+
+        amount, amount_error = _parse_money(
+            form.get("amount") if form.get("amount") not in (None, "")
+            else item.get("estimated_price"),
+            "Purchase amount", allow_zero=False,
+        )
+        if amount_error:
+            return amount_error
+
+        purchase_date = (form.get("date") or "").strip() or today_iso()
+
+        category = item.get("category")
+        if not category or (expense_categories and category not in expense_categories):
+            category = expense_categories[0] if expense_categories else "Other"
+
+        records = load_data(f_expense, [])
+        records.append({
+            "date": purchase_date,
+            "type": "expense",
+            "category": category,
+            "account": account,
+            "item": item["name"],
+            "amount": amount,
+            "receipt": None,
+            "source": "shopping_list",
+        })
+        save_data(f_expense, records)
+
+        item["status"] = "bought"
+        item["decision"] = "buy"
+        item["decision_date"] = item.get("decision_date") or today_iso()
+        item["expense_created"] = True
+        item["purchased_at"] = purchase_date
+        item["actual_price"] = amount
+        save_shopping(items)
+        return None
+
+    return "Unknown action."
+
+
+def _render_shopping(items, error=None):
+    expense_categories = [c["name"] for c in active_categories("expense")]
+    accounts = load_data(f_accounts, [])
+
+    priority_rank = {"high": 0, "medium": 1, "low": 2}
+    status_rank = {"open": 0, "bought": 1, "dismissed": 2}
+
+    ordered = sorted(
+        items,
+        key=lambda it: (
+            status_rank.get(it.get("status"), 9),
+            priority_rank.get(it.get("priority"), 9),
+            it.get("date_added", ""),
+        ),
+    )
+
+    open_items = [it for it in items if it.get("status") == "open"]
+    totals = {
+        "open_count": len(open_items),
+        "open_value": round(sum(float(it.get("estimated_price") or 0) for it in open_items), 2),
+        "to_buy_value": round(sum(
+            float(it.get("estimated_price") or 0)
+            for it in open_items if it.get("decision") == "buy"
+        ), 2),
+        "spent_value": round(sum(
+            float(it.get("actual_price") or 0)
+            for it in items if it.get("status") == "bought"
+        ), 2),
+    }
+
+    return render_template(
+        "shopping.html",
+        items=ordered,
+        categories=expense_categories,
+        accounts=accounts,
+        priorities=SHOPPING_PRIORITIES,
+        totals=totals,
+        today=today_iso(),
+        error=error,
+    )
+
+
+@finance_bp.route("/shopping", methods=["GET", "POST"])
+def shopping():
+    items = load_shopping()
+
+    if request.method == "POST":
+        error = _handle_shopping_action(request.form, items)
+        if error:
+            return _render_shopping(items, error=error)
+        return redirect(url_for("finance.shopping"))
+
+    return _render_shopping(items)
+
 
 # ================= FINANCE HOME =================
 # ================= 财务首页 =================
