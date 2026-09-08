@@ -381,7 +381,7 @@ def add_financial():
                 "amount": amount
             })
             save_data(f_expense, records)
-            return redirect(url_for("finance.view_financial"))
+            return redirect(url_for("finance.add_financial", added="transfer"))
 
         receipt_file = request.files.get("receipt")
         receipt_filename = None
@@ -401,12 +401,23 @@ def add_financial():
         records = load_data(f_expense, [])
         records.append(record)
         save_data(f_expense, records)
-        return redirect(url_for("finance.view_financial"))
+        return redirect(url_for("finance.add_financial", added="1"))
+
+    # After a successful save the POST above redirects back here (PRG), so the
+    # user stays on the Add form instead of being sent to View. The "added"
+    # query flag just tells this GET render to show a confirmation message.
+    added = request.args.get("added")
+    success = None
+    if added == "transfer":
+        success = "Transfer recorded. Add another below."
+    elif added:
+        success = "Record added. Add another below."
 
     return render_template(
         "add.html",
         accounts=accounts,
         categories=CATEGORY_MAP,
+        success=success,
     )
 
 # ================= VIEW =================
