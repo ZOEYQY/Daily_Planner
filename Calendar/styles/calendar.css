@@ -805,26 +805,29 @@
   box-shadow: 0 0 0 2px rgba(11, 11, 11, 0.55);
 }
 
-/* Overdue — a muted amber, not red, and only ever on the border/text, never a filled background. */
+/* Overdue / urgent / postponed used to repaint the whole border (and, for the
+   red ones, the text) — which buried the item's own category colour once
+   to-dos got one. Now the status reads as an outer RING (box-shadow) plus, for
+   the red states, red text; the border + the .todo-panel-row-bar keep showing
+   --chip-color so "this is a 密室/black to-do" and "this is due soon" are both
+   legible at once. */
+
+/* Overdue — a muted amber, not red, never a filled background. */
 .day-tray-chip.is-overdue,
 .task-chip.is-overdue,
 .todo-panel-row.is-overdue {
-  border-color: rgba(158, 108, 22, 0.5);
-  box-shadow: 0 0 0 1px rgba(158, 108, 22, 0.22);
+  box-shadow: 0 0 0 1.5px rgba(158, 108, 22, 0.45);
 }
 .timegrid-task-block.is-overdue:not(.is-dragging) {
   box-shadow: 0 0 0 1.5px rgba(158, 108, 22, 0.4);
 }
 
 /* A to-do closing in on its own deadline (see isTodoUrgent in selectors.js,
-   threshold set in Settings) — actual red, unlike the muted-amber overdue
-   styling above, since red specifically was asked for here as a distinct,
-   more urgent signal than "this is late" — background stays untinted either
-   way, just the border/text carry the color. */
+   threshold set in Settings) — red, a stronger "act now" signal than the
+   muted-amber overdue styling. */
 .day-tray-chip.is-todo-urgent,
 .todo-panel-row.is-todo-urgent {
-  border-color: rgba(196, 30, 30, 0.55);
-  box-shadow: 0 0 0 1px rgba(196, 30, 30, 0.25);
+  box-shadow: 0 0 0 1.5px rgba(196, 30, 30, 0.5);
   color: #b31f1f;
 }
 
@@ -836,9 +839,17 @@
 .unscheduled-chip.is-todo-postponed,
 .task-chip.is-todo-postponed,
 .todo-panel-row.is-todo-postponed {
-  border-color: rgba(196, 30, 30, 0.6);
-  box-shadow: 0 0 0 1px rgba(196, 30, 30, 0.3);
+  box-shadow: 0 0 0 1.5px rgba(196, 30, 30, 0.55);
   color: #b31f1f;
+}
+
+/* Always-on category-colour bar down the left edge of a To-Do panel row, so the
+   colour survives whatever status ring/text is layered on top. */
+.todo-panel-row-bar {
+  flex: 0 0 4px;
+  align-self: stretch;
+  border-radius: 4px;
+  background: var(--chip-color, var(--color-muted));
 }
 
 /* ---------- To-Do side panel (state.todoDisplayMode === "panel") ---------- */

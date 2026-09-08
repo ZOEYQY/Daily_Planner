@@ -190,9 +190,11 @@ function quickAddTask(actions, state, dueDate) {
 }
 
 // A to-do gets its own small popup instead of the full Add/Edit modal —
-// deliberately lighter (title, an optional deadline, an optional Detail
-// note; no category/color/repeat) since that's the whole point of it being a
-// "completely separate" quick-capture flow. isTodo:true is what
+// deliberately lighter (title, category + color, an optional deadline, an
+// optional Detail note; still no repeat / Extra Fields) since that's the whole
+// point of it being a "completely separate" quick-capture flow. Category/color
+// were added on request so a to-do's tray chip / panel row carries the same
+// colour coding as a scheduled task. isTodo:true is what
 // getDayUnscheduledTasks (selectors.js) checks to roll an incomplete one
 // forward onto today's Day tray column instead of leaving it stranded on
 // whatever day it was created, the way a plain task stays put until you
@@ -212,11 +214,57 @@ function openTodoQuickAdd(actions, state, fixedDate, existingItem = null) {
   const optionalSuffix = requireDeadline ? "" : " (optional)";
   const askDate = !fixedDate || !!existingItem;
 
+  // Category + colour picker — same pills/swatches as the full Add/Edit modal,
+  // minus its "+ Add Category/Color" buttons (those trigger a whole-app
+  // re-render the modal has special snapshot/restore handling for; not worth it
+  // for this lightweight popup — add categories in the full modal or Settings).
+  // Hidden entirely when there are no categories yet; the to-do then saves with
+  // empty ids and renders in the neutral fallback grey, exactly as before.
+  const cats = state.categories.filter((c) => !c.archived || c.id === existingItem?.categoryId);
+  const showCatColor = cats.length > 0;
+  const catOf = (id) => state.categories.find((c) => c.id === id) || null;
+  const colorsFor = (cat) => (cat?.colors || []).filter((c) => !c.archived || c.id === existingItem?.colorId);
+  let selCat =
+    existingItem?.categoryId && cats.some((c) => c.id === existingItem.categoryId)
+      ? existingItem.categoryId
+      : cats.find((c) => !c.archived)?.id || cats[0]?.id || "";
+  let selColor = (() => {
+    const cat = catOf(selCat);
+    if (existingItem?.colorId && cat?.colors.some((c) => c.id === existingItem.colorId)) return existingItem.colorId;
+    return colorsFor(cat)[0]?.id || "";
+  })();
+  const swatchHTML = (cat, selectedId) =>
+    colorsFor(cat)
+      .map(
+        (col) => `
+        <button type="button" class="named-color-swatch ${col.id === selectedId ? "selected" : ""}" style="--swatch-color:${col.value}" data-color-id="${col.id}">
+          <span class="named-color-dot"></span><span class="named-color-name">${esc(col.name)}</span>
+        </button>`
+      )
+      .join("") || `<span class="muted" style="font-size:12px;padding:2px 0;">This category has no colours yet</span>`;
+
   const popup = openFormPopup({
     title: existingItem ? "Edit To-Do" : "Add To-Do",
     submitLabel: existingItem ? "Save" : "Add",
     bodyHTML: `
       <div class="field"><label>Title</label><input type="text" id="todo-title" placeholder="e.g. Submit assignment" value="${esc(existingItem?.title || "")}" /></div>
+      ${
+        showCatColor
+          ? `
+      <div class="field"><label>Category</label>
+        <div class="category-select" id="todo-category">
+          ${cats
+            .map(
+              (c) => `<button type="button" class="category-pill ${c.id === selCat ? "selected" : ""}" data-id="${c.id}">${esc(c.name)}</button>`
+            )
+            .join("")}
+        </div>
+      </div>
+      <div class="field"><label>Color</label>
+        <div class="named-color-list" id="todo-color">${swatchHTML(catOf(selCat), selColor)}</div>
+      </div>`
+          : ""
+      }
       ${askDate ? `<div class="field"><label>Deadline Date${optionalSuffix}</label><input type="date" id="todo-date" value="${esc(existingItem?.dueDate || "")}" /></div>` : ""}
       <div class="field"><label>Deadline Time${askDate ? " (optional)" : optionalSuffix}</label>${timeInputHTML("todo-time", existingItem?.startTime || "", state)}</div>
       ${showDetail ? `<div class="field"><label>Detail</label><textarea id="todo-detail" rows="3" placeholder="Optional notes">${esc(existingItem?.notes || "")}</textarea></div>` : ""}
@@ -225,6 +273,28 @@ function openTodoQuickAdd(actions, state, fixedDate, existingItem = null) {
     onMount: (panel) => {
       panel.querySelector("#todo-title").focus();
       wireTimeInput(panel, "todo-time");
+
+      const colorList = panel.querySelector("#todo-color");
+      const wireSwatches = () => {
+        colorList?.querySelectorAll(".named-color-swatch[data-color-id]").forEach((sw) => {
+          sw.addEventListener("click", () => {
+            selColor = sw.dataset.colorId;
+            colorList.querySelectorAll(".named-color-swatch").forEach((s) => s.classList.toggle("selected", s === sw));
+          });
+        });
+      };
+      wireSwatches();
+      panel.querySelectorAll("#todo-category .category-pill").forEach((pill) => {
+        pill.addEventListener("click", () => {
+          selCat = pill.dataset.id;
+          panel.querySelectorAll("#todo-category .category-pill").forEach((p) => p.classList.toggle("selected", p === pill));
+          const cat = catOf(selCat);
+          selColor = cat?.colors.some((c) => c.id === selColor) ? selColor : colorsFor(cat)[0]?.id || "";
+          colorList.innerHTML = swatchHTML(cat, selColor);
+          wireSwatches();
+        });
+      });
+
       panel.querySelector("#todo-delete")?.addEventListener("click", async () => {
         const ok = await showConfirm({
           title: "Delete this to-do?",
@@ -276,6 +346,7 @@ function openTodoQuickAdd(actions, state, fixedDate, existingItem = null) {
         scheduled: false,
         isTodo: true,
         notes: detailInput ? detailInput.value.trim() : "",
+        ...(showCatColor ? { categoryId: selCat, colorId: selColor } : {}),
       };
       if (existingItem) {
         // Pushing a to-do's deadline to a strictly later date counts as a
@@ -288,8 +359,8 @@ function openTodoQuickAdd(actions, state, fixedDate, existingItem = null) {
         showToast("To-do updated");
       } else {
         actions.addTask({
-          categoryId: state.categories[0]?.id || "",
-          colorId: state.categories[0]?.colors[0]?.id || "",
+          categoryId: selCat || state.categories[0]?.id || "",
+          colorId: selColor || state.categories[0]?.colors[0]?.id || "",
           ...patch,
         });
         showToast("To-do added");
@@ -1277,6 +1348,7 @@ function todoPanelRow(item, todayISO, state) {
   return `
     <div class="todo-panel-row is-reorderable ${overdue ? "is-overdue" : postponed || (urgent ? "is-todo-urgent" : severity)}" style="--chip-color:${item.color}" data-id="${item.id}" title="${esc(item.title)} · Click to edit">
       <span class="todo-panel-row-handle" aria-hidden="true" title="Drag to reorder">⠿</span>
+      <span class="todo-panel-row-bar" aria-hidden="true"></span>
       <button type="button" class="timegrid-task-checkbox" data-id="${item.id}" data-occurrence="" aria-label="Toggle done"></button>
       <div class="todo-panel-row-body">
         <span class="todo-panel-row-title">${esc(item.title)}</span>

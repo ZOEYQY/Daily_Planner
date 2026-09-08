@@ -9,3 +9,7 @@ __pycache__/
 *.egg-info/
 .venv/
 venv/
+
+# Local data / one-time migration bundles (contain personal data)
+Calendar/_migrate.json
+*.local.json

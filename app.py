@@ -111,10 +111,63 @@ def _inject_finance(resp):
 
 
 # ── calendar (static files in Calendar/) ────────────────────────────
+# One-time data migration: the calendar keeps its account + events in the
+# browser's localStorage, which is scoped per address — so data created at
+# file:// or :5051 does not show up here at :5050/calendar/. Drop a backup
+# bundle (the JSON that Calendar/transfer.html exports) at Calendar/_migrate.json
+# and it gets merged into localStorage exactly once per browser (a marker key
+# guards re-runs): the account(s) in the bundle are added (union by email) and
+# it signs you straight into the bundle's active account; each data blob is
+# written only if that browser doesn't already have one. Delete the file once
+# everyone who needs it has loaded the page once.
+_MIGRATE_PATH = os.path.join(CALENDAR_DIR, "_migrate.json")
+
+
+def _calendar_migrate_script():
+    try:
+        with open(_MIGRATE_PATH, "r", encoding="utf-8") as fh:
+            bundle = fh.read()
+    except OSError:
+        return ""
+    import json
+    try:
+        keys = json.loads(bundle).get("keys", {})
+    except ValueError:
+        return ""
+    if not keys:
+        return ""
+    return (
+        "<script>(function(){"
+        "var MARK='monoCalendar._migrated.v1';"
+        "try{"
+        "if(localStorage.getItem(MARK))return;"
+        "var inc=" + json.dumps(keys) + ";"
+        "var AK='monoCalendar.auth.v1';"
+        "var cur=null,ia=null;"
+        "try{cur=JSON.parse(localStorage.getItem(AK)||'null');}catch(e){}"
+        "try{ia=JSON.parse(inc[AK]||'null');}catch(e){}"
+        "if(ia){"
+        "if(!cur||!Array.isArray(cur.users)||!cur.users.length){localStorage.setItem(AK,inc[AK]);}"
+        "else{var seen={};cur.users.forEach(function(u){seen[u.email]=1;});"
+        "ia.users.forEach(function(u){if(!seen[u.email])cur.users.push(u);});"
+        "cur.currentUserId=ia.currentUserId||cur.currentUserId;"
+        "localStorage.setItem(AK,JSON.stringify(cur));}}"
+        "for(var n in inc){if(n===AK)continue;"
+        "if(localStorage.getItem(n)==null)localStorage.setItem(n,inc[n]);}"
+        "localStorage.setItem(MARK,new Date().toISOString());"
+        "console.log('calendar: migrated from _migrate.json');"
+        "}catch(e){console.warn('calendar migrate failed',e);}})();</script>"
+    )
+
+
 @app.route("/calendar/")
 def calendar_index():
     with open(os.path.join(CALENDAR_DIR, "index.html"), "r", encoding="utf-8") as fh:
-        return _with_switcher(fh.read(), "calendar")
+        html = fh.read()
+    seed = _calendar_migrate_script()
+    if seed:
+        html = html.replace("<head>", "<head>\n" + seed, 1)
+    return _with_switcher(html, "calendar")
 
 
 @app.route("/calendar/<path:filename>")
