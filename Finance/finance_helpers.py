@@ -1,9 +1,10 @@
+import calendar
 import json
 import os
 import re
 import tempfile
 import uuid
-from datetime import date
+from datetime import date, datetime, timedelta
 
 # ================= BASE =================
 # ================= 基础配置 =================
@@ -164,6 +165,64 @@ def clean_icon(value):
     return (value or "").strip()[:8]
 
 
+# ================= TAGS =================
+# ================= 标签 =================
+# 标签是记录上的轻量交叉标注（跟"分类"垂直）：一条记录一个分类，但可以
+# 有多个标签，例如 #reimbursable #japan-trip。存成字符串列表。
+# Tags are a lightweight cross-cutting label on a record (orthogonal to its
+# single category): one category per record, but many tags, e.g.
+# #reimbursable #japan-trip. Stored as a list of strings.
+
+TAG_MAXLEN = 24
+TAGS_MAX = 12
+
+
+def normalize_tags(raw):
+    """Accept a comma-separated string or a list; return a clean, de-duped,
+    capped list of tag strings (leading '#' and surrounding space stripped)."""
+    if isinstance(raw, str):
+        parts = raw.split(",")
+    elif isinstance(raw, (list, tuple)):
+        parts = raw
+    else:
+        return []
+    out = []
+    seen = set()
+    for part in parts:
+        tag = str(part).strip().lstrip("#").strip()[:TAG_MAXLEN]
+        if tag and tag.lower() not in seen:
+            out.append(tag)
+            seen.add(tag.lower())
+        if len(out) >= TAGS_MAX:
+            break
+    return out
+
+
+# ================= DATE MATH (recurring transactions) =================
+# ================= 日期推进（定期交易） =================
+
+
+def add_months(d, n):
+    """``date`` ``n`` calendar months later, clamping the day to the last day
+    of the target month (so 31 Jan + 1 month -> 28/29 Feb)."""
+    month_index = d.month - 1 + int(n)
+    year = d.year + month_index // 12
+    month = month_index % 12 + 1
+    day = min(d.day, calendar.monthrange(year, month)[1])
+    return d.replace(year=year, month=month, day=day)
+
+
+def advance_date(iso_str, frequency, interval=1):
+    """Next occurrence of an ISO date given a frequency + interval."""
+    d = datetime.strptime(iso_str, "%Y-%m-%d").date()
+    interval = max(1, int(interval or 1))
+    if frequency == "weekly":
+        return (d + timedelta(weeks=interval)).isoformat()
+    if frequency == "yearly":
+        return add_months(d, 12 * interval).isoformat()
+    return add_months(d, interval).isoformat()  # monthly (default)
+
+
 # ================= CATEGORY STORE =================
 # ================= 分类存储 =================
 
@@ -318,6 +377,17 @@ _SHOPPING_DEFAULTS = {
     # Last AI purchase-advice result for this item, or None. Shape:
     # {recommendation, reasoning, suggested_wait_days, confidence, generated_at}
     "ai_suggestion": None,
+    # Cooling-off period: wait_days set on the item, wait_until computed when a
+    # decision (buy / wait) is made. Purchase is blocked until wait_until passes.
+    "wait_days": 0,
+    "wait_until": "",
+    # Hindsight rating once bought: worth_it ∈ yes|no|meh, plus a note.
+    "worth_it": "",
+    "hindsight_note": "",
+    "rated_at": "",
+    # Price observations logged before buying:
+    # [{id, date, price, source, note}]
+    "price_checks": [],
 }
 
 
@@ -342,7 +412,11 @@ def load_shopping():
             changed = True
         for key, default in _SHOPPING_DEFAULTS.items():
             if key not in item:
-                item[key] = default
+                item[key] = list(default) if isinstance(default, list) else default
+                changed = True
+        for check in item.get("price_checks", []):
+            if not check.get("id"):
+                check["id"] = new_id()
                 changed = True
 
     if changed:
@@ -359,3 +433,290 @@ def save_shopping(items):
 
 def find_shopping_item(items, item_id):
     return next((it for it in items if it.get("id") == item_id), None)
+
+
+# ================= RECURRING TRANSACTION STORE =================
+# ================= 定期交易存储 =================
+# 每条"规则"描述一笔按固定频率重复的交易（房租、订阅、每月工资...）。
+# 规则本身不是交易记录 —— 到期时才由它"生成"一条真正的 expenses.json
+# 记录（带 recurring_id / source=recurring 以便追溯），并把 next_due 往后推。
+# Each *rule* describes a transaction that repeats on a fixed cadence (rent,
+# subscriptions, monthly salary...). A rule is not itself a transaction: when
+# it comes due it *generates* a real expenses.json record (tagged with
+# recurring_id / source=recurring) and its next_due is advanced.
+
+f_recurring = os.path.join(DATA_DIR, "recurring.json")
+
+RECURRING_SCHEMA_VERSION = 1
+RECURRING_FREQUENCIES = ("weekly", "monthly", "yearly")
+
+_RECURRING_DEFAULTS = {
+    "interval": 1,
+    "tags": [],
+    "end_date": "",
+    "last_posted": "",
+    "active": True,
+    "auto_post": False,
+    "item": "",
+    "category": "",
+    "account": "",
+}
+
+
+def load_recurring():
+    """Recurring rules, each guaranteed to have an ``id`` and ``next_due``.
+
+    Stored shape: ``{"schema_version": N, "rules": [ {...}, ... ]}``.
+    """
+    raw = load_data(f_recurring, None)
+    if raw is None:
+        return []
+
+    rules = raw if isinstance(raw, list) else raw.get("rules", [])
+
+    changed = False
+    for rule in rules:
+        if not rule.get("id"):
+            rule["id"] = new_id()
+            changed = True
+        if "created_at" not in rule:
+            rule["created_at"] = today_iso()
+            changed = True
+        if not rule.get("next_due"):
+            rule["next_due"] = rule.get("start_date") or today_iso()
+            changed = True
+        for key, default in _RECURRING_DEFAULTS.items():
+            if key not in rule:
+                rule[key] = list(default) if isinstance(default, list) else default
+                changed = True
+
+    if changed:
+        save_recurring(rules)
+    return rules
+
+
+def save_recurring(rules):
+    save_data(f_recurring, {
+        "schema_version": RECURRING_SCHEMA_VERSION,
+        "rules": rules,
+    })
+
+
+def find_recurring(rules, rule_id):
+    return next((r for r in rules if r.get("id") == rule_id), None)
+
+
+# ================= DEBT / LOAN STORE =================
+# ================= 借贷存储 =================
+# 一条 debt 记录你欠别人的钱（direction="owe"）或别人欠你的钱
+# （direction="owed"）。payments 是还款/收款事件列表，未还金额 =
+# principal - sum(payments)。这是一个独立台账，默认不会自动动
+# expenses.json（可在还款时勾选"同时记一笔交易"）。
+# A debt row is money you owe (direction="owe") or money owed to you
+# (direction="owed"). `payments` is a list of repayment events; the
+# outstanding balance is principal - sum(payments). It's a standalone
+# ledger — it does not touch expenses.json unless the user opts in when
+# recording a payment.
+
+f_debts = os.path.join(DATA_DIR, "debts.json")
+
+DEBTS_SCHEMA_VERSION = 1
+DEBT_DIRECTIONS = ("owe", "owed")
+
+_DEBT_DEFAULTS = {
+    "description": "",
+    "due_date": "",
+    "account": "",
+    "status": "open",
+    "notes": "",
+    "payments": [],
+}
+
+
+def load_debts():
+    """Debt/loan rows. Shape: ``{"schema_version": N, "debts": [ {...} ]}``."""
+    raw = load_data(f_debts, None)
+    if raw is None:
+        return []
+
+    debts = raw if isinstance(raw, list) else raw.get("debts", [])
+
+    changed = False
+    for debt in debts:
+        if not debt.get("id"):
+            debt["id"] = new_id()
+            changed = True
+        if "created_at" not in debt:
+            debt["created_at"] = today_iso()
+            changed = True
+        for key, default in _DEBT_DEFAULTS.items():
+            if key not in debt:
+                debt[key] = list(default) if isinstance(default, list) else default
+                changed = True
+        for payment in debt.get("payments", []):
+            if not payment.get("id"):
+                payment["id"] = new_id()
+                changed = True
+
+    if changed:
+        save_debts(debts)
+    return debts
+
+
+def save_debts(debts):
+    save_data(f_debts, {"schema_version": DEBTS_SCHEMA_VERSION, "debts": debts})
+
+
+def find_debt(debts, debt_id):
+    return next((d for d in debts if d.get("id") == debt_id), None)
+
+
+def debt_paid(debt):
+    return round(sum(float(p.get("amount") or 0) for p in debt.get("payments", [])), 2)
+
+
+def debt_outstanding(debt):
+    return round(float(debt.get("principal") or 0) - debt_paid(debt), 2)
+
+
+# ================= NET-WORTH SNAPSHOT STORE =================
+# ================= 净资产快照存储 =================
+# 一张快照 = 某个时间点的 assets / liabilities / net。可以"立即快照"
+# （由 App 数据自动算：账户余额 + 别人欠你的 - 你欠别人的），也可以
+# 手动输入（用来包含 App 不追踪的房产、车等）。
+# A snapshot = assets / liabilities / net at a point in time. Either
+# auto-computed from the app's data (account balances + money owed to you -
+# money you owe) or entered by hand (to include property, a car, etc.).
+
+f_networth = os.path.join(DATA_DIR, "networth.json")
+
+NETWORTH_SCHEMA_VERSION = 1
+
+
+def load_networth():
+    """Snapshots. Shape: ``{"schema_version": N, "snapshots": [ {...} ]}``."""
+    raw = load_data(f_networth, None)
+    if raw is None:
+        return []
+
+    snapshots = raw if isinstance(raw, list) else raw.get("snapshots", [])
+
+    changed = False
+    for snap in snapshots:
+        if not snap.get("id"):
+            snap["id"] = new_id()
+            changed = True
+        if "net" not in snap:
+            snap["net"] = round(float(snap.get("assets") or 0) - float(snap.get("liabilities") or 0), 2)
+            changed = True
+
+    if changed:
+        save_networth(snapshots)
+    return snapshots
+
+
+def save_networth(snapshots):
+    save_data(f_networth, {"schema_version": NETWORTH_SCHEMA_VERSION, "snapshots": snapshots})
+
+
+def find_snapshot(snapshots, snap_id):
+    return next((s for s in snapshots if s.get("id") == snap_id), None)
+
+
+# ================= AI INSIGHTS STORE =================
+# ================= AI 洞察存储 =================
+# 缓存 AI 生成的"月度回顾"，按 "YYYY-MM" 存，避免每次打开 Summary 都
+# 重新调用（每次调用都是 OpenAI 费用）。
+# Caches the AI monthly-review text keyed by "YYYY-MM" so opening the
+# Summary page doesn't re-call OpenAI every time (every call costs money).
+
+f_insights = os.path.join(DATA_DIR, "insights.json")
+
+INSIGHTS_SCHEMA_VERSION = 1
+
+
+def load_insights():
+    """``{"YYYY-MM": {narrative, suggestions, generated_at}}``."""
+    raw = load_data(f_insights, None)
+    if not isinstance(raw, dict):
+        return {}
+    if "reviews" in raw:
+        return raw["reviews"]
+    return raw
+
+
+def save_insights(reviews):
+    save_data(f_insights, {"schema_version": INSIGHTS_SCHEMA_VERSION, "reviews": reviews})
+
+
+# ================= CURRENCY CONVERTER STORE =================
+# ================= 货币换算存储 =================
+# 一个独立的小工具，跟交易记账完全无关。RM (MYR) 是本位币，其他货币各
+# 存一个 rate_to_myr（1 单位该货币 = 多少 RM），由用户自己维护/更新。
+# A standalone tool, unrelated to transaction bookkeeping. RM (MYR) is the
+# base; every other currency stores a rate_to_myr (1 unit of it = how many
+# RM), maintained/updated by the user.
+
+f_rates = os.path.join(DATA_DIR, "rates.json")
+
+RATES_SCHEMA_VERSION = 1
+BASE_CURRENCY = "MYR"
+
+# Seed rates are rough placeholders — the user is expected to update them.
+_SEED_RATES = [
+    ("USD", "US Dollar", 4.70),
+    ("SGD", "Singapore Dollar", 3.50),
+    ("EUR", "Euro", 5.10),
+    ("GBP", "British Pound", 5.95),
+    ("JPY", "Japanese Yen", 0.032),
+    ("CNY", "Chinese Yuan", 0.66),
+    ("AUD", "Australian Dollar", 3.10),
+    ("THB", "Thai Baht", 0.14),
+    ("IDR", "Indonesian Rupiah", 0.00030),
+]
+
+
+def clean_currency_code(value):
+    return re.sub(r"[^A-Za-z]", "", value or "").upper()[:5]
+
+
+def _seed_rates():
+    return [
+        {"code": code, "name": name, "rate_to_myr": rate, "updated_at": today_iso()}
+        for code, name, rate in _SEED_RATES
+    ]
+
+
+def load_rates():
+    """Currency rows. Shape: ``{"schema_version": N, "base": "MYR",
+    "rates": [{code, name, rate_to_myr, updated_at}]}``. Seeded on first use."""
+    raw = load_data(f_rates, None)
+    if raw is None:
+        rates = _seed_rates()
+        save_rates(rates)
+        return rates
+
+    rates = raw if isinstance(raw, list) else raw.get("rates", [])
+    changed = False
+    for r in rates:
+        if "updated_at" not in r:
+            r["updated_at"] = today_iso()
+            changed = True
+        if "name" not in r:
+            r["name"] = r.get("code", "")
+            changed = True
+    if changed:
+        save_rates(rates)
+    return rates
+
+
+def save_rates(rates):
+    save_data(f_rates, {
+        "schema_version": RATES_SCHEMA_VERSION,
+        "base": BASE_CURRENCY,
+        "rates": rates,
+    })
+
+
+def find_rate(rates, code):
+    return next((r for r in rates if r.get("code") == code), None)

@@ -33,6 +33,11 @@ def client(data_dir, tmp_path, monkeypatch):
     monkeypatch.setattr(finance_helpers, "DATA_DIR", str(data_dir))
     monkeypatch.setattr(finance_helpers, "f_categories", str(data_dir / "categories.json"))
     monkeypatch.setattr(finance_helpers, "f_shopping", str(data_dir / "shopping.json"))
+    monkeypatch.setattr(finance_helpers, "f_recurring", str(data_dir / "recurring.json"))
+    monkeypatch.setattr(finance_helpers, "f_debts", str(data_dir / "debts.json"))
+    monkeypatch.setattr(finance_helpers, "f_networth", str(data_dir / "networth.json"))
+    monkeypatch.setattr(finance_helpers, "f_insights", str(data_dir / "insights.json"))
+    monkeypatch.setattr(finance_helpers, "f_rates", str(data_dir / "rates.json"))
 
     monkeypatch.setattr(finance_routes, "f_expense", str(data_dir / "expenses.json"))
     monkeypatch.setattr(finance_routes, "f_budget", str(data_dir / "budget.json"))

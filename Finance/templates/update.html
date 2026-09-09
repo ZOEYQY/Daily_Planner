@@ -25,12 +25,15 @@
         <a href="{{ url_for('finance.finance_home') }}">Dashboard</a>
         <a href="{{ url_for('finance.add_financial') }}">Add</a>
         <a href="{{ url_for('finance.view_financial') }}">View</a>
+        <a href="{{ url_for('finance.recurring') }}">Recurring</a>
         <a href="{{ url_for('finance.summary') }}">Summary</a>
-        <a href="{{ url_for('finance.budget') }}">Budget</a>
-        <a href="{{ url_for('finance.goals') }}">Goals</a>
+        <a href="{{ url_for('finance.plan') }}">Plan</a>
+        <a href="{{ url_for('finance.debts') }}">Debts</a>
         <a href="{{ url_for('finance.accounts') }}">Accounts</a>
+        <a href="{{ url_for('finance.networth') }}">Net Worth</a>
         <a href="{{ url_for('finance.shopping') }}">Shopping</a>
         <a href="{{ url_for('finance.categories') }}">Categories</a>
+        <a href="{{ url_for('finance.currency') }}">Currency</a>
         <a href="{{ url_for('finance.data_tools') }}">Data</a>
     </div>
 
@@ -323,6 +326,24 @@
                 placeholder="Example: Coffee, Netflix, Salary..."
             >
 
+            <!-- TAGS -->
+
+            <label>Tags (comma-separated)</label>
+
+            <input
+                type="text"
+                name="tags"
+                value="{{ (record.tags or []) | join(', ') }}"
+                placeholder="Example: reimbursable, japan-trip"
+            >
+
+            {% if record.split_id %}
+            <p class="add-subtitle" style="margin-top:6px;">
+                Part of a split transaction ({{ record.split_label }}). Editing this line
+                only changes this one record.
+            </p>
+            {% endif %}
+
             {% else %}
             <!-- ACCOUNT (goal contribution) -->
 
@@ -445,7 +466,7 @@
                 </button>
 
                 <a
-                href="{{ url_for('finance.goals') if source == 'goal' else url_for('finance.view_financial') }}"
+                href="{{ url_for('finance.plan') if source == 'goal' else url_for('finance.view_financial') }}"
                 class="secondary-btn"
                 >
 

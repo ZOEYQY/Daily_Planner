@@ -98,7 +98,7 @@ def test_empty_trash(client, load):
     assert load("expenses.json") == []
 
 
-def test_goal_contribution_delete_is_soft_and_returns_to_goals(client, load):
+def test_goal_contribution_delete_is_soft_and_returns_to_plan(client, load):
     client.post("/goals", data={
         "action": "create", "name": "Trip", "target": "1000", "type": "short",
     })
@@ -110,7 +110,7 @@ def test_goal_contribution_delete_is_soft_and_returns_to_goals(client, load):
     rid = load("expenses.json")[0]["id"]
 
     resp = client.post(f"/delete/{rid}", data={"source": "goal"})
-    assert resp.status_code == 302 and "/goals" in resp.headers["Location"]
+    assert resp.status_code == 302 and "/plan" in resp.headers["Location"]
     assert load("expenses.json")[0]["deleted_at"]
 
 

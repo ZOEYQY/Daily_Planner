@@ -43,7 +43,7 @@ def test_transfer_flow_still_works(client, load, make_account):
 def test_budget_uses_dynamic_categories(client, load):
     client.post("/categories", data={"action": "create", "name": "Gaming", "kind": "expense"})
 
-    budget_page = client.get("/budget").get_data(as_text=True)
+    budget_page = client.get("/plan").get_data(as_text=True)
     assert "Gaming" in budget_page
 
     resp = client.post("/budget", data={
@@ -54,7 +54,7 @@ def test_budget_uses_dynamic_categories(client, load):
 
 
 def test_core_pages_load(client):
-    for path in ["/finance", "/view", "/summary", "/goals", "/budget", "/accounts"]:
+    for path in ["/finance", "/view", "/summary", "/plan", "/accounts"]:
         assert client.get(path).status_code == 200
 
 

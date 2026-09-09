@@ -25,12 +25,15 @@
         <a href="{{ url_for('finance.finance_home') }}">Dashboard</a>
         <a href="{{ url_for('finance.add_financial') }}">Add</a>
         <a href="{{ url_for('finance.view_financial') }}" class="active-link">View</a>
+        <a href="{{ url_for('finance.recurring') }}">Recurring</a>
         <a href="{{ url_for('finance.summary') }}">Summary</a>
-        <a href="{{ url_for('finance.budget') }}">Budget</a>
-        <a href="{{ url_for('finance.goals') }}">Goals</a>
+        <a href="{{ url_for('finance.plan') }}">Plan</a>
+        <a href="{{ url_for('finance.debts') }}">Debts</a>
         <a href="{{ url_for('finance.accounts') }}">Accounts</a>
+        <a href="{{ url_for('finance.networth') }}">Net Worth</a>
         <a href="{{ url_for('finance.shopping') }}">Shopping</a>
         <a href="{{ url_for('finance.categories') }}">Categories</a>
+        <a href="{{ url_for('finance.currency') }}">Currency</a>
     </div>
 
 </div>
@@ -109,56 +112,87 @@
 
         {% endif %}
 
-        <!-- ===== FILTER ===== -->
-        <!-- ===== 筛选 ===== -->
+        <!-- ===== FILTER / SEARCH ===== -->
+        <!-- ===== 筛选 / 搜索 ===== -->
 
-        <form
-        method="GET"
-        class="filter-form"
-        >
+        <form method="GET" class="filter-form" style="flex-wrap:wrap;gap:8px;align-items:flex-end;">
 
-            <label>
+            <div>
+                <label>Search</label>
+                <input type="text" name="q" value="{{ filters.q }}" placeholder="item, category, account, tag">
+            </div>
 
-                Filter by Account
+            <div>
+                <label>Account</label>
+                <select name="account">
+                    <option value="">All accounts</option>
+                    {% for acc in accounts|default([]) %}
+                    <option value="{{ acc.name }}" {{ 'selected' if filters.account == acc.name else '' }}>{{ acc.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
 
-            </label>
+            <div>
+                <label>Type</label>
+                <select name="type">
+                    <option value="">All</option>
+                    {% for k in kinds %}
+                    <option value="{{ k }}" {{ 'selected' if filters.type == k else '' }}>{{ k | capitalize }}</option>
+                    {% endfor %}
+                </select>
+            </div>
 
-            <select
-            id="accountFilter"
-            name="account"
-            >
+            <div>
+                <label>Category</label>
+                <select name="category">
+                    <option value="">All</option>
+                    {% for c in all_categories %}
+                    <option value="{{ c }}" {{ 'selected' if filters.category == c else '' }}>{{ c }}</option>
+                    {% endfor %}
+                </select>
+            </div>
 
-                <option value="">
+            <div>
+                <label>Tag</label>
+                <input type="text" name="tag" value="{{ filters.tag }}" placeholder="exact tag">
+            </div>
 
-                    All Accounts
+            <div>
+                <label>From</label>
+                <input type="date" name="start" value="{{ filters.start }}">
+            </div>
 
-                </option>
+            <div>
+                <label>To</label>
+                <input type="date" name="end" value="{{ filters.end }}">
+            </div>
 
-                {% for acc in accounts|default([]) %}
+            <div>
+                <label>Min RM</label>
+                <input type="number" name="min" step="0.01" value="{{ filters.min }}" style="min-width:90px;">
+            </div>
 
-                <option
-                    value="{{ acc.name }}"
+            <div>
+                <label>Max RM</label>
+                <input type="number" name="max" step="0.01" value="{{ filters.max }}" style="min-width:90px;">
+            </div>
 
-                    {% if request.args.get('account') == acc.name %}
-                    selected
-                    {% endif %}
-                >
-
-                    {{ acc.name }}
-
-                </option>
-
-                {% endfor %}
-
-            </select>
-
-            <button type="submit">
-
-                Filter
-
-            </button>
+            <button type="submit">Filter</button>
+            {% if filters_active %}
+            <a href="{{ url_for('finance.view_financial') }}" class="secondary-btn">Reset</a>
+            {% endif %}
 
         </form>
+
+        <!-- ===== RESULT SUMMARY ===== -->
+        <div class="insight-box" style="margin:12px 0;">
+            <p>
+                <strong>{{ totals.count }}</strong> record{{ '' if totals.count == 1 else 's' }}{% if filters_active %} match{% endif %}
+                · income <strong>RM {{ "%.2f"|format(totals.income) }}</strong>
+                · expense <strong>RM {{ "%.2f"|format(totals.expense) }}</strong>
+                · net <strong>RM {{ "%.2f"|format(totals.net) }}</strong>
+            </p>
+        </div>
 
         <!-- ===== EMPTY ===== -->
         <!-- ===== 空状态 ===== -->
@@ -166,49 +200,11 @@
         {% if not records %}
 
         <div class="empty-card">
-
-            <h3>
-
-                No records found
-
-            </h3>
-
-            <p>
-
-                Add your first financial record.
-
-            </p>
-
+            <h3>No records found</h3>
+            <p>{% if filters_active %}Try widening or resetting the filters.{% else %}Add your first financial record.{% endif %}</p>
         </div>
 
         {% else %}
-
-        <form method="GET" class="filter-form">
-
-            <input
-                type="date"
-                name="start"
-                value="{{ request.args.get('start', '') }}"
-            >
-
-            <input
-                type="date"
-                name="end"
-                value="{{ request.args.get('end', '') }}"
-            >
-
-            <button type="submit">
-                Filter
-            </button>
-
-            <a
-                href="{{ url_for('finance.view_financial') }}"
-                class="secondary-btn"
-            >
-                Reset
-            </a>
-
-        </form>
 
         <!-- ===== TABLE ===== -->
         <!-- ===== 表格 ===== -->
@@ -266,6 +262,12 @@
                     <td>
 
                         {{ r.category|default('-') }}
+                        {% if r.split_id %}
+                        <span class="pill" title="Part of a split: {{ r.split_label }}">split</span>
+                        {% endif %}
+                        {% if r.source == 'recurring' %}
+                        <span class="pill" title="Created by a recurring rule">recurring</span>
+                        {% endif %}
 
                     </td>
 
@@ -282,6 +284,13 @@
                     <td>
 
                         {{ r.item|default('-') }}
+                        {% if r.tags %}
+                        <div style="margin-top:3px;display:flex;gap:4px;flex-wrap:wrap;">
+                            {% for t in r.tags %}
+                            <a href="{{ url_for('finance.view_financial', tag=t) }}" class="pill" style="text-decoration:none;">#{{ t }}</a>
+                            {% endfor %}
+                        </div>
+                        {% endif %}
 
                     </td>
 

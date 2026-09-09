@@ -23,12 +23,15 @@
         <a href="{{ url_for('finance.finance_home') }}">Dashboard</a>
         <a href="{{ url_for('finance.add_financial') }}">Add</a>
         <a href="{{ url_for('finance.view_financial') }}">View</a>
+        <a href="{{ url_for('finance.recurring') }}">Recurring</a>
         <a href="{{ url_for('finance.summary') }}" class="active-link">Summary</a>
-        <a href="{{ url_for('finance.budget') }}">Budget</a>
-        <a href="{{ url_for('finance.goals') }}">Goals</a>
+        <a href="{{ url_for('finance.plan') }}">Plan</a>
+        <a href="{{ url_for('finance.debts') }}">Debts</a>
         <a href="{{ url_for('finance.accounts') }}">Accounts</a>
+        <a href="{{ url_for('finance.networth') }}">Net Worth</a>
         <a href="{{ url_for('finance.shopping') }}">Shopping</a>
         <a href="{{ url_for('finance.categories') }}">Categories</a>
+        <a href="{{ url_for('finance.currency') }}">Currency</a>
         <a href="{{ url_for('finance.data_tools') }}">Data</a>
     </div>
 
@@ -380,6 +383,23 @@
             {{ insight }}
         </p>
 
+        <h3>AI review</h3>
+        <button type="button" id="genReviewBtn"
+                data-url="{{ url_for('finance.summary_review') }}"
+                data-month="{{ selected_month }}" data-year="{{ selected_year }}"
+                style="font-size:12px;padding:4px 9px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);cursor:pointer;color:var(--text-main);">
+            {% if ai_review %}✨ Regenerate review{% else %}✨ Generate AI review{% endif %}
+        </button>
+        <div id="reviewOutput" style="font-size:13px;margin-top:8px;">
+            {% if ai_review %}
+            <p>{{ ai_review.narrative }}</p>
+            {% if ai_review.suggestions %}
+            <ul>{% for s in ai_review.suggestions %}<li>{{ s }}</li>{% endfor %}</ul>
+            {% endif %}
+            <small style="color:var(--text-faint);">Generated {{ ai_review.generated_at }}</small>
+            {% endif %}
+        </div>
+
     </div>
 
     <!-- ===== BUDGET ===== -->
@@ -400,7 +420,7 @@
                 <div class="budget-top">
 
                     <strong>
-                        {{ b.category }}
+                        {{ b.category }}{% if b.rollover %} <span class="pill">rollover</span>{% endif %}
                     </strong>
 
                     <span>
@@ -408,6 +428,7 @@
                         RM {{ "%.2f"|format(b.spent) }}
                         /
                         RM {{ "%.2f"|format(b.limit) }}
+                        {% if b.rollover and b.carryover %}<small>(base {{ "%.2f"|format(b.base_limit) }})</small>{% endif %}
 
                     </span>
 
@@ -659,6 +680,8 @@ new Chart(document.getElementById("pieChart"), {
 </script>
 
 {% endif %}
+
+<script src="{{ url_for('static', filename='finance_ai.js') }}"></script>
 
 </body>
 </html>

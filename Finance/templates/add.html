@@ -23,12 +23,15 @@
         <a href="{{ url_for('finance.finance_home') }}">Dashboard</a>
         <a href="{{ url_for('finance.add_financial') }}" class="active-link">Add</a>
         <a href="{{ url_for('finance.view_financial') }}">View</a>
+        <a href="{{ url_for('finance.recurring') }}">Recurring</a>
         <a href="{{ url_for('finance.summary') }}">Summary</a>
-        <a href="{{ url_for('finance.budget') }}">Budget</a>
-        <a href="{{ url_for('finance.goals') }}">Goals</a>
+        <a href="{{ url_for('finance.plan') }}">Plan</a>
+        <a href="{{ url_for('finance.debts') }}">Debts</a>
         <a href="{{ url_for('finance.accounts') }}">Accounts</a>
+        <a href="{{ url_for('finance.networth') }}">Net Worth</a>
         <a href="{{ url_for('finance.shopping') }}">Shopping</a>
         <a href="{{ url_for('finance.categories') }}">Categories</a>
+        <a href="{{ url_for('finance.currency') }}">Currency</a>
         <a href="{{ url_for('finance.data_tools') }}">Data</a>
     </div>
 
@@ -219,6 +222,15 @@
 
                     </select>
 
+                    <div style="margin-top:4px;">
+                        <button type="button" id="suggestCategoryBtn"
+                                data-url="{{ url_for('finance.suggest_category') }}"
+                                style="font-size:12px;padding:4px 9px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);cursor:pointer;color:var(--text-main);">
+                            ✨ Suggest from item
+                        </button>
+                        <span id="suggestCategoryStatus" style="font-size:12px;color:var(--text-muted);margin-left:6px;"></span>
+                    </div>
+
                 </div>
 
                 <div>
@@ -356,6 +368,19 @@
                 >
             </div>
 
+            <!-- TAGS -->
+            <!-- 标签 -->
+
+            <div id="tagsBlock">
+                <label>Tags (optional, comma-separated)</label>
+                <input
+                    type="text"
+                    name="tags"
+                    value="{{ form_data.tags if form_data else '' }}"
+                    placeholder="Example: reimbursable, japan-trip"
+                >
+            </div>
+
             <!-- AMOUNT -->
             <!-- 金额 -->
 
@@ -384,6 +409,37 @@
                     Please enter an amount greater than RM 0.00
                 </small>
 
+            </div>
+
+            <!-- SPLIT ACROSS CATEGORIES -->
+            <!-- 拆分到多个分类 -->
+
+            <div id="splitControl" style="margin:6px 0;">
+                <label style="display:inline-flex;align-items:center;gap:8px;font-weight:600;">
+                    <input type="checkbox" id="splitToggle" style="width:auto;margin:0;">
+                    Split this payment across several categories
+                </label>
+            </div>
+
+            <div id="splitBlock" style="display:none;border:1px dashed var(--border-strong);border-radius:var(--radius-sm);padding:12px;margin-bottom:10px;">
+                <p style="font-size:12px;color:var(--text-muted);margin-bottom:8px;">
+                    Each line becomes its own record (same date &amp; account), grouped as one split.
+                    The single Category and Amount above are ignored while this is on.
+                </p>
+                {% for i in range(4) %}
+                <div class="summary-grid split-row" style="margin-bottom:6px;">
+                    <div>
+                        <select name="split_category" class="split-cat">
+                            <option value="">-- Category --</option>
+                        </select>
+                    </div>
+                    <div style="display:flex;gap:6px;">
+                        <input type="number" name="split_amount" step="0.01" min="0" placeholder="Amount" style="flex:1;">
+                        <input type="text" name="split_item" placeholder="Note (optional)" style="flex:1;">
+                    </div>
+                </div>
+                {% endfor %}
+                <div style="font-size:12px;color:var(--text-muted);">Split total: <strong id="splitTotal">RM 0.00</strong></div>
             </div>
 
             <!-- RECEIPT -->
@@ -485,6 +541,7 @@
 </script>
 
 <script src="{{ url_for('static', filename='receipt_ai.js') }}"></script>
+<script src="{{ url_for('static', filename='finance_ai.js') }}"></script>
 
 <script>
 
@@ -719,12 +776,86 @@ document.addEventListener("DOMContentLoaded", function () {
         updateTransferUI();
 
         updateAccountUI();
+
+        updateSplitCategories();
+
+        updateSplitMode();
     });
 
     accountSelect.addEventListener(
         "change",
         updateAccountUI
     );
+
+    // ================= SPLIT ACROSS CATEGORIES =================
+    // ================= 拆分到多个分类 =================
+    // 勾选后：隐藏单一"分类/金额"，显示多行"分类 + 金额 + 备注"。
+    // 每行的分类选项跟主分类一样，随类型变化。提交时后端看到哪几行填了
+    // 分类和金额，就按拆分处理。
+    // When checked: hide the single Category/Amount, show multiple
+    // "category + amount + note" rows. Each row's options mirror the main
+    // category dropdown and follow the selected type. On submit the backend
+    // treats any filled rows as a split.
+
+    const splitToggle = document.getElementById("splitToggle");
+    const splitBlock = document.getElementById("splitBlock");
+    const categoryBlockEl = document.getElementById("categoryBlock");
+    const amountCardEl = document.querySelector(".amount-card");
+
+    function updateSplitCategories() {
+        const type = typeSelect.value;
+        const list = categories[type] || [];
+        document.querySelectorAll("#splitBlock .split-cat").forEach(function (sel) {
+            const keep = sel.value;
+            sel.innerHTML = '<option value="">-- Category --</option>';
+            list.forEach(function (cat) {
+                const o = document.createElement("option");
+                o.value = cat; o.textContent = cat;
+                if (cat === keep) o.selected = true;
+                sel.appendChild(o);
+            });
+        });
+    }
+
+    function updateSplitTotal() {
+        let cents = 0;
+        document.querySelectorAll('#splitBlock input[name="split_amount"]').forEach(function (inp) {
+            const v = parseFloat(inp.value);
+            if (Number.isFinite(v) && v > 0) cents += Math.round(v * 100);
+        });
+        document.getElementById("splitTotal").textContent = "RM " + (cents / 100).toFixed(2);
+    }
+
+    function updateSplitMode() {
+        const splitControl = document.getElementById("splitControl");
+        // splitting a transfer makes no sense — hide the control entirely
+        if (typeSelect.value === "transfer") {
+            splitToggle.checked = false;
+            if (splitControl) splitControl.style.display = "none";
+            splitBlock.style.display = "none";
+            return;
+        }
+        if (splitControl) splitControl.style.display = "";
+
+        const on = splitToggle.checked;
+        splitBlock.style.display = on ? "block" : "none";
+        // hide the single-line fields and drop their native-required so the
+        // form can submit on the split rows alone
+        if (categoryBlockEl) categoryBlockEl.style.display = on ? "none" : "";
+        if (amountCardEl) amountCardEl.style.display = on ? "none" : "";
+        if (on) {
+            categorySelect.removeAttribute("required");
+            updateSplitCategories();
+        } else {
+            categorySelect.setAttribute("required", "required");
+        }
+    }
+
+    if (splitToggle) {
+        splitToggle.addEventListener("change", updateSplitMode);
+        splitBlock.addEventListener("input", updateSplitTotal);
+    }
+    updateSplitMode();
 
     // 页面刚加载时也要跑一遍这几个函数，让表单初始状态
     // （分类清单/必填标记/转账栏位显示与否）跟当前已选中的类型保持一致。
@@ -739,6 +870,8 @@ document.addEventListener("DOMContentLoaded", function () {
     updateTransferUI();
 
     updateAccountUI();
+
+    updateSplitCategories();
 
     // ================= RECEIPT FILENAME =================
     // ================= 收据文件名 =================
