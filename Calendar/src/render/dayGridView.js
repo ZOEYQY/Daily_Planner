@@ -8,7 +8,7 @@ import {
   isTodoPanelOpen, getDayTodos,
 } from "../selectors.js";
 import { icons } from "../icons.js";
-import { esc } from "../utils.js";
+import { esc, inkOn } from "../utils.js";
 import { fieldLabels, FIXED_FIELD_DEFS } from "../extraFields.js";
 import { layoutDayEvents, HOUR_ROW_PX, minutesToTop } from "../timeLayout.js";
 import { startPointerInteraction, snapMinutes, createAutoScroller } from "../dragUtils.js";
@@ -1346,9 +1346,8 @@ function todoPanelRow(item, todayISO, state) {
   if (item.startTime) bits.push(esc(formatTime(item.startTime)));
   const deadline = bits.length ? `<span class="todo-panel-row-deadline">${bits.join(" · ")}</span>` : "";
   return `
-    <div class="todo-panel-row is-reorderable ${overdue ? "is-overdue" : postponed || (urgent ? "is-todo-urgent" : severity)}" style="--chip-color:${item.color}" data-id="${item.id}" title="${esc(item.title)} · Click to edit">
+    <div class="todo-panel-row is-reorderable ${overdue ? "is-overdue" : postponed || (urgent ? "is-todo-urgent" : severity)}" style="--chip-color:${item.color};--chip-ink:${inkOn(item.color)}" data-id="${item.id}" title="${esc(item.title)} · Click to edit">
       <span class="todo-panel-row-handle" aria-hidden="true" title="Drag to reorder">⠿</span>
-      <span class="todo-panel-row-bar" aria-hidden="true"></span>
       <button type="button" class="timegrid-task-checkbox" data-id="${item.id}" data-occurrence="" aria-label="Toggle done"></button>
       <div class="todo-panel-row-body">
         <span class="todo-panel-row-title">${esc(item.title)}</span>
@@ -1385,8 +1384,10 @@ function weekTrayChip(item, todayISO, kind = "task", state) {
   // Same click-to-select/click-again-to-open pattern as dayTrayChip — only
   // for to-dos, see the reasoning there.
   const selected = item.isTodo && isSelected(state, kind, item.id, item.occurrenceDate || null);
+  const filled = item.isTodo ? `is-todo-filled` : "";
+  const ink = item.isTodo ? `;--chip-ink:${inkOn(item.color)}` : "";
   return `
-    <div class="unscheduled-chip ${isTask && item.done ? "is-done" : ""} ${severity} ${postponed} ${selected ? "is-selected" : ""}" style="--chip-color:${item.color}" data-id="${item.id}" data-kind="${kind}" data-occurrence="${item.occurrenceDate || ""}" title="${esc(item.title)} · ${dragHint}${isTask && item.rescheduleCount ? `\n${esc(rescheduleHistoryText(item))}` : ""}">
+    <div class="unscheduled-chip ${filled} ${isTask && item.done ? "is-done" : ""} ${severity} ${postponed} ${selected ? "is-selected" : ""}" style="--chip-color:${item.color}${ink}" data-id="${item.id}" data-kind="${kind}" data-occurrence="${item.occurrenceDate || ""}" title="${esc(item.title)} · ${dragHint}${isTask && item.rescheduleCount ? `\n${esc(rescheduleHistoryText(item))}` : ""}">
       ${isTask ? `<button type="button" class="timegrid-task-checkbox" data-id="${item.id}" data-occurrence="${item.occurrenceDate || ""}" aria-label="Toggle done"></button>` : ""}
       <div class="day-tray-chip-body">
         <span class="unscheduled-chip-label">${prefix}${esc(item.title)}</span>
@@ -1425,8 +1426,10 @@ function dayTrayChip(item, todayISO, kind = "task", state) {
   // this chip's onClick wiring below) — a plain task/event chip still opens
   // directly on a single click, same as always.
   const selected = item.isTodo && isSelected(state, kind, item.id, item.occurrenceDate || null);
+  const filled = item.isTodo ? `is-todo-filled` : "";
+  const ink = item.isTodo ? `;--chip-ink:${inkOn(item.color)}` : "";
   return `
-    <div class="day-tray-chip ${isTask && item.done ? "is-done" : ""} ${overdue ? "is-overdue" : postponed || (urgent ? "is-todo-urgent" : severity)} ${selected ? "is-selected" : ""}" style="--chip-color:${item.color}" data-id="${item.id}" data-kind="${kind}" data-occurrence="${item.occurrenceDate || ""}" title="${esc(item.title)} · Drag onto the timeline to set a time${historyLine}">
+    <div class="day-tray-chip ${filled} ${isTask && item.done ? "is-done" : ""} ${overdue ? "is-overdue" : postponed || (urgent ? "is-todo-urgent" : severity)} ${selected ? "is-selected" : ""}" style="--chip-color:${item.color}${ink}" data-id="${item.id}" data-kind="${kind}" data-occurrence="${item.occurrenceDate || ""}" title="${esc(item.title)} · Drag onto the timeline to set a time${historyLine}">
       ${isTask ? `<button type="button" class="timegrid-task-checkbox" data-id="${item.id}" data-occurrence="${item.occurrenceDate || ""}" aria-label="Toggle done"></button>` : ""}
       <div class="day-tray-chip-body">
         <span class="unscheduled-chip-label">${prefix}${esc(item.title)}</span>

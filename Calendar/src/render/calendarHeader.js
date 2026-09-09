@@ -11,6 +11,7 @@ const VIEWS = [
   { id: "week", label: "Week" },
   { id: "day", label: "Day" },
   { id: "custom", label: "Custom" },
+  { id: "habits", label: "打卡" },
 ];
 
 function shortDateLabel(iso) {
@@ -75,20 +76,25 @@ function categoryFilterHTML(state) {
 export function renderCalendarHeader(root, state, actions) {
   root.className = "cal-header-wrap";
   const isCustom = state.view === "custom";
+  // The 打卡 view has no dates to page through and no category filter — just the
+  // view switch and a plain title.
+  const isHabits = state.view === "habits";
 
   root.innerHTML = `
     <div class="cal-header">
       <div class="cal-header-left">
         ${
-          isCustom
-            ? `<button class="cal-today-btn" id="btn-customize">${icons.settings}<span>Customize</span></button>`
-            : `<div class="cal-nav">
-                <button class="cal-nav-btn" id="nav-prev" aria-label="Previous">${icons.chevronLeft}</button>
-                <button class="cal-nav-btn" id="nav-next" aria-label="Next">${icons.chevronRight}</button>
-              </div>
-              <button class="cal-today-btn" id="nav-today">Today</button>`
+          isHabits
+            ? ""
+            : isCustom
+              ? `<button class="cal-today-btn" id="btn-customize">${icons.settings}<span>Customize</span></button>`
+              : `<div class="cal-nav">
+                  <button class="cal-nav-btn" id="nav-prev" aria-label="Previous">${icons.chevronLeft}</button>
+                  <button class="cal-nav-btn" id="nav-next" aria-label="Next">${icons.chevronRight}</button>
+                </div>
+                <button class="cal-today-btn" id="nav-today">Today</button>`
         }
-        <div class="cal-period-label">${periodLabel(state)}</div>
+        <div class="cal-period-label">${isHabits ? "打卡" : periodLabel(state)}</div>
       </div>
       <div class="view-switch">
         ${VIEWS.map(
@@ -96,10 +102,12 @@ export function renderCalendarHeader(root, state, actions) {
         ).join("")}
       </div>
     </div>
-    ${categoryFilterHTML(state)}
+    ${isHabits ? "" : categoryFilterHTML(state)}
   `;
 
-  if (isCustom) {
+  if (isHabits) {
+    // nothing to wire beyond the view switch below
+  } else if (isCustom) {
     root.querySelector("#btn-customize").addEventListener("click", () => actions.openModal({ type: "customize" }));
   } else {
     root.querySelector("#nav-prev").addEventListener("click", () => actions.setCursorDate(step(state, -1)));

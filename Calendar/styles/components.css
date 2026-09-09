@@ -155,8 +155,13 @@
 .modal-panel {
   width: 100%;
   max-width: 440px;
-  max-height: calc(100vh - 40px);
-  overflow-y: auto;
+  max-height: calc(100vh - 56px);
+  /* Column layout so the header, tabs and footer stay put (flex:0 0 auto) and
+     only .modal-body scrolls — the footer buttons are then always visible at
+     the bottom no matter how tall the current tab is, and a short tab doesn't
+     leave a dead white strip below the content. */
+  display: flex;
+  flex-direction: column;
   background: var(--color-surface);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
@@ -164,6 +169,7 @@
 }
 
 .modal-header {
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -191,6 +197,9 @@
 }
 
 .modal-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
   padding: 18px 20px;
   display: flex;
   flex-direction: column;
@@ -211,6 +220,7 @@
 }
 
 .modal-footer {
+  flex: 0 0 auto;
   padding: 14px 20px 18px;
   display: flex;
   justify-content: flex-end;
@@ -635,19 +645,135 @@
 
 /* ---------- Settings: sections + Draft/Save footer ---------- */
 .settings-section {
-  margin-bottom: 20px;
+  padding-bottom: 16px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--color-border);
 }
 .settings-section:last-child {
+  padding-bottom: 0;
   margin-bottom: 0;
+  border-bottom: none;
 }
-.settings-section-title {
-  font-size: 11px;
+.settings-section-title,
+.settings-h {
+  font-size: 13px;
   font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--color-muted);
-  margin-bottom: 10px;
+  letter-spacing: -0.01em;
+  color: var(--color-ink);
+  margin: 0 0 12px;
 }
+/* Short greyed explainer above / between groups. */
+.settings-lead {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--color-muted);
+  margin: 0 0 16px;
+}
+.settings-lead-sm {
+  margin: 10px 0 0;
+}
+
+/* One setting = text block on the left, control on the right. */
+.setting-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 9px 0;
+}
+.setting-row + .setting-row {
+  border-top: 1px solid var(--color-border);
+}
+.setting-row.is-stacked {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+.setting-row-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.setting-row-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-ink);
+}
+.setting-row-hint {
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--color-muted);
+}
+.setting-row > .type-toggle,
+.setting-row > .settings-select {
+  flex: 0 0 auto;
+}
+.setting-inline-num {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--color-muted);
+}
+.setting-inline-num input {
+  width: 56px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 7px 9px;
+  font: inherit;
+  font-size: 13.5px;
+  text-align: right;
+  background: var(--color-surface);
+  color: var(--color-ink);
+  outline: none;
+}
+.setting-inline-num input:focus {
+  border-color: var(--color-active);
+}
+
+/* Toggle switch (replaces the old big on/off pills). */
+.switch {
+  flex: 0 0 auto;
+  width: 42px;
+  height: 25px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: var(--color-border-strong);
+  position: relative;
+  cursor: pointer;
+  transition: background 0.16s ease;
+}
+.switch::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 19px;
+  height: 19px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(11, 11, 11, 0.28);
+  transition: transform 0.16s ease;
+}
+.switch.is-on {
+  background: var(--color-active);
+}
+.switch.is-on::after {
+  transform: translateX(17px);
+}
+.switch:focus-visible {
+  outline: 2px solid var(--color-active);
+  outline-offset: 2px;
+}
+
 .settings-select {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
@@ -680,13 +806,24 @@
 .category-block {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
-  padding: 10px 12px 12px;
+  padding: 12px 14px 14px;
 }
 .category-block-header {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 8px;
+  margin-bottom: 10px;
+}
+/* Sentence-case, quieter than the uppercase .settings-field-label used on the
+   Display/To-Do tabs — inside a category card the labels are sub-headings, not
+   section titles. */
+.category-block .settings-field-label,
+.category-block .settings-field-label-row .settings-field-label {
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--color-ink-secondary);
 }
 .category-name-input {
   flex: 1 1 auto;
@@ -783,39 +920,6 @@
   border-color: var(--color-ink);
 }
 
-/* ---------- Settings: Visibility toggle pills — a plain on/off pill (filled +
-   accent color = on) instead of a checkbox, matching the Default Fields pills'
-   visual language elsewhere in this panel. ---------- */
-.toggle-pill-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-.toggle-pill {
-  display: inline-flex;
-  align-items: center;
-  padding: 9px 18px;
-  border-radius: var(--radius-pill);
-  border: 1.5px solid var(--color-border);
-  background: var(--color-surface);
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--color-ink-secondary);
-  cursor: pointer;
-  transition: background 0.14s ease, color 0.14s ease, border-color 0.14s ease;
-}
-.toggle-pill:hover {
-  border-color: var(--color-ink);
-  color: var(--color-ink);
-}
-.toggle-pill.is-on {
-  background: var(--color-active);
-  border-color: var(--color-active);
-  color: var(--color-on-dark);
-}
-.toggle-pill.is-on:hover {
-  opacity: 0.85;
-}
 .settings-field-label-row {
   display: flex;
   align-items: center;
@@ -1050,6 +1154,7 @@
 
 .settings-tabs,
 .add-modal-tabs {
+  flex: 0 0 auto;
   display: flex;
   gap: 4px;
   padding: 0 20px;

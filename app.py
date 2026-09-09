@@ -21,6 +21,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CALENDAR_DIR = os.path.join(BASE_DIR, "Calendar")
 
 from Finance.finance_routes import finance_bp
+from Calendar import habits as calendar_habits
 
 app = Flask(
     __name__,
@@ -28,6 +29,13 @@ app = Flask(
     static_folder=os.path.join(BASE_DIR, "Finance", "static"),
 )
 app.register_blueprint(finance_bp, url_prefix="/finance")
+
+# Habit check-in (打卡) — SQLite in .data/ (gitignored), one shared store so the
+# calendar's habit view reads the same list/streaks from any device that reaches
+# this server. The calendar's events/tasks stay in the browser; only habits are
+# server-backed. Mounted where the calendar page can fetch it with "./api/...".
+calendar_habits.init(os.path.join(BASE_DIR, ".data", "habits.db"))
+app.register_blueprint(calendar_habits.bp, url_prefix="/calendar/api")
 
 
 # ── home / portal ───────────────────────────────────────────────────
@@ -74,6 +82,10 @@ SWITCHER = """
 <style>
 html{scroll-padding-top:44px}
 body{padding-top:40px !important}
+/* full-screen fixed overlays (the calendar's modals) are viewport-anchored and
+   ignore the body padding-top above, so they'd tuck their top edge under this
+   bar — start them below it instead */
+.modal-overlay,.popup-overlay{top:40px !important}
 #dp-switch{position:fixed;top:0;left:0;right:0;height:40px;z-index:2147483647;
   display:flex;align-items:center;gap:4px;padding:0 12px;background:#151821;color:#fff;
   box-shadow:0 2px 10px rgba(0,0,0,.25);

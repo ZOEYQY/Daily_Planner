@@ -8,7 +8,13 @@ import { makeColor, pickUnusedColor } from "../categoryColor.js";
 import { allFieldKeys, fieldLabels } from "../extraFields.js";
 import { formatHourLabel } from "../dateUtils.js";
 
-let activeTab = "categories";
+const SETTINGS_TABS = [
+  { id: "display", label: "Display" },
+  { id: "todo", label: "To-Do" },
+  { id: "categories", label: "Categories" },
+  { id: "insights", label: "Insights" },
+];
+let activeTab = "display";
 let draft = null; // { categories } — live only while Settings is open
 let suggestOpen = false;
 let suggestCount = 3;
@@ -65,22 +71,28 @@ export function renderSettingsPanel(root, state, actions) {
     showToast("Settings saved");
   };
 
+  const draftTab = activeTab === "categories";
   root.innerHTML = `
     <div class="modal-overlay ${hasAnimatedOpen ? "no-animate" : ""}" id="overlay">
-      <div class="modal-panel" role="dialog" aria-modal="true" style="max-width:520px;">
+      <div class="modal-panel" role="dialog" aria-modal="true" style="max-width:540px;">
         <div class="modal-header">
           <h2>Settings</h2>
           <button class="modal-close" id="close-btn">${icons.close}</button>
         </div>
         <div class="settings-tabs">
-          <button class="settings-tab ${activeTab === "categories" ? "active" : ""}" data-tab="categories">Categories</button>
-          <button class="settings-tab ${activeTab === "insights" ? "active" : ""}" data-tab="insights">Insights</button>
+          ${SETTINGS_TABS.map(
+            (t) => `<button class="settings-tab ${activeTab === t.id ? "active" : ""}" data-tab="${t.id}">${t.label}</button>`
+          ).join("")}
         </div>
         <div class="modal-body" id="tab-body"></div>
         <div class="modal-footer">
           <div class="modal-footer-spacer"></div>
-          <button class="btn btn-secondary" id="cancel-btn">Cancel</button>
-          <button class="btn btn-primary" id="save-btn">Save Changes</button>
+          ${
+            draftTab
+              ? `<button class="btn btn-secondary" id="cancel-btn">Cancel</button>
+                 <button class="btn btn-primary" id="save-btn">Save Changes</button>`
+              : `<button class="btn btn-primary" id="done-btn">Done</button>`
+          }
         </div>
       </div>
     </div>
@@ -91,8 +103,14 @@ export function renderSettingsPanel(root, state, actions) {
     if (e.target.id === "overlay") discardAndClose();
   });
   root.querySelector("#close-btn").addEventListener("click", discardAndClose);
-  root.querySelector("#cancel-btn").addEventListener("click", discardAndClose);
-  root.querySelector("#save-btn").addEventListener("click", saveAndClose);
+  root.querySelector("#cancel-btn")?.addEventListener("click", discardAndClose);
+  root.querySelector("#save-btn")?.addEventListener("click", saveAndClose);
+  // Display / To-Do settings apply instantly (they never touch the draft), so
+  // their footer is just a single Done that closes and keeps everything.
+  root.querySelector("#done-btn")?.addEventListener("click", () => {
+    resetSettingsDraft();
+    actions.closeModal();
+  });
 
   root.querySelectorAll(".settings-tab").forEach((tab) => {
     tab.addEventListener("click", () => {
@@ -102,98 +120,135 @@ export function renderSettingsPanel(root, state, actions) {
   });
 
   const body = root.querySelector("#tab-body");
-  if (activeTab === "categories") {
-    renderCategoriesTab(body, state, actions);
-  } else {
-    renderStatsWidget(body, state);
-  }
+  if (activeTab === "display") renderDisplayTab(body, state, actions);
+  else if (activeTab === "todo") renderTodoTab(body, state, actions);
+  else if (activeTab === "categories") renderCategoriesTab(body, state, actions);
+  else renderStatsWidget(body, state);
 }
 
 function rerender(body, state, actions) {
   renderCategoriesTab(body, state, actions);
 }
 
-function renderCategoriesTab(body, state, actions) {
+// A boolean setting: label (+ optional hint) on the left, a toggle switch on the
+// right. Instant-apply — see the wire* handlers.
+function switchRow(id, label, on, hint = "") {
+  return `
+    <div class="setting-row">
+      <div class="setting-row-text">
+        <span class="setting-row-label">${label}</span>
+        ${hint ? `<span class="setting-row-hint">${hint}</span>` : ""}
+      </div>
+      <button type="button" class="switch ${on ? "is-on" : ""}" id="${id}" role="switch" aria-checked="${on ? "true" : "false"}" aria-label="${esc(label)}"></button>
+    </div>`;
+}
+
+function renderDisplayTab(body, state, actions) {
   body.innerHTML = `
     <div class="settings-section">
-      <div class="settings-section-title">Visibility</div>
-      <div class="toggle-pill-row">
-        <button type="button" class="toggle-pill ${state.showWeekTray ? "is-on" : ""}" id="vis-week">Show Week Tasks</button>
-        <button type="button" class="toggle-pill ${state.showDayTray ? "is-on" : ""}" id="vis-day">Show Day Tasks</button>
-        <button type="button" class="toggle-pill ${state.showTodoTargetTab ? "is-on" : ""}" id="vis-todo-target">Show To-Do, Target &amp; Record</button>
+      <h3 class="settings-h">Trays &amp; panels</h3>
+      <div class="setting-rows">
+        ${switchRow("vis-week", "Week task tray", state.showWeekTray, "Strip above the grid for tasks with no set day yet")}
+        ${switchRow("vis-day", "Day task tray", state.showDayTray, "Per-day strip for tasks pinned to a day but no time")}
+        ${switchRow("vis-todo-target", "To-Do, Target &amp; Record tabs", state.showTodoTargetTab, "Extra tabs in the Add/Edit form")}
       </div>
     </div>
 
     <div class="settings-section">
-      <div class="settings-section-title">Calendar</div>
-      <div class="settings-field-label" style="margin-top:0;">Week Starts On</div>
-      <div class="type-toggle" id="week-start-toggle">
-        <button type="button" data-day="0" class="${(state.weekStartsOn ?? 0) === 0 ? "active" : ""}">Sunday</button>
-        <button type="button" data-day="1" class="${state.weekStartsOn === 1 ? "active" : ""}">Monday</button>
+      <h3 class="settings-h">Week &amp; time</h3>
+      <div class="setting-rows">
+        <div class="setting-row">
+          <div class="setting-row-text"><span class="setting-row-label">Week starts on</span></div>
+          <div class="type-toggle" id="week-start-toggle">
+            <button type="button" data-day="0" class="${(state.weekStartsOn ?? 0) === 0 ? "active" : ""}">Sun</button>
+            <button type="button" data-day="1" class="${state.weekStartsOn === 1 ? "active" : ""}">Mon</button>
+          </div>
+        </div>
+        <div class="setting-row">
+          <div class="setting-row-text">
+            <span class="setting-row-label">Day starts at</span>
+            <span class="setting-row-hint">First hour shown in Week / Day view</span>
+          </div>
+          <select class="settings-select" id="day-start-hour-select">
+            ${HOURS_0_23.map(
+              (h) => `<option value="${h}" ${(state.dayStartHour ?? 7) === h ? "selected" : ""}>${formatHourLabel(h)}</option>`
+            ).join("")}
+          </select>
+        </div>
+        <div class="setting-row is-stacked">
+          <div class="setting-row-text"><span class="setting-row-label">Time picker style</span></div>
+          <div class="type-toggle" id="time-picker-style-toggle">
+            <button type="button" data-style="native" class="${(state.timePickerStyle || "native") === "native" ? "active" : ""}">Default</button>
+            <button type="button" data-style="text" class="${state.timePickerStyle === "text" ? "active" : ""}">Type</button>
+            <button type="button" data-style="clock" class="${state.timePickerStyle === "clock" ? "active" : ""}">Clock</button>
+          </div>
+        </div>
       </div>
-      <div class="settings-field-label">Starts At</div>
-      <select class="settings-select" id="day-start-hour-select">
-        ${HOURS_0_23.map(
-          (h) => `<option value="${h}" ${(state.dayStartHour ?? 7) === h ? "selected" : ""}>${formatHourLabel(h)}</option>`
-        ).join("")}
-      </select>
-      <div class="settings-field-label">Time Picker Style</div>
-      <div class="type-toggle" id="time-picker-style-toggle">
-        <button type="button" data-style="native" class="${(state.timePickerStyle || "native") === "native" ? "active" : ""}">Default</button>
-        <button type="button" data-style="text" class="${state.timePickerStyle === "text" ? "active" : ""}">Type</button>
-        <button type="button" data-style="clock" class="${state.timePickerStyle === "clock" ? "active" : ""}">Clock</button>
+    </div>
+  `;
+  wireVisibility(body, state, actions);
+  wireWeekStart(body, actions);
+}
+
+function renderTodoTab(body, state, actions) {
+  body.innerHTML = `
+    <p class="settings-lead">A to-do is a lighter quick-add — the ✓ button on the Week / Day tray. Just a title, an optional deadline and a note, separate from the full Add Task / Event form.</p>
+
+    <div class="settings-section">
+      <h3 class="settings-h">Capture</h3>
+      <div class="setting-rows">
+        ${switchRow("vis-todo-deadline-required", "Require a deadline", state.todoDeadlineRequired)}
+        ${switchRow("vis-todo-show-detail", "Show the detail field", state.todoShowDetail !== false)}
+        <div class="setting-row">
+          <div class="setting-row-text">
+            <span class="setting-row-label">Turn red before deadline</span>
+            <span class="setting-row-hint">Hours of lead time before a to-do flags as urgent</span>
+          </div>
+          <span class="setting-inline-num"><input type="number" id="todo-urgent-hours" min="1" step="1" value="${state.todoUrgentThresholdHours ?? 24}" /> h</span>
+        </div>
       </div>
     </div>
 
     <div class="settings-section">
-      <div class="settings-section-title">To-Do</div>
-      <p style="font-size:12px; color:var(--color-muted); line-height:1.5; margin:-2px 0 10px;">
-        A to-do is a lighter-weight quick-add (Week/Day tray's checkmark button) — just a title, an optional
-        deadline, and an optional note, separate from the full Add Task/Event form.
-      </p>
-      <div class="toggle-pill-row">
-        <button type="button" class="toggle-pill ${state.todoDeadlineRequired ? "is-on" : ""}" id="vis-todo-deadline-required">Require a Deadline</button>
-        <button type="button" class="toggle-pill ${state.todoShowDetail !== false ? "is-on" : ""}" id="vis-todo-show-detail">Show Detail Field</button>
+      <h3 class="settings-h">List</h3>
+      <div class="setting-rows">
+        <div class="setting-row is-stacked">
+          <div class="setting-row-text"><span class="setting-row-label">Where to-dos appear</span></div>
+          <div class="type-toggle" id="todo-display-mode-toggle">
+            <button type="button" data-mode="trays" class="${(state.todoDisplayMode || "trays") === "trays" ? "active" : ""}">Day / Week trays</button>
+            <button type="button" data-mode="panel" class="${state.todoDisplayMode === "panel" ? "active" : ""}">Side panel</button>
+          </div>
+        </div>
+        <div class="setting-row is-stacked">
+          <div class="setting-row-text"><span class="setting-row-label">Sort order</span></div>
+          <div class="type-toggle" id="todo-sort-mode-toggle">
+            <button type="button" data-mode="deadline" class="${(state.todoSortMode || "deadline") === "deadline" ? "active" : ""}">By deadline</button>
+            <button type="button" data-mode="manual" class="${state.todoSortMode === "manual" ? "active" : ""}">My order</button>
+          </div>
+        </div>
       </div>
-      <div class="settings-field-label">Turn Red This Many Hours Before Deadline</div>
-      <input type="number" class="settings-select" id="todo-urgent-hours" min="1" step="1" value="${state.todoUrgentThresholdHours ?? 24}" style="max-width:100px;" />
-      <div class="settings-field-label">To-Do List Location</div>
-      <div class="type-toggle" id="todo-display-mode-toggle">
-        <button type="button" data-mode="trays" class="${(state.todoDisplayMode || "trays") === "trays" ? "active" : ""}">In Day/Week Trays</button>
-        <button type="button" data-mode="panel" class="${state.todoDisplayMode === "panel" ? "active" : ""}">Side Panel (Week / Day view)</button>
-      </div>
-      <div class="settings-field-label">Sort To-Dos By</div>
-      <div class="type-toggle" id="todo-sort-mode-toggle">
-        <button type="button" data-mode="deadline" class="${(state.todoSortMode || "deadline") === "deadline" ? "active" : ""}">Deadline</button>
-        <button type="button" data-mode="manual" class="${state.todoSortMode === "manual" ? "active" : ""}">My order</button>
-      </div>
-      <p style="font-size:12px; color:var(--color-muted); line-height:1.5; margin:6px 0 0;">
-        Drag a to-do by its ⠿ handle in the side panel to reorder — that switches this to “My order” automatically.
-      </p>
+      <p class="settings-lead settings-lead-sm">Dragging a to-do by its ⠿ handle in the side panel switches Sort order to “My order” automatically.</p>
     </div>
+  `;
+  wireTodoSettings(body, state, actions);
+}
 
-    <div class="settings-section">
-      <div class="settings-section-title">Categories</div>
-      <p style="font-size:12px; color:var(--color-muted); line-height:1.5; margin:-2px 0 10px;">
-        Each category keeps its own set of subcategories (a named color inside that category). A subcategory
-        inherits its category's default details automatically — add extras only where a subcategory genuinely needs them.
-      </p>
-      <div class="category-color-list" id="cat-list">
-        ${
-          draft.categories.filter((c) => !c.archived).length === 0
-            ? `<div class="empty-hint">No categories yet — add one below.</div>`
-            : draft.categories.filter((c) => !c.archived).map((c) => categoryBlock(c, state)).join("")
-        }
-      </div>
-      <button type="button" class="btn btn-secondary add-category-trigger" id="add-cat-btn">${icons.plusSmall}<span>Add Category</span></button>
-      ${suggestSection()}
+function renderCategoriesTab(body, state, actions) {
+  body.innerHTML = `
+    <p class="settings-lead">Each category has its own subcategories — a named colour inside it. A subcategory inherits the category's default details; add extras only where one genuinely needs them.</p>
+
+    <div class="category-color-list" id="cat-list">
+      ${
+        draft.categories.filter((c) => !c.archived).length === 0
+          ? `<div class="empty-hint">No categories yet — add one below.</div>`
+          : draft.categories.filter((c) => !c.archived).map((c) => categoryBlock(c, state)).join("")
+      }
     </div>
+    <button type="button" class="btn btn-secondary add-category-trigger" id="add-cat-btn">${icons.plusSmall}<span>Add Category</span></button>
+    ${suggestSection()}
   `;
 
   wireCategoryList(body, state, actions);
-  wireVisibility(body, state, actions);
-  wireWeekStart(body, actions);
-  wireTodoSettings(body, state, actions);
   wireAddCategory(body, state, actions);
   wireSuggestSection(body, state, actions);
 }
@@ -270,8 +325,8 @@ function customFieldKeysFor(category, color) {
 function subcatSummary(category, color, state) {
   const inherited = inheritedFieldKeys(category);
   const custom = customFieldKeysFor(category, color);
-  if (inherited.length === 0 && custom.length === 0) return "No details";
-  if (custom.length === 0) return "Using default details";
+  if (inherited.length === 0 && custom.length === 0) return "";
+  if (custom.length === 0) return "Default details";
   return `${inherited.length} inherited · ${custom.length} custom`;
 }
 
@@ -332,7 +387,7 @@ function categoryBlock(cat, state) {
         <button type="button" class="remove-btn cat-remove-btn" aria-label="Remove category">${icons.trash}</button>
       </div>
 
-      <div class="settings-field-label">Default Details</div>
+      <div class="settings-field-label">Default details</div>
       ${defaultFieldsPillsHTML(cat, state)}
 
       <div class="settings-field-label-row">
@@ -348,12 +403,13 @@ function categoryBlock(cat, state) {
 
 function subcatRow(cat, col, state) {
   const isOpen = openSubcatIds.has(col.id);
+  const summary = subcatSummary(cat, col, state);
   return `
     <div class="subcat-row ${isOpen ? "is-open" : ""}" data-cat-id="${cat.id}" data-color-id="${col.id}">
       <button type="button" class="subcat-row-main" data-color-id="${col.id}">
         <span class="subcat-color-dot" style="background:${col.value}"></span>
         <span class="subcat-name">${esc(col.name)}</span>
-        <span class="subcat-summary">${esc(subcatSummary(cat, col, state))}</span>
+        ${summary ? `<span class="subcat-summary">${esc(summary)}</span>` : `<span class="subcat-summary"></span>`}
         <span class="subcat-chevron">${icons.chevronRight}</span>
       </button>
       ${isOpen ? subcatDetail(cat, col, state) : ""}
@@ -410,7 +466,7 @@ function subcatDetail(cat, col, state) {
       ${
         editingOpen
           ? `
-        <div class="settings-field-label">Add a Detail</div>
+        <div class="settings-field-label">Add a detail</div>
         ${
           addableKeys.length
             ? addableFieldPillsHTML(state, addableKeys, col.id)
@@ -634,13 +690,13 @@ function openAddColorPopup(category, body, state, actions) {
 // manage their own persisted hide/show state (weekTrayCollapsed/dayTrayCollapsed)
 // independently of this setting.
 function wireVisibility(body, state, actions) {
-  body.querySelector("#vis-week").addEventListener("click", () => {
+  body.querySelector("#vis-week")?.addEventListener("click", () => {
     actions.setShowWeekTray(!state.showWeekTray);
   });
-  body.querySelector("#vis-day").addEventListener("click", () => {
+  body.querySelector("#vis-day")?.addEventListener("click", () => {
     actions.setShowDayTray(!state.showDayTray);
   });
-  body.querySelector("#vis-todo-target").addEventListener("click", () => {
+  body.querySelector("#vis-todo-target")?.addEventListener("click", () => {
     actions.setShowTodoTargetTab(!state.showTodoTargetTab);
   });
 }

@@ -4,6 +4,7 @@ import { renderTopbar } from "./render/topbar.js";
 import { renderCalendarHeader } from "./render/calendarHeader.js";
 import { renderMonthView } from "./render/monthView.js";
 import { renderDayGridView, getHoverTarget } from "./render/dayGridView.js";
+import { renderHabitsView } from "./render/habitsView.js";
 import { renderAddModal, closeAddOrEditModal } from "./render/addModal.js";
 import { renderSettingsPanel, resetSettingsDraft } from "./render/settingsPanel.js";
 import { renderCustomizeModal } from "./render/customizeModal.js";
@@ -92,7 +93,9 @@ function render(state) {
   renderTopbar(els.topbar, state, actions, currentUser);
   renderCalendarHeader(els.calHeader, state, actions);
 
-  if (state.view === "month") {
+  if (state.view === "habits") {
+    renderHabitsView(els.calBody, state, actions);
+  } else if (state.view === "month") {
     renderMonthView(els.calBody, state, actions, currentUser);
   } else {
     renderDayGridView(els.calBody, state, actions, currentUser);

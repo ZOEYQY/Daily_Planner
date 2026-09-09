@@ -805,51 +805,66 @@
   box-shadow: 0 0 0 2px rgba(11, 11, 11, 0.55);
 }
 
-/* Overdue / urgent / postponed used to repaint the whole border (and, for the
-   red ones, the text) — which buried the item's own category colour once
-   to-dos got one. Now the status reads as an outer RING (box-shadow) plus, for
-   the red states, red text; the border + the .todo-panel-row-bar keep showing
-   --chip-color so "this is a 密室/black to-do" and "this is due soon" are both
-   legible at once. */
+/* Overdue / urgent / postponed used to repaint the whole border + text, which
+   buried a to-do's own category colour once it had one. Now the To-Do panel
+   rows and tray chips are painted solid in --chip-color (see .todo-panel-row /
+   .is-todo-filled), and status reads purely as an OUTER RING — amber for
+   overdue, red for urgent/postponed — layered on top of any fill. Month
+   .task-chip / timeline blocks (not solid-filled) keep just the ring too. */
 
-/* Overdue — a muted amber, not red, never a filled background. */
+/* Overdue — a muted amber, not red. */
 .day-tray-chip.is-overdue,
 .task-chip.is-overdue,
 .todo-panel-row.is-overdue {
-  box-shadow: 0 0 0 1.5px rgba(158, 108, 22, 0.45);
+  box-shadow: 0 0 0 2px rgba(176, 120, 24, 0.85);
 }
 .timegrid-task-block.is-overdue:not(.is-dragging) {
   box-shadow: 0 0 0 1.5px rgba(158, 108, 22, 0.4);
 }
 
-/* A to-do closing in on its own deadline (see isTodoUrgent in selectors.js,
-   threshold set in Settings) — red, a stronger "act now" signal than the
-   muted-amber overdue styling. */
+/* A to-do closing in on its own deadline (isTodoUrgent, threshold in Settings)
+   or one whose deadline was pushed to a later day at least once (is-todo-
+   postponed) — red, a stronger "act now / you're slipping" signal. */
 .day-tray-chip.is-todo-urgent,
-.todo-panel-row.is-todo-urgent {
-  box-shadow: 0 0 0 1.5px rgba(196, 30, 30, 0.5);
-  color: #b31f1f;
-}
-
-/* A to-do whose deadline has been pushed to a later day at least once
-   (rescheduleCount > 0 — see todoPostponedClass in dayGridView.js). Reads red
-   like the urgent styling above, a "you're slipping on this" flag; the ↻
-   prefix the chip renderers already add on any rescheduleCount rides along. */
+.todo-panel-row.is-todo-urgent,
 .day-tray-chip.is-todo-postponed,
 .unscheduled-chip.is-todo-postponed,
 .task-chip.is-todo-postponed,
 .todo-panel-row.is-todo-postponed {
-  box-shadow: 0 0 0 1.5px rgba(196, 30, 30, 0.55);
-  color: #b31f1f;
+  box-shadow: 0 0 0 2px rgba(204, 38, 38, 0.9);
 }
 
-/* Always-on category-colour bar down the left edge of a To-Do panel row, so the
-   colour survives whatever status ring/text is layered on top. */
-.todo-panel-row-bar {
-  flex: 0 0 4px;
-  align-self: stretch;
-  border-radius: 4px;
+/* To-Do tray chips get the same solid category-colour fill as the panel rows
+   (regular unscheduled tasks/events keep the muted pill look). --chip-ink is
+   set per chip in dayGridView (inkOn) to whichever of black/white stays
+   readable on that fill. */
+.day-tray-chip.is-todo-filled,
+.unscheduled-chip.is-todo-filled {
   background: var(--chip-color, var(--color-muted));
+  border-color: rgba(0, 0, 0, 0.12);
+  color: var(--chip-ink, var(--color-ink));
+}
+.day-tray-chip.is-todo-filled .unscheduled-chip-label,
+.unscheduled-chip.is-todo-filled .unscheduled-chip-label {
+  color: var(--chip-ink, var(--color-ink));
+}
+.day-tray-chip.is-todo-filled .timegrid-task-checkbox,
+.unscheduled-chip.is-todo-filled .timegrid-task-checkbox {
+  border-color: var(--chip-ink, var(--color-muted));
+  background: transparent;
+}
+.day-tray-chip.is-todo-filled .timegrid-task-checkbox::after,
+.unscheduled-chip.is-todo-filled .timegrid-task-checkbox::after {
+  border-color: var(--chip-ink, #fff);
+}
+.day-tray-chip.is-todo-filled.is-done .timegrid-task-checkbox,
+.unscheduled-chip.is-todo-filled.is-done .timegrid-task-checkbox {
+  background: color-mix(in srgb, var(--chip-ink, #fff) 22%, transparent);
+}
+.day-tray-chip.is-todo-filled.is-done .unscheduled-chip-label,
+.unscheduled-chip.is-todo-filled.is-done .unscheduled-chip-label {
+  color: var(--chip-ink, var(--color-muted));
+  opacity: 0.65;
 }
 
 /* ---------- To-Do side panel (state.todoDisplayMode === "panel") ---------- */
@@ -972,18 +987,27 @@
   margin: auto;
 }
 
+/* A To-Do panel row is painted SOLID in its category colour (like a timeline
+   event block), with --chip-ink (black or white, picked per row in
+   todoPanelRow → inkOn) carrying every bit of text/icon on top. */
 .todo-panel-row {
   display: flex;
   align-items: flex-start;
   gap: 8px;
   padding: 8px 10px;
   border-radius: var(--radius-md);
-  background: color-mix(in srgb, var(--chip-color, var(--color-muted)) 10%, var(--color-surface));
-  border: 1px solid color-mix(in srgb, var(--chip-color, var(--color-muted)) 32%, var(--color-border));
+  background: var(--chip-color, var(--color-muted));
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  color: var(--chip-ink, var(--color-ink));
   cursor: pointer;
 }
 .todo-panel-row .timegrid-task-checkbox {
   margin-top: 2px;
+  border-color: var(--chip-ink, var(--color-muted));
+  background: transparent;
+}
+.todo-panel-row .timegrid-task-checkbox::after {
+  border-color: var(--chip-ink, #fff);
 }
 
 /* Grip handle — only rendered while Settings › To-Do › Sort By is "Manual"
@@ -994,7 +1018,8 @@
   align-self: center;
   margin: 0 -4px 0 -4px;
   padding: 2px 1px;
-  color: var(--color-muted);
+  color: var(--chip-ink, var(--color-muted));
+  opacity: 0.5;
   font-size: 15px;
   line-height: 1;
   letter-spacing: -1px;
@@ -1003,7 +1028,7 @@
   user-select: none;
 }
 .todo-panel-row-handle:hover {
-  color: var(--color-ink);
+  opacity: 0.9;
 }
 .todo-panel-row.is-reordering {
   opacity: 0.9;
@@ -1020,14 +1045,15 @@
 
 .todo-panel-row-title {
   font-size: 12.5px;
-  font-weight: 500;
-  color: var(--color-ink);
+  font-weight: 600;
+  color: var(--chip-ink, var(--color-ink));
   overflow-wrap: anywhere;
 }
 
 .todo-panel-row-deadline {
   font-size: 10.5px;
-  color: var(--color-muted);
+  color: var(--chip-ink, var(--color-muted));
+  opacity: 0.8;
 }
 
 .reschedule-badge {
@@ -1436,4 +1462,307 @@
 }
 .resize-handle[data-edge="bottom"] {
   bottom: 0;
+}
+
+/* ---------- 打卡 / Habits view ---------- */
+.habits-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 4px 2px 40px;
+}
+.habits-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+.habits-title {
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+.habits-sub {
+  margin-top: 3px;
+  font-size: 12px;
+  color: var(--color-muted);
+}
+.habits-empty {
+  padding: 40px 20px;
+  text-align: center;
+  color: var(--color-muted);
+  font-size: 13.5px;
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-lg);
+}
+.habits-notice {
+  max-width: 460px;
+  padding: 18px 20px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-alt);
+  font-size: 13px;
+  line-height: 1.55;
+}
+.habits-notice p {
+  margin: 0 0 8px;
+}
+.habits-notice code {
+  background: rgba(11, 11, 11, 0.06);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 0.9em;
+}
+.habits-notice .btn {
+  margin-top: 6px;
+}
+
+/* Month pager shared by all habit cards. */
+.habit-monthnav {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.habit-mn-btn {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-ink);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.habit-mn-btn:hover:not(:disabled) {
+  background: var(--color-hover);
+}
+.habit-mn-btn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+.habit-mn-label {
+  font-size: 14px;
+  font-weight: 700;
+  min-width: 150px;
+}
+
+.habit-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+  gap: 16px;
+  align-items: start;
+}
+.habit-card {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+  background: var(--color-surface);
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.habit-card-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.habit-emoji {
+  font-size: 24px;
+  line-height: 1;
+  flex: 0 0 auto;
+}
+.habit-name {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--color-ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1 1 auto;
+}
+.habit-edit-btn {
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  color: var(--color-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.habit-edit-btn:hover {
+  background: var(--color-hover);
+  color: var(--color-ink);
+}
+.habit-edit-btn svg {
+  width: 15px;
+  height: 15px;
+}
+
+/* Hero row: the big tap-to-check-in ring + streak. */
+.habit-hero {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+.habit-ring {
+  flex: 0 0 auto;
+  width: 108px;
+  height: 108px;
+  border-radius: 50%;
+  border: 4px solid var(--habit, var(--color-border-strong));
+  background: transparent;
+  color: var(--habit, var(--color-ink));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+  transition: transform 0.12s ease, background 0.18s ease, color 0.18s ease, box-shadow 0.18s ease;
+}
+.habit-ring:hover {
+  box-shadow: 0 0 0 6px color-mix(in srgb, var(--habit, var(--color-muted)) 16%, transparent);
+}
+.habit-ring:active {
+  transform: scale(0.93);
+}
+.habit-ring.is-done {
+  background: var(--habit, var(--color-active));
+  color: var(--habit-ink, #fff);
+}
+.habit-ring-label {
+  display: flex;
+}
+.habit-ring.is-done .habit-ring-label svg {
+  width: 40px;
+  height: 40px;
+}
+.habit-hero-side {
+  min-width: 0;
+}
+.habit-streak-big {
+  font-size: 44px;
+  font-weight: 800;
+  line-height: 1;
+  color: var(--color-ink);
+  font-variant-numeric: tabular-nums;
+}
+.habit-streak-big span {
+  font-size: 26px;
+}
+.habit-streak-cap {
+  margin-top: 5px;
+  font-size: 12.5px;
+  color: var(--color-muted);
+}
+.habit-week {
+  display: flex;
+  gap: 7px;
+  margin-top: 14px;
+}
+.hw-dot {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: var(--color-hover);
+}
+.hw-dot.is-on {
+  background: var(--habit, var(--color-active));
+}
+.hw-dot.is-today {
+  box-shadow: 0 0 0 2px var(--color-ink);
+}
+.hw-dot.is-future {
+  opacity: 0.4;
+}
+
+/* Month calendar — the big, readable history. Display-only. */
+.hc-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 5px;
+}
+.hc-wd {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: var(--color-muted);
+  text-align: center;
+  padding-bottom: 2px;
+}
+.hc-cell {
+  aspect-ratio: 1 / 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+  border-radius: 9px;
+  color: var(--color-ink-secondary);
+  background: var(--color-hover);
+}
+.hc-cell.is-blank {
+  background: transparent;
+}
+.hc-cell.is-on {
+  background: var(--habit, var(--color-active));
+  color: var(--habit-ink, #fff);
+  font-weight: 800;
+}
+.hc-cell.is-today {
+  box-shadow: inset 0 0 0 2px var(--color-ink);
+}
+.hc-cell.is-future {
+  opacity: 0.4;
+}
+
+.habit-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  font-size: 11.5px;
+  color: var(--color-muted);
+}
+.habit-stats b {
+  color: var(--color-ink);
+  font-variant-numeric: tabular-nums;
+}
+
+/* habit form popup */
+.habit-color-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.habit-swatch {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  background: var(--sw);
+  cursor: pointer;
+  padding: 0;
+}
+.habit-swatch.is-on {
+  border-color: var(--color-ink);
+  box-shadow: 0 0 0 2px var(--color-surface) inset;
+}
+#habit-color-custom {
+  width: 34px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: none;
+  cursor: pointer;
 }
