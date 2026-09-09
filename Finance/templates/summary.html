@@ -152,6 +152,36 @@
 
     </div>
 
+    <!-- ===== NEXT-MONTH INCOME FORECAST ===== -->
+    <div class="summary-card hover-card">
+        <h2>Next month's income</h2>
+        <p style="font-size:13px;color:var(--text-muted);">
+            Estimate for {{ forecast_target }} from your recent income history
+            (useful for variable / part-time pay).
+        </p>
+        <button type="button" id="forecastIncomeBtn"
+                data-url="{{ url_for('finance.forecast_income') }}"
+                style="font-size:12px;padding:4px 9px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);cursor:pointer;color:var(--text-main);">
+            {% if income_forecast %}✨ Re-estimate{% else %}✨ Estimate with AI{% endif %}
+        </button>
+        <div id="forecastIncomeOutput" style="font-size:13px;margin-top:8px;">
+            {% if income_forecast %}
+            <div style="font-size:20px;font-weight:700;">
+                RM {{ "%.2f"|format(income_forecast.estimate) }}
+                <span style="font-size:13px;color:var(--text-muted);font-weight:400;">
+                    (RM {{ "%.2f"|format(income_forecast.low) }} – RM {{ "%.2f"|format(income_forecast.high) }})
+                </span>
+            </div>
+            <p style="margin:6px 0;">{{ income_forecast.reasoning }}</p>
+            <small style="color:var(--text-faint);">
+                {{ income_forecast.confidence | capitalize }} confidence ·
+                {{ 'AI' if income_forecast.source == 'ai' else 'statistical' }} ·
+                generated {{ income_forecast.generated_at }}
+            </small>
+            {% endif %}
+        </div>
+    </div>
+
     <!-- ===== EMPTY ===== -->
     <!-- ===== 空状态 ===== -->
 

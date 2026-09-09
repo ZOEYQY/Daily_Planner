@@ -804,7 +804,7 @@ def delete_financial(rid):
         save_records(records)
 
     if request.form.get("source") == "goal":
-        return redirect(url_for("finance.plan"))
+        return redirect(url_for("finance.plan", tab="goals"))
     return redirect(url_for("finance.view_financial"))
 
 # ================= UPDATE =================
@@ -899,7 +899,7 @@ def update_financial(rid):
 
         save_records(records)
         if source == "goal":
-            return redirect(url_for("finance.plan"))
+            return redirect(url_for("finance.plan", tab="goals"))
         return redirect(url_for("finance.view_financial"))
 
     return render_template(
@@ -1025,11 +1025,25 @@ def _plan_summary(bctx, gctx):
     }
 
 
-def _render_plan(budget_error=None, goal_error=None):
+PLAN_TABS = ("summary", "budgets", "goals")
+
+
+def _render_plan(budget_error=None, goal_error=None, tab=None):
+    # tab comes from ?tab=, or defaults per which error we're showing
+    if tab is None:
+        tab = request.args.get("tab", "summary")
+    if budget_error:
+        tab = "budgets"
+    elif goal_error:
+        tab = "goals"
+    if tab not in PLAN_TABS:
+        tab = "summary"
+
     bctx = _budget_context()
     gctx = _goals_context()
     return render_template(
         "plan.html",
+        tab=tab,
         plan_summary=_plan_summary(bctx, gctx),
         budget_error=budget_error,
         goal_error=goal_error,
@@ -1045,7 +1059,7 @@ def plan():
 @finance_bp.route("/budget", methods=["GET", "POST"])
 def budget():
     if request.method != "POST":
-        return redirect(url_for("finance.plan"))
+        return redirect(url_for("finance.plan", tab="budgets"))
 
     category = request.form.get("category")
     amount_raw = request.form.get("amount")
@@ -1068,7 +1082,7 @@ def budget():
         budgets.append({"category": category, "amount": amount,
                         "period": period, "rollover": rollover})
     save_data(f_budget, budgets)
-    return redirect(url_for("finance.plan"))
+    return redirect(url_for("finance.plan", tab="budgets"))
 
 # ================= EDIT BUDGET =================
 # ================= 编辑预算 =================
@@ -1079,7 +1093,7 @@ def edit_budget(category):
     budget = next((b for b in budgets if b["category"] == category), None)
 
     if not budget:
-        return redirect(url_for("finance.plan"))
+        return redirect(url_for("finance.plan", tab="budgets"))
 
     # Keep this budget's own category in the picker even if it was archived,
     # so the edit form can still display and re-save it.
@@ -1112,7 +1126,7 @@ def edit_budget(category):
         budget["period"] = request.form.get("period", budget.get("period", "monthly"))
         budget["rollover"] = request.form.get("rollover") == "on"
         save_data(f_budget, budgets)
-        return redirect(url_for("finance.plan"))
+        return redirect(url_for("finance.plan", tab="budgets"))
 
     return render_template(
         "edit_budget.html",
@@ -1128,7 +1142,7 @@ def delete_budget(category):
     budgets = load_data(f_budget, [])
     budgets = [b for b in budgets if b["category"] != category]
     save_data(f_budget, budgets)
-    return redirect(url_for("finance.plan"))
+    return redirect(url_for("finance.plan", tab="budgets"))
 
 # ================= SUMMARY =================
 # ================= 财务汇总 =================
@@ -1296,6 +1310,8 @@ def summary():
         long_goals=long_goals,
         all_goals=all_goals,
         ai_review=load_insights().get(f"{selected_year}-{selected_month}"),
+        income_forecast=load_insights().get(f"forecast-{_next_month_key()}"),
+        forecast_target=_next_month_key(),
     )
 
 # ================= GOALS =================
@@ -1306,7 +1322,7 @@ def goals():
     """GET redirects to /plan; POST (create goal / add savings) is handled
     then returns to /plan. The goal display logic lives in _goals_context()."""
     if request.method != "POST":
-        return redirect(url_for("finance.plan"))
+        return redirect(url_for("finance.plan", tab="goals"))
 
     action = request.form.get("action")
 
@@ -1334,14 +1350,14 @@ def goals():
             "status": "In Progress",
         })
         save_data(f_goals, goals_list)
-        return redirect(url_for("finance.plan"))
+        return redirect(url_for("finance.plan", tab="goals"))
 
     if action == "save":
         try:
             goal_id = int(request.form.get("goal_id"))
             amount = float(request.form.get("amount"))
         except (TypeError, ValueError):
-            return redirect(url_for("finance.plan"))
+            return redirect(url_for("finance.plan", tab="goals"))
 
         # Adding savings to a goal is just a normal "expense" record tagged
         # with category "Goal Savings" + goal_id; the goal's saved total is
@@ -1358,9 +1374,9 @@ def goals():
             "amount": amount,
         })
         save_records(records)
-        return redirect(url_for("finance.plan"))
+        return redirect(url_for("finance.plan", tab="goals"))
 
-    return redirect(url_for("finance.plan"))
+    return redirect(url_for("finance.plan", tab="goals"))
 
 # ================= DELETE GOALS =================
 # ================= 删除目标 =================
@@ -1370,7 +1386,7 @@ def delete_goal(goal_id):
     goals_list = load_data(f_goals, [])
     goals_list = [g for g in goals_list if g.get("id") != goal_id]
     save_data(f_goals, goals_list)
-    return redirect(url_for("finance.plan"))
+    return redirect(url_for("finance.plan", tab="goals"))
 
 # ================= REOPEN GOAL =================
 # ================= 重新开启目标 =================
@@ -1384,7 +1400,7 @@ def reopen_goal(goal_id):
             g.pop("completion_date", None)
             break
     save_data(f_goals, goals_list)
-    return redirect(url_for("finance.plan"))
+    return redirect(url_for("finance.plan", tab="goals"))
 
 # ================= QUICK STATUS ACTIONS =================
 # ================= 快速状态操作 =================
@@ -1397,7 +1413,7 @@ def pause_goal(goal_id):
             g["status"] = "Paused"
             break
     save_data(f_goals, goals_list)
-    return redirect(url_for("finance.plan"))
+    return redirect(url_for("finance.plan", tab="goals"))
 
 @finance_bp.route("/resume_goal/<int:goal_id>", methods=["POST"])
 def resume_goal(goal_id):
@@ -1407,7 +1423,7 @@ def resume_goal(goal_id):
             g["status"] = "In Progress"
             break
     save_data(f_goals, goals_list)
-    return redirect(url_for("finance.plan"))
+    return redirect(url_for("finance.plan", tab="goals"))
 
 @finance_bp.route("/cancel_goal/<int:goal_id>", methods=["POST"])
 def cancel_goal(goal_id):
@@ -1417,7 +1433,7 @@ def cancel_goal(goal_id):
             g["status"] = "Cancelled"
             break
     save_data(f_goals, goals_list)
-    return redirect(url_for("finance.plan"))
+    return redirect(url_for("finance.plan", tab="goals"))
 
 @finance_bp.route("/complete_goal/<int:goal_id>", methods=["POST"])
 def complete_goal(goal_id):
@@ -1428,7 +1444,7 @@ def complete_goal(goal_id):
             g["completion_date"] = datetime.now().strftime("%Y-%m-%d")
             break
     save_data(f_goals, goals_list)
-    return redirect(url_for("finance.plan"))
+    return redirect(url_for("finance.plan", tab="goals"))
 
 # ================= EDIT GOALS =================
 # ================= 编辑目标 =================
@@ -1439,7 +1455,7 @@ def edit_goal(goal_id):
     goal = next((g for g in goals_list if g.get("id") == goal_id), None)
 
     if not goal:
-        return redirect(url_for("finance.plan"))
+        return redirect(url_for("finance.plan", tab="goals"))
 
     if request.method == "POST":
         name = request.form.get("name")
@@ -1460,7 +1476,7 @@ def edit_goal(goal_id):
         goal["notes"] = request.form.get("notes", goal.get("notes", ""))
         goal["status"] = request.form.get("status", goal.get("status", "In Progress"))
         save_data(f_goals, goals_list)
-        return redirect(url_for("finance.plan"))
+        return redirect(url_for("finance.plan", tab="goals"))
 
     return render_template("edit_goal.html", goal=goal)
 
@@ -3352,6 +3368,172 @@ def _spending_anomalies(records):
                 })
     flags.sort(key=lambda f: f["ratio"], reverse=True)
     return flags[:8]
+
+
+# ================= NEXT-MONTH INCOME FORECAST =================
+# ================= 下月收入预估 =================
+# 兼职/散工收入每月不固定 —— 用过去几个月的收入历史预估下个月能拿多少。
+# 先算一个纯统计的基线（近月加权平均 + 中位数），有 OpenAI key 就让模型
+# 结合趋势/波动/定期收入再细化成一个区间。结果缓存在 insights.json。
+# Part-time / gig income varies month to month — this estimates next month
+# from the last few months of income. A pure-statistics baseline first
+# (recent weighted average + median), then, if a key is set, the model
+# refines it into a range using the trend / variability / recurring income.
+# Cached in insights.json under "forecast-<YYYY-MM>".
+
+def _next_month_key(ref=None):
+    ref = ref or datetime.now()
+    if ref.month == 12:
+        return f"{ref.year + 1}-01"
+    return f"{ref.year}-{ref.month + 1:02d}"
+
+
+def _month_keys_back(n):
+    now = datetime.now()
+    year, month, keys = now.year, now.month, []
+    for _ in range(n):
+        keys.append(f"{year}-{month:02d}")
+        month -= 1
+        if month == 0:
+            month, year = 12, year - 1
+    return list(reversed(keys))
+
+
+def _income_history(records, months=9):
+    keys = _month_keys_back(months)
+    current = keys[-1]
+    buckets = {k: {"month": k, "total": 0.0, "count": 0, "by_category": {}} for k in keys}
+
+    for r in records:
+        if r.get("type") != "income" or r.get("category") == "Transfer In":
+            continue
+        if r.get("source") == "debt":  # a loan repaid to you isn't salary
+            continue
+        mk = (r.get("date") or "")[:7]
+        if mk not in buckets:
+            continue
+        amount = r.get("amount", 0) or 0
+        b = buckets[mk]
+        b["total"] = round(b["total"] + amount, 2)
+        b["count"] += 1
+        cat = r.get("category") or "Other"
+        b["by_category"][cat] = round(b["by_category"].get(cat, 0) + amount, 2)
+
+    rows = []
+    for k in keys:
+        row = buckets[k]
+        row["complete"] = k != current
+        rows.append(row)
+
+    recurring = [
+        {
+            "item": x.get("item") or x.get("category"),
+            "amount": round(float(x.get("amount") or 0), 2),
+            "frequency": x.get("frequency"),
+            "next_due": x.get("next_due"),
+        }
+        for x in load_recurring()
+        if x.get("active") and x.get("type") == "income"
+    ]
+
+    return {
+        "currency": "RM",
+        "target_month": _next_month_key(),
+        "current_month": current,
+        "months": rows,
+        "recurring_income": recurring,
+    }
+
+
+def _baseline_income_forecast(history):
+    """Statistical estimate from completed months. Returns None until there
+    are at least 2 completed months *since the first month with income* (so
+    empty pre-tracking months don't drag the estimate to zero, but a genuine
+    zero-earning month in the middle still counts)."""
+    months = history["months"]
+    first = next((i for i, m in enumerate(months) if m["count"] > 0), None)
+    if first is None:
+        return None
+    usable = [m["total"] for m in months[first:] if m["complete"]]
+    if len(usable) < 2:
+        return None
+    recent = usable[-6:]
+    weights = list(range(1, len(recent) + 1))  # newer months weigh more
+    weighted = sum(v * w for v, w in zip(recent, weights)) / sum(weights)
+    median = statistics.median(recent)
+    return {
+        "estimate": round((weighted + median) / 2, 2),
+        "low": round(min(recent), 2),
+        "high": round(max(recent), 2),
+        "months_used": len(recent),
+        "recent_totals": [round(v, 2) for v in recent],
+    }
+
+
+@finance_bp.route("/forecast-income", methods=["POST"])
+def forecast_income():
+    history = _income_history(load_records())
+    baseline = _baseline_income_forecast(history)
+    if baseline is None:
+        return jsonify(error="Not enough income history yet — record income across "
+                             "at least two completed months first."), 400
+
+    target = history["target_month"]
+    totals_str = ", ".join(f"RM {v:.2f}" for v in baseline["recent_totals"])
+    forecast = {
+        "target": target,
+        "estimate": baseline["estimate"],
+        "low": baseline["low"],
+        "high": baseline["high"],
+        "confidence": "low",
+        "reasoning": f"Statistical estimate from your last {baseline['months_used']} "
+                     f"months of income ({totals_str}).",
+        "source": "baseline",
+        "generated_at": today_iso(),
+    }
+
+    if os.environ.get("OPENAI_API_KEY"):
+        schema = {
+            "type": "object",
+            "properties": {
+                "estimate": {"type": "number"},
+                "low": {"type": "number"},
+                "high": {"type": "number"},
+                "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
+                "reasoning": {"type": "string"},
+            },
+            "required": ["estimate", "low", "high", "confidence", "reasoning"],
+            "additionalProperties": False,
+        }
+        prompt = (
+            f"Estimate the user's total income for {target}. They may work part-time, "
+            "so income varies month to month. Give a point estimate, a low-high range, "
+            "and 1-2 sentences of reasoning spoken to the user (no preamble). Weigh the "
+            "recent trend, the month-to-month variability, and any recurring income. "
+            "Currency is RM. Do not assume a raise or extra shifts without evidence.\n"
+            f"Statistical baseline: {json.dumps(baseline)}\n\n"
+            f"DATA:\n{json.dumps(history, ensure_ascii=False)}"
+        )
+        try:
+            result = _openai_structured(prompt, schema, "income_forecast", 300)
+            est = max(0.0, round(float(result["estimate"]), 2))
+            lo = max(0.0, round(float(result["low"]), 2))
+            hi = max(0.0, round(float(result["high"]), 2))
+            if lo > hi:
+                lo, hi = hi, lo
+            forecast.update({
+                "estimate": est, "low": lo, "high": hi,
+                "confidence": result.get("confidence") if result.get("confidence") in ("high", "medium", "low") else "low",
+                "reasoning": (result.get("reasoning") or "").strip()[:600] or forecast["reasoning"],
+                "source": "ai",
+            })
+        except Exception:
+            forecast["reasoning"] += " (AI refinement unavailable — showing the statistical estimate.)"
+
+    insights = load_insights()
+    insights[f"forecast-{target}"] = forecast
+    save_insights(insights)
+    return jsonify(forecast=forecast)
 
 
 # ================= CURRENCY CONVERTER =================

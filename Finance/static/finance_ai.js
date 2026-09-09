@@ -129,4 +129,51 @@
                 .finally(function () { reviewBtn.disabled = false; });
         });
     }
+
+    // ---------- 4. Next-month income forecast (Summary) ----------
+    var forecastBtn = document.getElementById("forecastIncomeBtn");
+    if (forecastBtn) {
+        forecastBtn.addEventListener("click", function () {
+            var out = document.getElementById("forecastIncomeOutput");
+            forecastBtn.disabled = true;
+            out.textContent = "Estimating…";
+
+            post(forecastBtn.dataset.url, new FormData())
+                .then(function (res) {
+                    if (!res.ok) throw new Error(res.payload.error || "Estimate failed.");
+                    var f = res.payload.forecast || {};
+                    out.innerHTML = "";
+
+                    var big = document.createElement("div");
+                    big.style.fontSize = "20px";
+                    big.style.fontWeight = "700";
+                    big.textContent = "RM " + Number(f.estimate || 0).toFixed(2);
+                    var range = document.createElement("span");
+                    range.style.cssText = "font-size:13px;color:var(--text-muted);font-weight:400;";
+                    range.textContent = " (RM " + Number(f.low || 0).toFixed(2)
+                        + " – RM " + Number(f.high || 0).toFixed(2) + ")";
+                    big.appendChild(range);
+                    out.appendChild(big);
+
+                    var p = document.createElement("p");
+                    p.style.margin = "6px 0";
+                    p.textContent = f.reasoning || "";
+                    out.appendChild(p);
+
+                    var stamp = document.createElement("small");
+                    stamp.style.color = "var(--text-faint)";
+                    stamp.textContent = (f.confidence || "low") + " confidence · "
+                        + (f.source === "ai" ? "AI" : "statistical")
+                        + " · generated " + (f.generated_at || "just now");
+                    out.appendChild(stamp);
+
+                    forecastBtn.textContent = "✨ Re-estimate";
+                })
+                .catch(function (e) {
+                    out.textContent = (e && e.name === "AbortError")
+                        ? "Timed out." : (e && e.message) || "Estimate failed.";
+                })
+                .finally(function () { forecastBtn.disabled = false; });
+        });
+    }
 }());

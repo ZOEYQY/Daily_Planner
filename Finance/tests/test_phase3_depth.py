@@ -103,7 +103,7 @@ def test_budget_rollover_carries_unspent(client, load):
     _add(client, date="2026-08-05", amount="50", category="Food")
     _add(client, date="2026-09-03", amount="30", category="Food")
 
-    page = client.get("/plan").get_data(as_text=True)
+    page = client.get("/plan?tab=budgets").get_data(as_text=True)
     # effective this period = 200 base + (200-50) carryover from Aug + full 200 for
     # each earlier empty month in the 12-window... just assert carryover is shown
     assert "rolled over" in page
@@ -117,7 +117,7 @@ def test_budget_without_rollover_unchanged(client, load):
     _account(client)
     client.post("/budget", data={"category": "Food", "amount": "200", "period": "monthly"})
     _add(client, date="2026-09-03", amount="30", category="Food")
-    page = client.get("/plan").get_data(as_text=True)
+    page = client.get("/plan?tab=budgets").get_data(as_text=True)
     assert "rolled over" not in page
     assert load("budget.json")[0].get("rollover") is False
 

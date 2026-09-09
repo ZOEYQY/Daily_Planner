@@ -6,6 +6,19 @@
     <title>Plan</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='finance.css') }}">
     <style>
+        .plan-tabs {
+            display: flex; gap: 6px; margin-bottom: 14px; flex-wrap: wrap;
+        }
+        .plan-tabs a {
+            padding: 8px 16px; border: 1px solid var(--border);
+            border-radius: var(--radius-sm); text-decoration: none;
+            color: var(--text-main); font-weight: 700; font-size: 14px;
+            background: var(--surface);
+        }
+        .plan-tabs a:hover { border-color: var(--border-strong); }
+        .plan-tabs a.active {
+            background: var(--text-main); color: #fff; border-color: var(--text-main);
+        }
         .plan-summary-grid { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 10px; }
         .plan-summary-col {
             flex: 1; min-width: 240px; border: 1px solid var(--border);
@@ -14,7 +27,6 @@
         .plan-summary-col h3 { margin: 0 0 8px; font-size: 14px; }
         .plan-summary-col .big { font-size: 22px; font-weight: 700; }
         .plan-summary-col .sub { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
-        .plan-section-anchor { position: relative; top: -50px; }
     </style>
 </head>
 
@@ -41,15 +53,26 @@
 
 <div class="summary-wrapper">
 
-    <!-- ================= PLAN OVERVIEW ================= -->
+    <!-- ================= SUB-NAV: three sections ================= -->
+    <div class="plan-tabs">
+        <a href="{{ url_for('finance.plan', tab='summary') }}" class="{{ 'active' if tab == 'summary' else '' }}">Summary</a>
+        <a href="{{ url_for('finance.plan', tab='budgets') }}" class="{{ 'active' if tab == 'budgets' else '' }}">Budgets</a>
+        <a href="{{ url_for('finance.plan', tab='goals') }}" class="{{ 'active' if tab == 'goals' else '' }}">Goals</a>
+    </div>
+
+
+    {% if tab == 'summary' %}
+    <!-- ================= 1. SUMMARY ================= -->
 
     <div class="summary-card hover-card">
 
         <div class="page-header">
-            <h1 class="summary-main-title">Plan</h1>
+            <h1 class="summary-main-title">Plan — Summary</h1>
             <p class="add-subtitle">
-                Your spending limits and savings goals in one place.
-                <a href="#budgets">Budgets</a> · <a href="#goals">Goals</a>
+                Budgets and savings goals at a glance.
+                <a href="{{ url_for('finance.plan', tab='budgets') }}">Manage budgets →</a>
+                &nbsp;·&nbsp;
+                <a href="{{ url_for('finance.plan', tab='goals') }}">Manage goals →</a>
             </p>
         </div>
 
@@ -118,14 +141,27 @@
 
     </div>
 
-    <!-- ================= BUDGETS ================= -->
+    {% if budget_warnings %}
+    <div class="summary-card hover-card">
+        <h2 class="section-title">Budget warnings</h2>
+        {% for w in budget_warnings %}
+        <div class="budget-warning-banner">
+            <strong>{{ w.category }}</strong> exceeded by
+            <strong>RM {{ "%.2f"|format(w.overspent) }}</strong>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
 
-    <span id="budgets" class="plan-section-anchor"></span>
+
+    {% elif tab == 'budgets' %}
+    <!-- ================= 2. BUDGETS ================= -->
+
     <div class="summary-card hover-card">
 
         <div class="budget-header">
             <div>
-                <h2 class="summary-main-title" style="font-size:20px;">Budgets</h2>
+                <h1 class="summary-main-title" style="font-size:22px;">Budgets</h1>
                 <p class="budget-subtitle">Spending limits per category.</p>
             </div>
         </div>
@@ -247,12 +283,13 @@
 
     </div>
 
-    <!-- ================= GOALS ================= -->
 
-    <span id="goals" class="plan-section-anchor"></span>
+    {% else %}
+    <!-- ================= 3. GOALS ================= -->
+
     <div class="summary-card hover-card">
 
-        <h2 class="summary-main-title" style="font-size:20px;">Goals</h2>
+        <h1 class="summary-main-title" style="font-size:22px;">Goals</h1>
         <p class="goal-subtitle">Track your savings progress and hit your targets.</p>
 
         {% if goal_error %}
@@ -471,6 +508,8 @@
             {% endfor %}
         </div>
     </div>
+    {% endif %}
+
     {% endif %}
 
 </div>
