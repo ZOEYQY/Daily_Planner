@@ -346,3 +346,87 @@ def test_cancelled_goal_stays_cancelled_even_when_fully_funded(client, load, mak
     # The goal is 100% funded but was explicitly cancelled — must not
     # silently flip back to "Completed".
     assert "Cancelled" in page
+
+
+def test_paused_goal_stays_paused_even_when_fully_funded(client, load, make_account):
+    make_account("Wallet")
+    client.post("/goals", data={
+        "action": "create", "name": "Trip", "target": "100", "type": "short",
+    })
+    goal_id = load("goals.json")[0]["id"]
+
+    client.post("/goals", data={
+        "action": "save", "goal_id": str(goal_id), "amount": "100",
+        "account": "Wallet", "goal_name": "Trip",
+    })
+    client.post(f"/pause_goal/{goal_id}")
+
+    page = client.get("/plan?tab=goals").get_data(as_text=True)
+    assert "Paused" in page
+
+
+# ================= LEGACY TRANSFER BACKFILL =================
+
+def test_legacy_transfer_pair_gets_linked_on_load(client, load, make_account, data_dir, profile_id):
+    """A transfer pair written directly to disk without a transfer_id (as
+    every transfer created before this fix would be) gets linked the next
+    time records are loaded, so the edit-block/paired-delete protections
+    start covering it too."""
+    import json
+
+    make_account("Wallet")
+    make_account("Bank", "savings")
+
+    path = data_dir / "profiles" / profile_id / "expenses.json"
+    legacy = [
+        {"id": "leg-out", "date": "2026-01-01", "type": "expense",
+         "category": "Transfer Out", "account": "Wallet",
+         "item": "Transfer to Bank", "amount": 75.0},
+        {"id": "leg-in", "date": "2026-01-01", "type": "income",
+         "category": "Transfer In", "account": "Bank",
+         "item": "Transfer from Wallet", "amount": 75.0},
+    ]
+    path.write_text(json.dumps(legacy), encoding="utf-8")
+
+    # Any GET that loads records triggers the backfill.
+    client.get("/view")
+
+    recs = _all_records(load)
+    out_leg = next(r for r in recs if r["id"] == "leg-out")
+    in_leg = next(r for r in recs if r["id"] == "leg-in")
+    assert out_leg["transfer_id"] and out_leg["transfer_id"] == in_leg["transfer_id"]
+
+    # And the protections now apply to it.
+    resp = client.post(f"/update/{out_leg['id']}", data={
+        "date": "2026-01-01", "type": "expense", "category": "Food",
+        "account": "Wallet", "item": "hacked", "amount": "999",
+    })
+    assert "one side of a transfer" in resp.get_data(as_text=True)
+
+
+def test_ambiguous_legacy_transfers_are_left_unlinked(client, load, make_account, data_dir, profile_id):
+    """Two same-day, same-amount transfer pairs can't be told apart — leave
+    them unlinked rather than risk pairing the wrong two records."""
+    import json
+
+    make_account("Wallet")
+    make_account("Bank", "savings")
+    make_account("Cash")
+
+    path = data_dir / "profiles" / profile_id / "expenses.json"
+    legacy = [
+        {"id": "out-1", "date": "2026-01-01", "type": "expense",
+         "category": "Transfer Out", "account": "Wallet", "item": "x", "amount": 50.0},
+        {"id": "out-2", "date": "2026-01-01", "type": "expense",
+         "category": "Transfer Out", "account": "Cash", "item": "x", "amount": 50.0},
+        {"id": "in-1", "date": "2026-01-01", "type": "income",
+         "category": "Transfer In", "account": "Bank", "item": "x", "amount": 50.0},
+        {"id": "in-2", "date": "2026-01-01", "type": "income",
+         "category": "Transfer In", "account": "Bank", "item": "x", "amount": 50.0},
+    ]
+    path.write_text(json.dumps(legacy), encoding="utf-8")
+
+    client.get("/view")
+
+    recs = _all_records(load)
+    assert all(not r.get("transfer_id") for r in recs)

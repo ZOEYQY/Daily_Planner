@@ -256,11 +256,46 @@ def _backfill_record_ids(records):
     return changed
 
 
+def _backfill_transfer_ids(records):
+    """Link legacy transfer pairs (created before transfer_id existed) so
+    the edit-block / paired-delete protections cover them too.
+
+    Conservative on purpose: a "Transfer Out" only gets linked to a
+    "Transfer In" when there is exactly one unlinked candidate with a
+    matching date and amount. Multiple same-day, same-amount transfers are
+    left unlinked rather than risk pairing the wrong two records — an
+    unlinked legacy pair just behaves as it always has (editable/deletable
+    independently), so leaving it alone is always the safe choice."""
+    changed = False
+    outs = [r for r in records if r.get("category") == "Transfer Out" and not r.get("transfer_id")]
+    ins = [r for r in records if r.get("category") == "Transfer In" and not r.get("transfer_id")]
+    used_in_ids = set()
+
+    for out in outs:
+        candidates = [
+            r for r in ins
+            if r["id"] not in used_in_ids
+            and r.get("date") == out.get("date")
+            and r.get("amount") == out.get("amount")
+        ]
+        if len(candidates) == 1:
+            match = candidates[0]
+            transfer_id = new_id()
+            out["transfer_id"] = transfer_id
+            match["transfer_id"] = transfer_id
+            used_in_ids.add(match["id"])
+            changed = True
+
+    return changed
+
+
 def load_records(include_deleted=False):
     """Every transaction record, each guaranteed to have an ``id``.
     Soft-deleted records are excluded unless ``include_deleted=True``."""
     records = load_data(f_expense, [])
-    if _backfill_record_ids(records):
+    ids_changed = _backfill_record_ids(records)
+    transfers_changed = _backfill_transfer_ids(records)
+    if ids_changed or transfers_changed:
         save_data(f_expense, records)
     if include_deleted:
         return records
@@ -1163,13 +1198,17 @@ def _goals_context():
     goals_changed = False
 
     for g in goals_list:
-        saved = sum(r.get("amount", 0) for r in records
-                    if r.get("category") == "Goal Savings" and r.get("goal_id") == g.get("id"))
+        # round() at every money aggregation boundary, not just at display
+        # time — summing several already-2dp floats can still drift by a
+        # sub-cent binary rounding error, which then compounds through the
+        # percent/remaining math below if left unrounded here.
+        saved = round(sum(r.get("amount", 0) for r in records
+                          if r.get("category") == "Goal Savings" and r.get("goal_id") == g.get("id")), 2)
         target = g.get("target", 0)
         percent = (saved / target) * 100 if target else 0
-        remaining = max(0, target - saved)
+        remaining = round(max(0, target - saved), 2)
         stored_status = g.get("status", "In Progress")
-        status = "Completed" if (percent >= 100 and stored_status != "Cancelled") else stored_status
+        status = "Completed" if (percent >= 100 and stored_status not in ("Cancelled", "Paused")) else stored_status
         time_data = _goal_time_data(g.get("target_date"), remaining)
 
         contrib_sorted = sorted(
@@ -1399,17 +1438,20 @@ def summary():
     # transfer just moves money between your own accounts, it isn't real
     # income or spending, so counting it here would skew the numbers.
 
-    income = sum(r["amount"] for r in month_records if r["type"] == "income" and r.get("category") != "Transfer In")
-    expense = sum(r["amount"] for r in month_records if r["type"] == "expense" and r.get("category") != "Transfer Out")
-    balance = income - expense
+    # round() at every aggregation boundary (not just at display time) so a
+    # sub-cent binary float error from summing several 2dp amounts can't
+    # compound through the ratio/percentage math further down.
+    income = round(sum(r["amount"] for r in month_records if r["type"] == "income" and r.get("category") != "Transfer In"), 2)
+    expense = round(sum(r["amount"] for r in month_records if r["type"] == "expense" and r.get("category") != "Transfer Out"), 2)
+    balance = round(income - expense, 2)
 
     category_totals = {}
     for r in month_records:
         if r.get("type") == "expense" and r.get("category") != "Transfer Out":
             category = r.get("category", "Other")
-            category_totals[category] = category_totals.get(category, 0) + r.get("amount", 0)
+            category_totals[category] = round(category_totals.get(category, 0) + r.get("amount", 0), 2)
 
-    total_expense = sum(category_totals.values())
+    total_expense = round(sum(category_totals.values()), 2)
     # sorted(..., key=lambda x: x[1], reverse=True)[:3]：把 (分类, 金额)
     # 这些键值对按金额从大到小排序，再取前 3 个，就是"花费最多的
     # 三个分类"。
@@ -1456,9 +1498,9 @@ def summary():
             "status": view["status"],
         })
 
-    yearly_income = sum(r.get("amount", 0) for r in year_records if r.get("type") == "income" and r.get("category") != "Transfer In")
-    yearly_expense = sum(r.get("amount", 0) for r in year_records if r.get("type") == "expense" and r.get("category") != "Transfer Out")
-    yearly_balance = yearly_income - yearly_expense
+    yearly_income = round(sum(r.get("amount", 0) for r in year_records if r.get("type") == "income" and r.get("category") != "Transfer In"), 2)
+    yearly_expense = round(sum(r.get("amount", 0) for r in year_records if r.get("type") == "expense" and r.get("category") != "Transfer Out"), 2)
+    yearly_balance = round(yearly_income - yearly_expense, 2)
 
     # 算出这一年里每个月各自的收入/支出/结余，存成一个字典，
     # key 是 "年份-月份"（比如 "2026-01"），方便前端画每月趋势图。
@@ -1471,12 +1513,12 @@ def summary():
     monthly_data = {}
     for month in range(1, 13):
         key = f"{selected_year}-{month:02d}"
-        monthly_income = sum(r.get("amount", 0) for r in year_records if r.get("type") == "income" and r.get("category") != "Transfer In" and r.get("date", "").startswith(key))
-        monthly_expense = sum(r.get("amount", 0) for r in year_records if r.get("type") == "expense" and r.get("category") != "Transfer Out" and r.get("date", "").startswith(key))
+        monthly_income = round(sum(r.get("amount", 0) for r in year_records if r.get("type") == "income" and r.get("category") != "Transfer In" and r.get("date", "").startswith(key)), 2)
+        monthly_expense = round(sum(r.get("amount", 0) for r in year_records if r.get("type") == "expense" and r.get("category") != "Transfer Out" and r.get("date", "").startswith(key)), 2)
         monthly_data[key] = {
             "income": monthly_income,
             "expense": monthly_expense,
-            "balance": monthly_income - monthly_expense
+            "balance": round(monthly_income - monthly_expense, 2)
         }
 
     goals_data = load_data(f_goals, [])
@@ -1487,12 +1529,12 @@ def summary():
 
     short_goals, long_goals = [], []
     for g in goals_data:
-        saved = sum(r.get("amount", 0) for r in records if r.get("category") == "Goal Savings" and r.get("goal_id") == g["id"])
+        saved = round(sum(r.get("amount", 0) for r in records if r.get("category") == "Goal Savings" and r.get("goal_id") == g["id"]), 2)
         target = g.get("target", 0)
         percent = (saved / target) * 100 if target else 0
-        remaining_goal = target - saved
+        remaining_goal = round(target - saved, 2)
         stored_status = g.get("status", "In Progress")
-        status = "Completed" if (percent >= 100 and stored_status != "Cancelled") else stored_status
+        status = "Completed" if (percent >= 100 and stored_status not in ("Cancelled", "Paused")) else stored_status
         goal_data = {
             "id": g.get("id"),
             "name": g.get("name"),
@@ -3560,7 +3602,7 @@ def _afford_context(amount, category):
                 recurring_before_eom += float(rule.get("amount") or 0)
 
     savings_accounts = [a for a in accounts if a.get("purpose") == "savings"]
-    savings = sum(_account_balances(records, savings_accounts).values())
+    savings = round(sum(_account_balances(records, savings_accounts).values()), 2)
 
     debts_owed = round(sum(debt_outstanding(d) for d in load_debts()
                            if d.get("direction") == "owe" and d.get("status") != "settled"), 2)
@@ -3989,8 +4031,11 @@ def finance_home():
 
     month_records = [r for r in records if r.get("date", "").startswith(current_month)]
 
-    income = sum(r.get("amount", 0) for r in month_records if r.get("type") == "income" and r.get("category") != "Transfer In")
-    expense = sum(r.get("amount", 0) for r in month_records if r.get("type") == "expense" and r.get("category") != "Transfer Out")
+    # round() at every aggregation boundary — not just at display time — so
+    # a sub-cent binary float error from summing several 2dp amounts can't
+    # compound through the percent/ratio math further down.
+    income = round(sum(r.get("amount", 0) for r in month_records if r.get("type") == "income" and r.get("category") != "Transfer In"), 2)
+    expense = round(sum(r.get("amount", 0) for r in month_records if r.get("type") == "expense" and r.get("category") != "Transfer Out"), 2)
 
     # Centralised through _account_balances() (see /accounts, /summary,
     # _afford_context) so the "opening amount + income/saving - expense"
@@ -3999,10 +4044,10 @@ def finance_home():
     # miscounted "saving"-type transactions as a subtraction instead of an
     # addition — inconsistent with every other balance calculation in the app.
     savings_accounts = [a for a in accounts if a.get("purpose") == "savings"]
-    saving = sum(_account_balances(records, savings_accounts).values())
+    saving = round(sum(_account_balances(records, savings_accounts).values()), 2)
 
     spending_accounts = [a for a in accounts if a.get("purpose") == "spending"]
-    balance = sum(_account_balances(records, spending_accounts).values())
+    balance = round(sum(_account_balances(records, spending_accounts).values()), 2)
 
     recent_records = sorted(records, key=lambda x: x.get("date", ""), reverse=True)[:5]
 
@@ -4010,7 +4055,7 @@ def finance_home():
     for r in month_records:
         if r.get("type") == "expense" and r.get("category") != "Transfer Out":
             cat = r.get("category", "Other")
-            category_totals[cat] = category_totals.get(cat, 0) + r.get("amount", 0)
+            category_totals[cat] = round(category_totals.get(cat, 0) + r.get("amount", 0), 2)
 
     # max(dict, key=dict.get)：在字典的 key（分类名）里找出对应 value
     # （花费金额）最大的那一个 key —— 也就是"这个月花最多钱的分类"。
@@ -4031,7 +4076,7 @@ def finance_home():
 
     active_goals = []
     for g in goals_list:
-        saved = sum(r.get("amount", 0) for r in records if r.get("category") == "Goal Savings" and r.get("goal_id") == g["id"])
+        saved = round(sum(r.get("amount", 0) for r in records if r.get("category") == "Goal Savings" and r.get("goal_id") == g["id"]), 2)
         target = g.get("target", 0)
         percent = (saved / target) * 100 if target else 0
         active_goals.append({"name": g.get("name"), "saved": saved, "target": target, "percent": min(percent, 100)})
