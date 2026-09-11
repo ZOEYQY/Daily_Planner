@@ -59,7 +59,7 @@ def test_core_pages_load(client):
 
 
 def test_receipt_endpoint_without_key_is_graceful(client, monkeypatch):
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     resp = client.post("/analyze-receipt", data={})
     # no image -> 400, never a 500 from the category-schema refactor
     assert resp.status_code == 400

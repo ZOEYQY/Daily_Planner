@@ -1,6 +1,6 @@
 """Phase 5: auto-categorize, monthly review, afford check, anomaly flagging.
 
-The OpenAI call (`_openai_structured`) is monkeypatched — tests cover routing,
+The Gemini call (`_ai_structured`) is monkeypatched — tests cover routing,
 the free history/statistics paths, persistence, validation, and graceful 503.
 """
 import json
@@ -26,7 +26,7 @@ def _add(client, **over):
 def test_suggest_category_from_history_no_api(client, monkeypatch):
     import finance_routes
     # if the AI is called at all, blow up — this must be answered from history
-    monkeypatch.setattr(finance_routes, "_openai_structured",
+    monkeypatch.setattr(finance_routes, "_ai_structured",
                         lambda *a, **k: (_ for _ in ()).throw(AssertionError("should not call AI")))
     _account(client)
     _add(client, item="Starbucks latte", category="Food")
@@ -40,7 +40,7 @@ def test_suggest_category_from_history_no_api(client, monkeypatch):
 
 def test_suggest_category_ai_fallback(client, monkeypatch):
     import finance_routes
-    monkeypatch.setattr(finance_routes, "_openai_structured",
+    monkeypatch.setattr(finance_routes, "_ai_structured",
                         lambda *a, **k: {"category": "Transport", "confidence": "high"})
     resp = client.post("/suggest-category", data={"item": "grab ride home", "type": "expense"})
     body = resp.get_json()
@@ -53,7 +53,7 @@ def test_suggest_category_validation(client):
 
 
 def test_suggest_category_no_key(client, monkeypatch):
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     # no history + no key -> 503 from the AI fallback
     resp = client.post("/suggest-category", data={"item": "zzxxqq nonsense words", "type": "expense"})
     assert resp.status_code == 503
@@ -63,7 +63,7 @@ def test_suggest_category_no_key(client, monkeypatch):
 
 def test_monthly_review_generates_and_persists(client, load, monkeypatch):
     import finance_routes
-    monkeypatch.setattr(finance_routes, "_openai_structured", lambda *a, **k: {
+    monkeypatch.setattr(finance_routes, "_ai_structured", lambda *a, **k: {
         "narrative": "You spent more than you earned this month.",
         "suggestions": ["Cook at home more", "Cancel one subscription"],
     })
@@ -86,14 +86,14 @@ def test_monthly_review_generates_and_persists(client, load, monkeypatch):
 
 def test_monthly_review_no_records(client, monkeypatch):
     import finance_routes
-    monkeypatch.setattr(finance_routes, "_openai_structured", lambda *a, **k: {})
+    monkeypatch.setattr(finance_routes, "_ai_structured", lambda *a, **k: {})
     resp = client.post("/summary/review", data={"month": "01", "year": "2026"})
     assert resp.status_code == 400
     assert "No records" in resp.get_json()["error"]
 
 
 def test_monthly_review_no_key(client, monkeypatch):
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     _account(client)
     _add(client, date="2026-09-05", amount="50")
     resp = client.post("/summary/review", data={"month": "09", "year": "2026"})
@@ -110,7 +110,7 @@ def test_afford_check(client, load, monkeypatch):
         captured["prompt"] = prompt
         return {"verdict": "tight", "reasoning": "It fits but leaves little buffer."}
 
-    monkeypatch.setattr(finance_routes, "_openai_structured", fake)
+    monkeypatch.setattr(finance_routes, "_ai_structured", fake)
     _account(client)
     _add(client, date="2026-09-01", type="income", category="Salary", amount="3000")
     _add(client, date="2026-09-03", amount="500", category="Food")
@@ -126,7 +126,7 @@ def test_afford_check(client, load, monkeypatch):
 
 def test_afford_validation_and_no_key(client, monkeypatch):
     assert client.post("/afford", data={"amount": "abc"}).status_code == 400
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     assert client.post("/afford", data={"amount": "100"}).status_code == 503
 
 

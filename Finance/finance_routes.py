@@ -1,5 +1,4 @@
 from flask import Blueprint, render_template, request, redirect, url_for, Response, jsonify, session, g
-import base64
 import calendar
 import csv
 import io
@@ -60,7 +59,7 @@ except ImportError:
         create_profile, rename_profile, delete_profile, apply_profile_paths,
     )
 
-# Load Finance/.env (if present) so OPENAI_API_KEY / OPENAI_RECEIPT_MODEL can
+# Load Finance/.env (if present) so GEMINI_API_KEY / GEMINI_MODEL can
 # live in a file instead of the shell. Optional: a missing package or file is
 # a no-op, and real environment variables always win over the file.
 try:
@@ -278,10 +277,12 @@ def _find_record(records, rid):
 
 RECEIPTS_DIR = os.path.join(BASE_DIR, "static", "receipts")
 ALLOWED_EXTENSIONS = {"jpg", "jpeg", "png", "gif", "webp"}
-# AI receipt extraction reads the OpenAI credentials from the environment:
-#   OPENAI_API_KEY       - required; without it the "Extract with AI" button
-#                          returns a 503 and the form still works manually.
-#   OPENAI_RECEIPT_MODEL - optional; defaults to a small vision model.
+# AI receipt extraction reads the Gemini (Google) credentials from the
+# environment:
+#   GEMINI_API_KEY - required; without it the "Extract with AI" button
+#                     returns a 503 and the form still works manually.
+#   GEMINI_MODEL    - optional; defaults to a small, free-tier-friendly
+#                     vision-capable model.
 RECEIPT_ANALYSIS_MAX_BYTES = 5 * 1024 * 1024
 RECEIPT_ANALYSIS_TIMEOUT = 30  # seconds, so a hung request can't wedge a worker
 RECEIPT_MIME_TYPES = {
@@ -294,14 +295,17 @@ RECEIPT_MIME_TYPES = {
 def _receipt_response_schema(expense_categories):
     # The category enum is built per request from the user's *active* expense
     # categories (expense_category_names() already falls back to the seed list
-    # so this is never empty).
+    # so this is never empty). Nullable fields use anyOf rather than a
+    # ["string", "null"] type array — Gemini's response_json_schema only
+    # documents support for a subset of JSON Schema keywords, and anyOf is
+    # explicitly on that list while type-arrays aren't.
     return {
         "type": "object",
         "properties": {
-            "merchant": {"type": ["string", "null"]},
-            "date": {"type": ["string", "null"]},
-            "total": {"type": ["number", "null"]},
-            "category": {"type": ["string", "null"], "enum": [*expense_categories, None]},
+            "merchant": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+            "date": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+            "total": {"anyOf": [{"type": "number"}, {"type": "null"}]},
+            "category": {"anyOf": [{"type": "string", "enum": [*expense_categories]}, {"type": "null"}]},
             "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
         },
         "required": ["merchant", "date", "total", "category", "confidence"],
@@ -335,32 +339,43 @@ def _json_from_model_text(text):
     return data
 
 
-def _openai_structured(prompt, schema, schema_name, max_output_tokens=400):
-    """Shared strict-JSON OpenAI call for the text-only AI features (category
-    suggestion, monthly review, afford check). Same key/model/plumbing as the
-    receipt + purchase-advisor features. Raises RuntimeError when unconfigured."""
-    api_key = os.environ.get("OPENAI_API_KEY")
+def _ai_structured(prompt, schema, schema_name, max_output_tokens=400):
+    """Shared strict-JSON Gemini call for the text-only AI features (category
+    suggestion, monthly review, afford check, income forecast). Same
+    key/model/plumbing as the receipt + purchase-advisor features. Raises
+    RuntimeError when unconfigured. schema_name is unused by the Gemini API
+    (kept only so call sites didn't need to change across provider swaps)."""
+    api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
         raise RuntimeError("AI features are not configured")
 
     try:
-        from openai import OpenAI, AuthenticationError
+        from google import genai
+        from google.genai import types, errors
     except ImportError as exc:
-        raise RuntimeError("The OpenAI package is not installed") from exc
+        raise RuntimeError("The Gemini package is not installed") from exc
 
-    client = OpenAI(api_key=api_key, timeout=30)
+    client = genai.Client(api_key=api_key, http_options=types.HttpOptions(timeout=30000))
     try:
-        response = client.responses.create(
-            model=os.environ.get("OPENAI_RECEIPT_MODEL", "gpt-4o-mini"),
-            store=False,
-            max_output_tokens=max_output_tokens,
-            text={"format": {"type": "json_schema", "name": schema_name,
-                             "strict": True, "schema": schema}},
-            input=[{"role": "user", "content": [{"type": "input_text", "text": prompt}]}],
+        response = client.models.generate_content(
+            model=os.environ.get("GEMINI_MODEL", "gemini-3.6-flash"),
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_json_schema=schema,
+                max_output_tokens=max_output_tokens,
+                # These are short, single-step classification/summary tasks —
+                # minimal thinking keeps the whole token budget for the actual
+                # answer (Gemini 3's default thinking otherwise burns the
+                # budget on reasoning and returns no text at all).
+                thinking_config=types.ThinkingConfig(thinking_level=types.ThinkingLevel.MINIMAL),
+            ),
         )
-    except AuthenticationError as exc:
-        raise RuntimeError("AI features are not configured correctly") from exc
-    return _json_from_model_text(response.output_text)
+    except errors.ClientError as exc:
+        if exc.code in (401, 403):
+            raise RuntimeError("AI features are not configured correctly") from exc
+        raise
+    return _json_from_model_text(response.text)
 
 
 def _normalise_receipt_result(result, expense_categories):
@@ -400,41 +415,40 @@ def _normalise_receipt_result(result, expense_categories):
 
 
 def _analyse_receipt(image_bytes, mime_type, expense_categories):
-    api_key = os.environ.get("OPENAI_API_KEY")
+    api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
         raise RuntimeError("Receipt analysis is not configured")
 
     try:
-        from openai import OpenAI, AuthenticationError
+        from google import genai
+        from google.genai import types, errors
     except ImportError as exc:
-        raise RuntimeError("The OpenAI package is not installed") from exc
+        raise RuntimeError("The Gemini package is not installed") from exc
 
-    data_url = f"data:{mime_type};base64,{base64.b64encode(image_bytes).decode('ascii')}"
-    client = OpenAI(api_key=api_key, timeout=RECEIPT_ANALYSIS_TIMEOUT)
+    client = genai.Client(api_key=api_key,
+                          http_options=types.HttpOptions(timeout=RECEIPT_ANALYSIS_TIMEOUT * 1000))
     try:
-        response = client.responses.create(
-            model=os.environ.get("OPENAI_RECEIPT_MODEL", "gpt-4o-mini"),
-            store=False,
-            max_output_tokens=300,
-            text={
-                "format": {
-                    "type": "json_schema",
-                    "name": "receipt_fields",
-                    "strict": True,
-                    "schema": _receipt_response_schema(expense_categories),
-                },
-            },
-            input=[{
-                "role": "user",
-                "content": [
-                    {"type": "input_text", "text": _receipt_analysis_prompt(expense_categories)},
-                    {"type": "input_image", "image_url": data_url, "detail": "high"},
-                ],
-            }],
+        response = client.models.generate_content(
+            model=os.environ.get("GEMINI_MODEL", "gemini-3.6-flash"),
+            contents=[
+                types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
+                _receipt_analysis_prompt(expense_categories),
+            ],
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_json_schema=_receipt_response_schema(expense_categories),
+                max_output_tokens=500,
+                # LOW (not MINIMAL) here — reading amounts/dates off a real
+                # photo benefits from a bit of reasoning; 500 tokens leaves
+                # headroom for that plus the actual JSON output.
+                thinking_config=types.ThinkingConfig(thinking_level=types.ThinkingLevel.LOW),
+            ),
         )
-    except AuthenticationError as exc:
-        raise RuntimeError("Receipt analysis is not configured correctly") from exc
-    return _normalise_receipt_result(_json_from_model_text(response.output_text), expense_categories)
+    except errors.ClientError as exc:
+        if exc.code in (401, 403):
+            raise RuntimeError("Receipt analysis is not configured correctly") from exc
+        raise
+    return _normalise_receipt_result(_json_from_model_text(response.text), expense_categories)
 
 def _allowed_file(filename):
     # 只要文件名里有"."，并且最后一段扩展名（小写化后）
@@ -1625,20 +1639,23 @@ def accounts():
     if request.method == "POST":
         name = request.form.get("name", "").strip()
         purpose = request.form.get("purpose", "spending")
-        if name and not any(a["name"] == name for a in accounts_data):
-            accounts_data.append({"name": name, "purpose": purpose})
+        initial_amount, error = _parse_money(request.form.get("initial_amount"), "Initial amount")
+        if name and error is None and not any(a["name"] == name for a in accounts_data):
+            accounts_data.append({"name": name, "purpose": purpose, "initial_amount": initial_amount})
             save_data(f_accounts, accounts_data)
         return redirect(url_for("finance.accounts"))
 
     account_list = []
     for acc in accounts_data:
         acc_txns = [r for r in records if r.get("account") == acc["name"]]
-        # 这个账户的余额 = 所有"收入/存款"加起来，减去所有"支出"，
-        # 用一个生成器表达式一次性算完，不用先建一个临时列表。
-        # This account's balance = every "income/saving" summed up, minus
-        # every "expense" — computed in one pass with a generator
-        # expression instead of building a temporary list first.
-        balance  = sum(
+        # 这个账户的余额 = 开户时录入的期初金额，加上所有"收入/存款"，
+        # 减去所有"支出"，用一个生成器表达式一次性算完，不用先建一个
+        # 临时列表。
+        # This account's balance = the opening balance entered when the
+        # account was created, plus every "income/saving", minus every
+        # "expense" — computed in one pass with a generator expression
+        # instead of building a temporary list first.
+        balance = acc.get("initial_amount", 0) + sum(
             r.get("amount", 0) if r.get("type") in ("income", "saving") else -r.get("amount", 0)
             for r in acc_txns
         )
@@ -1651,11 +1668,12 @@ def accounts():
         # empty sequence).
         last_txn = max((r.get("date", "") for r in acc_txns), default=None) if acc_txns else None
         account_list.append({
-            "name":      acc["name"],
-            "purpose":   acc.get("purpose", "spending"),
-            "balance":   round(balance, 2),
-            "txn_count": len(acc_txns),
-            "last_txn":  last_txn,
+            "name":           acc["name"],
+            "purpose":        acc.get("purpose", "spending"),
+            "balance":        round(balance, 2),
+            "initial_amount": round(acc.get("initial_amount", 0), 2),
+            "txn_count":      len(acc_txns),
+            "last_txn":       last_txn,
         })
 
     return render_template("accounts.html", account_list=account_list)
@@ -1674,11 +1692,14 @@ def edit_account(name):
     if request.method == "POST":
         new_name    = request.form.get("name", "").strip()
         new_purpose = request.form.get("purpose", "spending")
+        new_initial, money_error = _parse_money(request.form.get("initial_amount"), "Initial amount")
 
         if not new_name:
             error = "Account name cannot be empty."
         elif new_name != name and any(a["name"] == new_name for a in accounts_data):
             error = f'An account named "{new_name}" already exists.'
+        elif money_error:
+            error = money_error
         else:
             if new_name != name:
                 # 账户改名了 —— 得把原本挂在旧名字上的每一笔交易记录，
@@ -1693,8 +1714,9 @@ def edit_account(name):
                     if r.get("account") == name:
                         r["account"] = new_name
                 save_records(records)
-            account["name"]    = new_name
-            account["purpose"] = new_purpose
+            account["name"]           = new_name
+            account["purpose"]        = new_purpose
+            account["initial_amount"] = new_initial
             save_data(f_accounts, accounts_data)
             return redirect(url_for("finance.accounts"))
 
@@ -2243,11 +2265,11 @@ def shopping():
 
 # ================= SHOPPING: AI PURCHASE ADVISOR =================
 # ================= 购物：AI 购买建议 =================
-# 同一套 OpenAI 管道（key 从 Finance/.env 读，严格 JSON schema，不存图，
+# 同一套 Gemini 管道（key 从 Finance/.env 读，严格 JSON schema，不存图，
 # 没配 key 就返回 503、页面照常用）。给一个购物清单条目 + 用户真实的
 # 财务情况，让模型给出 buy / wait / dont_buy 的建议。建议只是参考，
 # 最终决定权仍然在用户手里。结果会存回该条目的 ai_suggestion 字段。
-# Same OpenAI plumbing as the receipt feature (key from Finance/.env,
+# Same Gemini plumbing as the receipt feature (key from Finance/.env,
 # strict JSON schema, image never stored, missing key -> 503 and the page
 # still works). Given one shopping item plus the user's real finance
 # context, the model recommends buy / wait / dont_buy. It's advice only —
@@ -2260,7 +2282,7 @@ PURCHASE_ADVICE_SCHEMA = {
     "properties": {
         "recommendation": {"type": "string", "enum": ["buy", "wait", "dont_buy"]},
         "reasoning": {"type": "string"},
-        "suggested_wait_days": {"type": ["integer", "null"]},
+        "suggested_wait_days": {"anyOf": [{"type": "integer"}, {"type": "null"}]},
         "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
     },
     "required": ["recommendation", "reasoning", "suggested_wait_days", "confidence"],
@@ -2362,14 +2384,15 @@ def _normalise_purchase_advice(result):
 
 
 def _advise_purchase(item, context):
-    api_key = os.environ.get("OPENAI_API_KEY")
+    api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
         raise RuntimeError("AI purchase advice is not configured")
 
     try:
-        from openai import OpenAI, AuthenticationError
+        from google import genai
+        from google.genai import types, errors
     except ImportError as exc:
-        raise RuntimeError("The OpenAI package is not installed") from exc
+        raise RuntimeError("The Gemini package is not installed") from exc
 
     payload = {
         "currency": "RM",
@@ -2402,28 +2425,24 @@ def _advise_purchase(item, context):
         f"DATA:\n{json.dumps(payload, ensure_ascii=False)}"
     )
 
-    client = OpenAI(api_key=api_key, timeout=PURCHASE_ADVICE_TIMEOUT)
+    client = genai.Client(api_key=api_key,
+                          http_options=types.HttpOptions(timeout=PURCHASE_ADVICE_TIMEOUT * 1000))
     try:
-        response = client.responses.create(
-            model=os.environ.get("OPENAI_RECEIPT_MODEL", "gpt-4o-mini"),
-            store=False,
-            max_output_tokens=400,
-            text={
-                "format": {
-                    "type": "json_schema",
-                    "name": "purchase_advice",
-                    "strict": True,
-                    "schema": PURCHASE_ADVICE_SCHEMA,
-                },
-            },
-            input=[{
-                "role": "user",
-                "content": [{"type": "input_text", "text": prompt}],
-            }],
+        response = client.models.generate_content(
+            model=os.environ.get("GEMINI_MODEL", "gemini-3.6-flash"),
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_json_schema=PURCHASE_ADVICE_SCHEMA,
+                max_output_tokens=400,
+                thinking_config=types.ThinkingConfig(thinking_level=types.ThinkingLevel.MINIMAL),
+            ),
         )
-    except AuthenticationError as exc:
-        raise RuntimeError("AI purchase advice is not configured correctly") from exc
-    return _normalise_purchase_advice(_json_from_model_text(response.output_text))
+    except errors.ClientError as exc:
+        if exc.code in (401, 403):
+            raise RuntimeError("AI purchase advice is not configured correctly") from exc
+        raise
+    return _normalise_purchase_advice(_json_from_model_text(response.text))
 
 
 @finance_bp.route("/shopping/advise", methods=["POST"])
@@ -2887,7 +2906,7 @@ def _account_balances(records, accounts):
     out = {}
     for acc in accounts:
         name = acc["name"]
-        bal = 0.0
+        bal = acc.get("initial_amount", 0.0)
         for r in records:
             if r.get("account") != name:
                 continue
@@ -3213,9 +3232,9 @@ def data_restore():
 
 # ================= AI: CATEGORISE / REVIEW / AFFORD / ANOMALIES =================
 # ================= AI：自动分类 / 月度回顾 / 负担得起吗 / 异常检测 =================
-# 前三个复用 OpenAI（key 来自 Finance/.env，没配就返回 503，页面照常）；
+# 前三个复用 Gemini（key 来自 Finance/.env，没配就返回 503，页面照常）；
 # 异常检测是纯统计（免费、常开）。
-# The first three reuse OpenAI (key from Finance/.env, 503 when unconfigured,
+# The first three reuse Gemini (key from Finance/.env, 503 when unconfigured,
 # page still works). Anomaly detection is pure statistics — free, always on.
 
 _WORD_RE = re.compile(r"[a-z0-9]+")
@@ -3260,7 +3279,7 @@ def suggest_category():
     schema = {
         "type": "object",
         "properties": {
-            "category": {"type": ["string", "null"], "enum": [*allowed, None]},
+            "category": {"anyOf": [{"type": "string", "enum": [*allowed]}, {"type": "null"}]},
             "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
         },
         "required": ["category", "confidence"],
@@ -3271,7 +3290,7 @@ def suggest_category():
               f"Item description: {item!r}\n"
               f"If none fit, return null.")
     try:
-        result = _openai_structured(prompt, schema, "category_pick", 80)
+        result = _ai_structured(prompt, schema, "category_pick", 80)
     except RuntimeError as exc:
         return jsonify(error=str(exc)), 503
     except (ValueError, json.JSONDecodeError):
@@ -3350,7 +3369,7 @@ def summary_review():
         f"DATA:\n{json.dumps(digest, ensure_ascii=False)}"
     )
     try:
-        result = _openai_structured(prompt, schema, "monthly_review", 400)
+        result = _ai_structured(prompt, schema, "monthly_review", 400)
     except RuntimeError as exc:
         return jsonify(error=str(exc)), 503
     except (ValueError, json.JSONDecodeError):
@@ -3451,7 +3470,7 @@ def afford():
         f"DATA:\n{json.dumps(context, ensure_ascii=False)}"
     )
     try:
-        result = _openai_structured(prompt, schema, "afford_check", 250)
+        result = _ai_structured(prompt, schema, "afford_check", 250)
     except RuntimeError as exc:
         return jsonify(error=str(exc)), 503
     except (ValueError, json.JSONDecodeError):
@@ -3507,7 +3526,7 @@ def _spending_anomalies(records):
 # ================= NEXT-MONTH INCOME FORECAST =================
 # ================= 下月收入预估 =================
 # 兼职/散工收入每月不固定 —— 用过去几个月的收入历史预估下个月能拿多少。
-# 先算一个纯统计的基线（近月加权平均 + 中位数），有 OpenAI key 就让模型
+# 先算一个纯统计的基线（近月加权平均 + 中位数），有 Gemini key 就让模型
 # 结合趋势/波动/定期收入再细化成一个区间。结果缓存在 insights.json。
 # Part-time / gig income varies month to month — this estimates next month
 # from the last few months of income. A pure-statistics baseline first
@@ -3626,7 +3645,7 @@ def forecast_income():
         "generated_at": today_iso(),
     }
 
-    if os.environ.get("OPENAI_API_KEY"):
+    if os.environ.get("GEMINI_API_KEY"):
         schema = {
             "type": "object",
             "properties": {
@@ -3649,7 +3668,7 @@ def forecast_income():
             f"DATA:\n{json.dumps(history, ensure_ascii=False)}"
         )
         try:
-            result = _openai_structured(prompt, schema, "income_forecast", 300)
+            result = _ai_structured(prompt, schema, "income_forecast", 300)
             est = max(0.0, round(float(result["estimate"]), 2))
             lo = max(0.0, round(float(result["low"]), 2))
             hi = max(0.0, round(float(result["high"]), 2))

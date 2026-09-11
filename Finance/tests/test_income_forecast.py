@@ -36,7 +36,7 @@ def test_forecast_needs_two_completed_months(client):
 
 
 def test_forecast_baseline_without_key(client, load, monkeypatch):
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     _account(client)
     _income(client, _month_key(3), 1000)
     _income(client, _month_key(2), 1200)
@@ -56,7 +56,7 @@ def test_forecast_baseline_without_key(client, load, monkeypatch):
 
 def test_forecast_ai_refine(client, monkeypatch):
     import finance_routes
-    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
     captured = {}
 
     def fake(prompt, schema, name, tokens=300):
@@ -64,7 +64,7 @@ def test_forecast_ai_refine(client, monkeypatch):
         return {"estimate": 1150, "low": 900, "high": 1400,
                 "confidence": "medium", "reasoning": "Your shifts have been steady."}
 
-    monkeypatch.setattr(finance_routes, "_openai_structured", fake)
+    monkeypatch.setattr(finance_routes, "_ai_structured", fake)
     _account(client)
     _income(client, _month_key(2), 1000)
     _income(client, _month_key(1), 1300)
@@ -77,8 +77,8 @@ def test_forecast_ai_refine(client, monkeypatch):
 
 def test_forecast_ai_failure_falls_back_to_baseline(client, monkeypatch):
     import finance_routes
-    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
-    monkeypatch.setattr(finance_routes, "_openai_structured",
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    monkeypatch.setattr(finance_routes, "_ai_structured",
                         lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
     _account(client)
     _income(client, _month_key(2), 1000)
@@ -92,8 +92,8 @@ def test_forecast_ai_failure_falls_back_to_baseline(client, monkeypatch):
 
 def test_forecast_ai_output_clamped(client, monkeypatch):
     import finance_routes
-    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
-    monkeypatch.setattr(finance_routes, "_openai_structured", lambda *a, **k: {
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    monkeypatch.setattr(finance_routes, "_ai_structured", lambda *a, **k: {
         "estimate": -50, "low": 2000, "high": 500, "confidence": "banana", "reasoning": "x",
     })
     _account(client)
@@ -107,7 +107,7 @@ def test_forecast_ai_output_clamped(client, monkeypatch):
 
 
 def test_forecast_excludes_transfers(client, monkeypatch):
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     _account(client)
     client.post("/accounts", data={"name": "Save", "purpose": "savings"})
     _income(client, _month_key(2), 1000)
@@ -121,7 +121,7 @@ def test_forecast_excludes_transfers(client, monkeypatch):
 
 
 def test_forecast_shows_on_summary(client, monkeypatch):
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     _account(client)
     _income(client, _month_key(2), 1000)
     _income(client, _month_key(1), 1000)

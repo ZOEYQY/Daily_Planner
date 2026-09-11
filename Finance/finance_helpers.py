@@ -627,9 +627,9 @@ def find_snapshot(snapshots, snap_id):
 # ================= AI INSIGHTS STORE =================
 # ================= AI 洞察存储 =================
 # 缓存 AI 生成的"月度回顾"，按 "YYYY-MM" 存，避免每次打开 Summary 都
-# 重新调用（每次调用都是 OpenAI 费用）。
+# 重新调用（免费额度也有速率限制）。
 # Caches the AI monthly-review text keyed by "YYYY-MM" so opening the
-# Summary page doesn't re-call OpenAI every time (every call costs money).
+# Summary page doesn't re-call the AI every time (even the free tier is rate-limited).
 
 f_insights = os.path.join(DATA_DIR, "insights.json")
 

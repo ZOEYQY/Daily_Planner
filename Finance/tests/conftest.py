@@ -89,8 +89,11 @@ def load(data_dir, profile_id):
 
 @pytest.fixture
 def make_account(client):
-    def _make(name, purpose="spending"):
-        resp = client.post("/accounts", data={"name": name, "purpose": purpose})
+    def _make(name, purpose="spending", initial_amount=None):
+        data = {"name": name, "purpose": purpose}
+        if initial_amount is not None:
+            data["initial_amount"] = str(initial_amount)
+        resp = client.post("/accounts", data=data)
         assert resp.status_code in (200, 302)
         return name
     return _make

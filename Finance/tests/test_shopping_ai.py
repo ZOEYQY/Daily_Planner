@@ -1,6 +1,6 @@
 """AI purchase advisor for shopping-list items.
 
-The OpenAI call itself (``_advise_purchase``) is monkeypatched — these tests
+The Gemini call itself (``_advise_purchase``) is monkeypatched — these tests
 cover the route wiring, persistence, validation, and graceful degradation.
 """
 from conftest import shopping_items
@@ -86,7 +86,7 @@ def test_advise_unknown_item_404(client):
 
 
 def test_advise_without_api_key_is_graceful(client, load, monkeypatch):
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     client.post("/shopping", data={"action": "create", "name": "Lamp", "estimated_price": "60"})
     item_id = shopping_items(load)[0]["id"]
 
