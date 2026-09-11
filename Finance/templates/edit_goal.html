@@ -53,6 +53,12 @@
 
         </div>
 
+        {% if error %}
+        <div class="budget-warning-banner">
+            {{ error }}
+        </div>
+        {% endif %}
+
         <form method="POST">
 
             <div class="form-grid">

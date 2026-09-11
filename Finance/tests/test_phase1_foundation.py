@@ -100,6 +100,7 @@ def test_empty_trash(client, load):
 
 
 def test_goal_contribution_delete_is_soft_and_returns_to_plan(client, load):
+    client.post("/accounts", data={"name": "Bank", "purpose": "savings"})
     client.post("/goals", data={
         "action": "create", "name": "Trip", "target": "1000", "type": "short",
     })
@@ -188,6 +189,23 @@ def test_restore_rejects_bad_json_in_zip(client):
     }, content_type="multipart/form-data")
     assert resp.status_code == 400
     assert "not valid json" in resp.get_data(as_text=True).lower()
+
+
+def test_restore_rejects_wrong_shape_json(client, load):
+    # Valid JSON, but a bare string instead of the list expenses.json needs —
+    # writing this straight through would crash the next page that iterates it.
+    _add(client, item="Untouched")
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("expenses.json", json.dumps("not a list"))
+    buf.seek(0)
+    resp = client.post("/data/restore", data={
+        "backup": (buf, "bad-shape.zip"),
+    }, content_type="multipart/form-data")
+    assert resp.status_code == 400
+    assert "unexpected format" in resp.get_data(as_text=True).lower()
+    # the rejected restore must not have touched existing data
+    assert _records(load)[0]["item"] == "Untouched"
 
 
 def test_data_page_loads(client):

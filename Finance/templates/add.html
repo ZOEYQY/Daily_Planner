@@ -306,6 +306,14 @@
 
                     </select>
 
+                    <small
+                        id="transferError"
+                        class="negative"
+                        style="display:none;"
+                    >
+                        Source and destination accounts must be different.
+                    </small>
+
                 </div>
 
             <div
@@ -1076,14 +1084,46 @@ document.addEventListener("DOMContentLoaded", function () {
         return true;
     }
 
+    // 转账时，来源账户和目标账户不能是同一个 —— 那样等于什么也没转，
+    // 却会同时记一笔"转出"和一笔"转入"，让交易记录变得混乱。
+    // For a transfer, the source and destination accounts can't be the
+    // same — that would move nothing while still recording a "transfer
+    // out" and a "transfer in", polluting the transaction history.
+    function validateTransfer() {
+
+        const typeSelect = document.getElementById("typeSelect");
+        const transferError = document.getElementById("transferError");
+
+        if (!typeSelect || typeSelect.value !== "transfer" || !transferError) {
+            return true;
+        }
+
+        const from = accountSelect ? accountSelect.value : "";
+        const to = document.getElementById("toAccountSelect");
+        const toValue = to ? to.value : "";
+
+        if (from && toValue && from === toValue) {
+            transferError.style.display = "block";
+            transferError.scrollIntoView({
+                behavior: "smooth",
+                block: "center"
+            });
+            return false;
+        }
+
+        transferError.style.display = "none";
+
+        return true;
+    }
+
     document.getElementById("addForm")
         .addEventListener("submit", function(e) {
-            if (!validateAmount()) {
-                // 金额不合法时阻止表单真正提交出去，
-                // 让用户先看到错误提示、把金额改对再重新提交。
-                // Blocks the form from actually submitting when the amount
-                // is invalid, so the user sees the error and fixes the
-                // amount before resubmitting.
+            if (!validateAmount() || !validateTransfer()) {
+                // 校验没通过时阻止表单真正提交出去，
+                // 让用户先看到错误提示、改对了再重新提交。
+                // Blocks the form from actually submitting when validation
+                // fails, so the user sees the error and fixes it before
+                // resubmitting.
                 e.preventDefault();
             }
         });

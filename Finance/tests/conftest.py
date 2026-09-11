@@ -40,6 +40,15 @@ def _patched_helpers(data_dir, tmp_path, monkeypatch):
     monkeypatch.setattr(finance_helpers, "PROFILES_ROOT", str(data_dir / "profiles"))
     monkeypatch.setattr(finance_helpers, "PROFILES_INDEX_FILE", str(data_dir / "profiles.json"))
     monkeypatch.setattr(finance_helpers, "RECEIPTS_ROOT", str(receipts_root))
+
+    # Tests must never depend on whatever real key happens to be sitting in
+    # Finance/.env — clear it by default so every AI-touching route takes its
+    # "not configured" path unless a test explicitly opts back in with
+    # monkeypatch.setenv(...). Without this, a test that forgets to mock the
+    # AI call doesn't just get a deterministic 503; it can silently fire a
+    # real network request against a real API key.
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+
     return finance_helpers
 
 
