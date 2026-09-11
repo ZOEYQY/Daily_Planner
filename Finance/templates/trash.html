@@ -25,6 +25,7 @@
         <a href="{{ url_for('finance.categories') }}">Categories</a>
         <a href="{{ url_for('finance.currency') }}">Currency</a>
         <a href="{{ url_for('finance.data_tools') }}">Data</a>
+        <a href="{{ url_for('finance.profiles_page') }}">👤 {{ current_profile.name if current_profile else 'Profile' }}</a>
     </div>
 </div>
 

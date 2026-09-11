@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <title>Who's using Finance?</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='finance.css') }}">
+    <style>
+        .profile-grid { display: flex; gap: 12px; flex-wrap: wrap; margin: 14px 0; }
+        .profile-card {
+            width: 160px; border: 1px solid var(--border); border-radius: var(--radius);
+            padding: 16px; text-align: center;
+        }
+        .profile-card.is-current { border-color: var(--border-strong); }
+        .profile-avatar {
+            width: 48px; height: 48px; border-radius: 50%; margin: 0 auto 10px;
+            background: var(--surface-alt); display: flex; align-items: center;
+            justify-content: center; font-size: 18px; font-weight: 700;
+        }
+        .profile-name { font-weight: 700; font-size: 14px; margin-bottom: 10px; word-break: break-word; }
+        .profile-current-tag { font-size: 11px; color: var(--text-muted); margin-bottom: 8px; }
+        details.profile-manage { margin-top: 8px; text-align: left; }
+        details.profile-manage summary { cursor: pointer; font-size: 12px; color: var(--text-muted); text-align: center; }
+        details.profile-manage .add-form { margin-top: 8px; }
+        details.profile-manage input { font-size: 12px; }
+        details.profile-manage button { font-size: 12px; padding: 4px 8px; }
+    </style>
+</head>
+
+<body>
+
+<div class="topbar">
+    <div class="topbar-title">Who's using Finance?</div>
+    <div class="topbar-links">
+        {% if current_profile %}
+        <a href="{{ url_for('finance.finance_home') }}">Back to Dashboard</a>
+        {% endif %}
+    </div>
+</div>
+
+<div class="summary-wrapper">
+
+    <div class="summary-card hover-card">
+
+        <div class="page-header">
+            <h1 class="summary-main-title">Who's using Finance?</h1>
+            <p class="add-subtitle">
+                Each profile keeps its own completely separate records, budgets, goals,
+                and everything else — nothing here is shared between profiles.
+                This is a simple name-only switcher, not a password-protected login
+                (that can be added later).
+            </p>
+        </div>
+
+        {% if error %}
+        <div class="insight-box" style="margin-bottom:16px;"><p class="negative">{{ error }}</p></div>
+        {% endif %}
+
+        <div class="profile-grid">
+            {% for p in profiles %}
+            <div class="profile-card {{ 'is-current' if p.id == current_id else '' }}">
+                <div class="profile-avatar">{{ p.name[:1] | upper }}</div>
+                <div class="profile-name">{{ p.name }}</div>
+                {% if p.id == current_id %}
+                <div class="profile-current-tag">Currently active</div>
+                {% endif %}
+
+                <form method="POST" action="{{ url_for('finance.switch_profile_route') }}">
+                    <input type="hidden" name="id" value="{{ p.id }}">
+                    <input type="hidden" name="next" value="{{ next_url }}">
+                    <button type="submit" class="primary-btn" style="width:100%;">
+                        {% if p.id == current_id %}Continue{% else %}Switch to{% endif %}
+                    </button>
+                </form>
+
+                <details class="profile-manage">
+                    <summary>Rename / delete</summary>
+                    <form method="POST" action="{{ url_for('finance.rename_profile_route', profile_id=p.id) }}" class="add-form">
+                        <input type="text" name="name" value="{{ p.name }}" required>
+                        <button type="submit">Rename</button>
+                    </form>
+                    <form method="POST" action="{{ url_for('finance.delete_profile_route', profile_id=p.id) }}" class="add-form"
+                          onsubmit="return confirm('Delete {{ p.name }} and ALL of its Finance data? This cannot be undone.');">
+                        <input type="text" name="confirm_name" placeholder="Type &quot;{{ p.name }}&quot; to confirm" required>
+                        <button type="submit" class="delete-btn">Delete profile</button>
+                    </form>
+                </details>
+            </div>
+            {% endfor %}
+        </div>
+
+        {% if current_profile %}
+        <form method="POST" action="{{ url_for('finance.switch_off_profile_route') }}" style="margin-bottom:18px;">
+            <button type="submit" class="secondary-btn">Not {{ current_profile.name }}? Switch off</button>
+        </form>
+        {% endif %}
+
+        <div style="border-top:1px solid var(--border);padding-top:16px;">
+            <h3>Add a new profile</h3>
+            <form method="POST" action="{{ url_for('finance.create_profile_route') }}" class="add-form">
+                <input type="hidden" name="next" value="{{ next_url }}">
+                <label>Name</label>
+                <input type="text" name="name" placeholder="Example: Zoey" required>
+                <div class="add-button-row">
+                    <button type="submit" class="primary-btn">Create &amp; switch to it</button>
+                </div>
+            </form>
+        </div>
+
+    </div>
+
+</div>
+
+</body>
+</html>

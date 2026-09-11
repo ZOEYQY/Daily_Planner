@@ -34,6 +34,8 @@
         <a href="{{ url_for('finance.shopping') }}">Shopping</a>
         <a href="{{ url_for('finance.categories') }}">Categories</a>
         <a href="{{ url_for('finance.currency') }}">Currency</a>
+        <a href="{{ url_for('finance.data_tools') }}">Data</a>
+        <a href="{{ url_for('finance.profiles_page') }}">👤 {{ current_profile.name if current_profile else 'Profile' }}</a>
     </div>
 
 </div>
@@ -70,6 +72,7 @@
 
             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
                 <a href="{{ url_for('finance.data_tools') }}" class="secondary-btn">Export / Backup</a>
+                <a href="{{ url_for('finance.profiles_page') }}">👤 {{ current_profile.name if current_profile else 'Profile' }}</a>
                 <a href="{{ url_for('finance.trash') }}" class="secondary-btn">
                     Trash{% if trash_count %} ({{ trash_count }}){% endif %}
                 </a>

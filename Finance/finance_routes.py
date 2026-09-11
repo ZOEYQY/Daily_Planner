@@ -1,4 +1,4 @@
-from flask import Blueprint, render_template, request, redirect, url_for, Response, jsonify
+from flask import Blueprint, render_template, request, redirect, url_for, Response, jsonify, session, g
 import base64
 import calendar
 import csv
@@ -33,6 +33,8 @@ try:
         load_networth, save_networth, find_snapshot,
         load_insights, save_insights,
         load_rates, save_rates, find_rate, clean_currency_code, BASE_CURRENCY,
+        load_profiles, save_profiles, find_profile, ensure_default_profile,
+        create_profile, rename_profile, delete_profile, apply_profile_paths,
     )
 except ImportError:
     # Plain import: used when running Finance/app.py directly, where
@@ -54,6 +56,8 @@ except ImportError:
         load_networth, save_networth, find_snapshot,
         load_insights, save_insights,
         load_rates, save_rates, find_rate, clean_currency_code, BASE_CURRENCY,
+        load_profiles, save_profiles, find_profile, ensure_default_profile,
+        create_profile, rename_profile, delete_profile, apply_profile_paths,
     )
 
 # Load Finance/.env (if present) so OPENAI_API_KEY / OPENAI_RECEIPT_MODEL can
@@ -98,6 +102,136 @@ def _store_paths():
         "insights.json": _fh.f_insights,
         "rates.json": _fh.f_rates,
     }
+
+
+# ================= PROFILES (simple multi-user) =================
+# ================= 用户档案（简单多用户） =================
+# 每个请求开始时，把本模块的 f_expense/f_budget/f_accounts/f_goals/
+# RECEIPTS_DIR（以及 finance_helpers 里对应的那一批）都指向当前会话
+# 选中的 profile —— 这样上面/下面几十个路由函数完全不用改一行，
+# 它们读到的还是同一个模块级变量名，只是现在这个变量在每个请求前
+# 被重新赋值成"这个 profile 的文件"。还没选 profile 就先送去 /profiles。
+# At the start of every request, this module's f_expense/f_budget/
+# f_accounts/f_goals/RECEIPTS_DIR (and finance_helpers' matching set) get
+# repointed at whichever profile is active in the session — so the dozens of
+# route functions above and below never change at all; they still read the
+# same module-level names, those names just get reassigned per request.
+# No profile chosen yet → sent to /profiles first.
+
+_PROFILE_EXEMPT_ENDPOINTS = {
+    "finance.profiles_page",
+    "finance.create_profile_route",
+    "finance.switch_profile_route",
+    "finance.rename_profile_route",
+    "finance.delete_profile_route",
+    "finance.switch_off_profile_route",
+}
+
+
+@finance_bp.before_request
+def _activate_profile():
+    profile_id = session.get("profile_id")
+    active = find_profile(load_profiles(), profile_id) if profile_id else None
+
+    if not active:
+        if request.endpoint in _PROFILE_EXEMPT_ENDPOINTS:
+            # Don't bootstrap a profile just because someone hit a
+            # profile-management route (e.g. /profiles/create itself
+            # creates the one and only profile — no phantom extra one).
+            return None
+        # First time anything actually needs a profile to exist: bootstrap
+        # one, migrating pre-profiles flat data into it if there is any.
+        load_profiles() or ensure_default_profile()
+        return redirect(url_for("finance.profiles_page", next=request.path))
+
+    paths = apply_profile_paths(active["id"])
+    global f_expense, f_budget, f_accounts, f_goals, RECEIPTS_DIR
+    f_expense = paths["f_expense"]
+    f_budget = paths["f_budget"]
+    f_accounts = paths["f_accounts"]
+    f_goals = paths["f_goals"]
+    RECEIPTS_DIR = paths["RECEIPTS_DIR"]
+    g.profile = active
+    g.profile_id = active["id"]
+    return None
+
+
+@finance_bp.context_processor
+def _inject_current_profile():
+    # Lets every template show "who's using this" without any render_template
+    # call anywhere needing to pass it explicitly.
+    return {"current_profile": getattr(g, "profile", None)}
+
+
+def _render_profiles(error=None):
+    profiles = load_profiles() or ensure_default_profile()
+    return render_template(
+        "profiles.html",
+        profiles=sorted(profiles, key=lambda p: p.get("created_at", "")),
+        current_id=session.get("profile_id"),
+        next_url=request.values.get("next", ""),
+        error=error,
+    )
+
+
+@finance_bp.route("/profiles")
+def profiles_page():
+    return _render_profiles()
+
+
+@finance_bp.route("/profiles/create", methods=["POST"])
+def create_profile_route():
+    name = (request.form.get("name") or "").strip()
+    if not name:
+        return _render_profiles(error="Enter a name for the new profile.")
+    profile_id = create_profile(name)
+    session["profile_id"] = profile_id
+    session.permanent = True
+    return redirect(request.form.get("next") or url_for("finance.finance_home"))
+
+
+@finance_bp.route("/profiles/switch", methods=["POST"])
+def switch_profile_route():
+    profile_id = request.form.get("id")
+    if not find_profile(load_profiles(), profile_id):
+        return _render_profiles(error="That profile no longer exists.")
+    session["profile_id"] = profile_id
+    session.permanent = True
+    return redirect(request.form.get("next") or url_for("finance.finance_home"))
+
+
+@finance_bp.route("/profiles/switch-off", methods=["POST"])
+def switch_off_profile_route():
+    # Not real security — just "this isn't me anymore" on a shared device.
+    session.pop("profile_id", None)
+    return redirect(url_for("finance.profiles_page"))
+
+
+@finance_bp.route("/profiles/<profile_id>/rename", methods=["POST"])
+def rename_profile_route(profile_id):
+    name = (request.form.get("name") or "").strip()
+    if not name:
+        return _render_profiles(error="Enter a name.")
+    if not rename_profile(profile_id, name):
+        return _render_profiles(error="That profile no longer exists.")
+    return redirect(url_for("finance.profiles_page"))
+
+
+@finance_bp.route("/profiles/<profile_id>/delete", methods=["POST"])
+def delete_profile_route(profile_id):
+    profile = find_profile(load_profiles(), profile_id)
+    if not profile:
+        return redirect(url_for("finance.profiles_page"))
+
+    # No password to gate this, so require re-typing the name — deleting a
+    # profile permanently destroys every record/budget/goal/... it has.
+    if (request.form.get("confirm_name") or "").strip().casefold() != profile["name"].casefold():
+        return _render_profiles(error=f'Type "{profile["name"]}" exactly to confirm deleting it.')
+
+    delete_profile(profile_id)
+    if session.get("profile_id") == profile_id:
+        session.pop("profile_id", None)
+    return redirect(url_for("finance.profiles_page"))
 
 
 # ================= TRANSACTION RECORD STORE =================

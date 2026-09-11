@@ -2,6 +2,7 @@ import calendar
 import json
 import os
 import re
+import shutil
 import tempfile
 import uuid
 from datetime import date, datetime, timedelta
@@ -720,3 +721,175 @@ def save_rates(rates):
 
 def find_rate(rates, code):
     return next((r for r in rates if r.get("code") == code), None)
+
+
+# ================= PROFILES (simple multi-user, no password yet) =================
+# ================= 用户档案（简单多用户，暂无密码） =================
+# 一个 profile 只是一个名字 + id —— 不是账号系统，没有密码，"安全性"
+# 以后再加。每个 profile 在 data/profiles/<id>/ 下有自己完整的一套
+# Finance 数据（记录、预算、目标、分类、购物清单……），互不可见。
+# A profile is just a name + id — not a real account system, no password,
+# "security" is meant to be layered on later. Each profile gets its own full
+# set of Finance data (records, budgets, goals, categories, shopping list...)
+# under data/profiles/<id>/, invisible to every other profile.
+
+PROFILES_ROOT = os.path.join(DATA_DIR, "profiles")
+PROFILES_INDEX_FILE = os.path.join(DATA_DIR, "profiles.json")
+RECEIPTS_ROOT = os.path.join(BASE_DIR, "static", "receipts")
+PROFILES_SCHEMA_VERSION = 1
+
+# Every per-profile JSON store filename. Keep this in sync with the store
+# constants below (and with finance_routes._store_paths(), which backup/
+# restore uses) — it's what first-run migration looks for at the old flat
+# Finance/data/<name>.json locations.
+PROFILE_STORE_FILENAMES = (
+    "expenses.json", "budget.json", "accounts.json", "goals.json",
+    "categories.json", "shopping.json", "recurring.json", "debts.json",
+    "networth.json", "insights.json", "rates.json",
+)
+
+
+def load_profiles():
+    raw = load_data(PROFILES_INDEX_FILE, None)
+    if not isinstance(raw, dict) or not isinstance(raw.get("profiles"), list):
+        return []
+    return raw["profiles"]
+
+
+def save_profiles(profiles):
+    save_data(PROFILES_INDEX_FILE, {
+        "schema_version": PROFILES_SCHEMA_VERSION,
+        "profiles": profiles,
+    })
+
+
+def find_profile(profiles, profile_id):
+    return next((p for p in profiles if p.get("id") == profile_id), None)
+
+
+def profile_data_dir(profile_id):
+    d = os.path.join(PROFILES_ROOT, profile_id)
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+def profile_receipts_dir(profile_id):
+    d = os.path.join(RECEIPTS_ROOT, profile_id)
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+def profile_store_paths(profile_id):
+    """``{module-global-name: absolute path}`` for one profile's stores,
+    covering both this module's and finance_routes'. See apply_profile_paths."""
+    d = profile_data_dir(profile_id)
+    return {
+        "f_expense": os.path.join(d, "expenses.json"),
+        "f_budget": os.path.join(d, "budget.json"),
+        "f_accounts": os.path.join(d, "accounts.json"),
+        "f_goals": os.path.join(d, "goals.json"),
+        "f_categories": os.path.join(d, "categories.json"),
+        "f_shopping": os.path.join(d, "shopping.json"),
+        "f_recurring": os.path.join(d, "recurring.json"),
+        "f_debts": os.path.join(d, "debts.json"),
+        "f_networth": os.path.join(d, "networth.json"),
+        "f_insights": os.path.join(d, "insights.json"),
+        "f_rates": os.path.join(d, "rates.json"),
+        "RECEIPTS_DIR": profile_receipts_dir(profile_id),
+    }
+
+
+def apply_profile_paths(profile_id):
+    """Point every per-profile store at ``profile_id``'s data by reassigning
+    this module's own f_* globals (finance_routes reassigns its own f_expense/
+    f_budget/f_accounts/f_goals/RECEIPTS_DIR the same way in its
+    before_request hook). Mutating module globals instead of threading a
+    profile id through every one of the ~40 routes keeps this a small,
+    localized change — safe here because the app has no concurrent-request
+    handling (single dev-server process), same as every other global this
+    codebase already relies on. Returns the full path dict for the caller."""
+    paths = profile_store_paths(profile_id)
+    globals().update({
+        "f_categories": paths["f_categories"],
+        "f_shopping": paths["f_shopping"],
+        "f_recurring": paths["f_recurring"],
+        "f_debts": paths["f_debts"],
+        "f_networth": paths["f_networth"],
+        "f_insights": paths["f_insights"],
+        "f_rates": paths["f_rates"],
+    })
+    return paths
+
+
+def _migrate_legacy_flat_data(target_profile_id):
+    """One-time upgrade: if Finance/data/<name>.json files exist flat (the
+    pre-profiles layout), move them into the new profile's own folder instead
+    of leaving them behind or silently losing them. Also moves any flat
+    receipt images. Returns True if anything was moved."""
+    moved = False
+    target_dir = profile_data_dir(target_profile_id)
+    for name in PROFILE_STORE_FILENAMES:
+        legacy_path = os.path.join(DATA_DIR, name)
+        target_path = os.path.join(target_dir, name)
+        if os.path.exists(legacy_path) and not os.path.exists(target_path):
+            os.replace(legacy_path, target_path)
+            moved = True
+
+    if os.path.isdir(RECEIPTS_ROOT):
+        target_receipts = profile_receipts_dir(target_profile_id)
+        for fname in os.listdir(RECEIPTS_ROOT):
+            src = os.path.join(RECEIPTS_ROOT, fname)
+            if os.path.isfile(src):
+                dst = os.path.join(target_receipts, fname)
+                if not os.path.exists(dst):
+                    os.replace(src, dst)
+                    moved = True
+    return moved
+
+
+def ensure_default_profile():
+    """Called on first use: if no profile exists yet, create one — migrating
+    any pre-profiles flat data into it so nothing already recorded is lost."""
+    profiles = load_profiles()
+    if profiles:
+        return profiles
+    profile_id = new_id()
+    moved = _migrate_legacy_flat_data(profile_id)
+    profiles = [{
+        "id": profile_id,
+        "name": "My Finance" if moved else "Profile 1",
+        "created_at": today_iso(),
+    }]
+    save_profiles(profiles)
+    return profiles
+
+
+def create_profile(name):
+    profiles = load_profiles()
+    profile_id = new_id()
+    profiles.append({
+        "id": profile_id,
+        "name": (name or "").strip()[:60] or "Unnamed",
+        "created_at": today_iso(),
+    })
+    save_profiles(profiles)
+    profile_data_dir(profile_id)  # create its folder eagerly
+    return profile_id
+
+
+def rename_profile(profile_id, name):
+    profiles = load_profiles()
+    profile = find_profile(profiles, profile_id)
+    if profile and (name or "").strip():
+        profile["name"] = name.strip()[:60]
+        save_profiles(profiles)
+    return profile
+
+
+def delete_profile(profile_id):
+    """Removes the profile entry and permanently deletes all of its data."""
+    profiles = load_profiles()
+    profiles = [p for p in profiles if p.get("id") != profile_id]
+    save_profiles(profiles)
+    shutil.rmtree(profile_data_dir(profile_id), ignore_errors=True)
+    shutil.rmtree(profile_receipts_dir(profile_id), ignore_errors=True)
