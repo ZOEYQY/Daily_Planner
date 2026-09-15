@@ -1,5 +1,0 @@
-# Test-only dependencies for the Finance module.
-#   pip install -r Finance/requirements.txt -r Finance/requirements-dev.txt
-#   pytest Finance/tests
--r requirements.txt
-pytest>=8,<10
