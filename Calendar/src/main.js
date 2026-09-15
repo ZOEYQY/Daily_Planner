@@ -12,8 +12,10 @@ import { renderAddChooserModal } from "./render/addChooserModal.js";
 import { renderAuthModal } from "./render/authViews.js";
 import { renderProfileModal } from "./render/profileModal.js";
 import { showToast } from "./render/notify.js";
-import { resolveOccurrence, isRepeating } from "./selectors.js";
-import { minutesFromMidnight, minutesToHHMM } from "./dateUtils.js";
+import { resolveOccurrence, isRepeating, getDayTodos } from "./selectors.js";
+import { daysOverdue } from "./rescheduleTracking.js";
+import { minutesFromMidnight, minutesToHHMM, toISODate, today } from "./dateUtils.js";
+import { esc } from "./utils.js";
 
 const els = {
   topbar: document.getElementById("topbar"),
@@ -66,6 +68,7 @@ const actions = {
   setTodoShowDetail: (v) => store.setTodoShowDetail(v),
   setTodoUrgentThresholdHours: (v) => store.setTodoUrgentThresholdHours(v),
   setTodoDisplayMode: (v) => store.setTodoDisplayMode(v),
+  setTodoNag: (v) => store.setTodoNag(v),
   setTodoSortMode: (v) => store.setTodoSortMode(v),
   setTodoOrder: (ids) => store.setTodoOrder(ids),
   setTodoPanelCollapsed: (v) => store.setTodoPanelCollapsed(v),
@@ -133,6 +136,40 @@ function render(state) {
   } else {
     els.placementBanner.style.display = "none";
   }
+
+  maybeShowTodoNag(state);
+}
+
+// Once-a-day reminder of the to-dos you're behind on (Settings › To-Do › Nag).
+// Called from render(); self-limits via nagPending + the persisted
+// todoNagLastShown stamp so it fires at most once per calendar day. The actual
+// toast + stamp are deferred to a microtask so they never re-enter render().
+let nagPending = true;
+function maybeShowTodoNag(state) {
+  if (!nagPending || state.todoNag === false) return;
+  const todayISO = toISODate(today());
+  if (state.todoNagLastShown === todayISO) {
+    nagPending = false;
+    return;
+  }
+  nagPending = false;
+
+  const late = getDayTodos(state, todayISO)
+    .map((t) => ({ t, d: daysOverdue(t, todayISO) }))
+    .filter((x) => x.d > 0)
+    .sort((a, b) => b.d - a.d);
+
+  queueMicrotask(() => {
+    store.markTodoNagShown(todayISO);
+    if (!late.length) return;
+    const worst = late[0];
+    const more = late.length - 1;
+    const msg =
+      `You're behind on ${late.length} to-do${late.length > 1 ? "s" : ""}. ` +
+      `Oldest: “${esc(worst.t.title)}” — ${worst.d}d late` +
+      (more > 0 ? ` · +${more} more` : "");
+    showToast(msg, { variant: "danger" });
+  });
 }
 
 // ---- Selected-card clipboard (Ctrl+C/Ctrl+V/Delete) — see dayGridView.js's
@@ -273,6 +310,7 @@ if (authStore.state.currentUserId) store.switchUser(authStore.state.currentUserI
 store.subscribe(render);
 authStore.subscribe((authState) => {
   if (authState.currentUserId !== store.userId) {
+    nagPending = true; // re-check the overdue nag against the new account's to-dos
     store.switchUser(authState.currentUserId); // triggers render via store's own listeners
   } else {
     render(store.state); // same user — e.g. rename, resend code — nothing for `store` to react to

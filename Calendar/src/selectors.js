@@ -1,4 +1,5 @@
 import { parseISODate, nthWeekdayOfMonth, weeksBetween, monthsBetween, yearsBetween, today, toISODate } from "./dateUtils.js";
+import { daysOverdue } from "./rescheduleTracking.js";
 
 const FALLBACK_CATEGORY = { id: "", name: "Uncategorized", colors: [] };
 const FALLBACK_COLOR = { id: "", name: "", value: "#898781", enabledFields: [] };
@@ -290,7 +291,15 @@ export function getDayTodos(state, iso) {
       ? !t.dueDate || t.dueDate <= todayISO
       : t.dueDate === iso && iso > todayISO
   );
-  return sortTodos(state, forDay);
+  const sorted = sortTodos(state, forDay);
+  // Nag mode (Settings › To-Do, on by default): the things you've been avoiding
+  // shouldn't be buried mid-list. Float every overdue to-do to the top, most
+  // days-late first, above whatever order the rest are in.
+  if (state?.todoNag === false) return sorted;
+  const withDays = sorted.map((t) => [t, daysOverdue(t, todayISO)]);
+  const late = withDays.filter(([, d]) => d > 0).sort((a, b) => b[1] - a[1]);
+  const rest = withDays.filter(([, d]) => d === 0);
+  return [...late, ...rest].map(([t]) => t);
 }
 
 // Whether an open to-do's chip should switch to its urgent/red styling —

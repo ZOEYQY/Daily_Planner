@@ -88,5 +88,113 @@
     "item": "WYM KITCHEN",
     "amount": 49.6,
     "receipt": null
+  },
+  {
+    "date": "2026-09-04",
+    "type": "expense",
+    "category": "Food",
+    "account": "TNG",
+    "item": "DK",
+    "amount": 18.7,
+    "receipt": null
+  },
+  {
+    "date": "2026-09-06",
+    "type": "income",
+    "category": "Gift",
+    "account": "TNG",
+    "item": "\u901b\u8857with JY XY",
+    "amount": 150.0,
+    "receipt": null
+  },
+  {
+    "date": "2026-09-06",
+    "type": "expense",
+    "category": "Food",
+    "account": "TNG",
+    "item": "BOOST",
+    "amount": 10.9,
+    "receipt": null
+  },
+  {
+    "date": "2026-09-06",
+    "type": "expense",
+    "category": "Food",
+    "account": "TNG",
+    "item": "NAISNOW - MUSANG KING SNOW CAKE",
+    "amount": 27.8,
+    "receipt": null
+  },
+  {
+    "date": "2026-09-06",
+    "type": "expense",
+    "category": "Food",
+    "account": "TNG",
+    "item": "DUNKIN TRX - CELINE BREAKFAST",
+    "amount": 4.8,
+    "receipt": null
+  },
+  {
+    "date": "2026-09-07",
+    "type": "expense",
+    "category": "Food",
+    "account": "TNG",
+    "item": "SUSHI JIRO - HANG OUT WITH ETHAN ",
+    "amount": 36.45,
+    "receipt": null
+  },
+  {
+    "date": "2026-09-07",
+    "type": "expense",
+    "category": "Food",
+    "account": "TNG",
+    "item": "HAPPY POTATO - HANG OUT WITH ETAHN",
+    "amount": 14.9,
+    "receipt": null
+  },
+  {
+    "date": "2026-09-07",
+    "type": "expense",
+    "category": "Bills",
+    "account": "TNG",
+    "item": "GOOGLE SUBSCRIB",
+    "amount": 11.99,
+    "receipt": null
+  },
+  {
+    "date": "2026-09-08",
+    "type": "expense",
+    "category": "Other",
+    "account": "TNG",
+    "item": "MEDICTION - UCLER",
+    "amount": 6.5,
+    "receipt": null
+  },
+  {
+    "date": "2026-09-08",
+    "type": "income",
+    "category": "Salary",
+    "account": "TNG",
+    "item": "BM LIEW SHAN MEI",
+    "amount": 60.0,
+    "receipt": null
+  },
+  {
+    "date": "2026-09-08",
+    "type": "expense",
+    "category": "Food",
+    "account": "TNG",
+    "item": "MURNIMAN - DINNER",
+    "amount": 56.2,
+    "receipt": null
+  },
+  {
+    "date": "2026-09-05",
+    "type": "income",
+    "category": "Gift",
+    "account": "TNG",
+    "item": "MUMMY - EXTRA FOR EDU",
+    "amount": 200.0,
+    "receipt": null
   }
 ]

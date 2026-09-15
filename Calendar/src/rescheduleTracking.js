@@ -1,8 +1,26 @@
-import { toISODate, today } from "./dateUtils.js";
+import { toISODate, today, daysBetweenISO } from "./dateUtils.js";
 
 // A task is overdue if it has a due date in the past and isn't done yet.
 export function isOverdue(task, todayISO = toISODate(today())) {
   return !!task.dueDate && task.dueDate < todayISO && !task.done;
+}
+
+// Whole days a to-do has been sitting past its deadline (0 if not overdue).
+// Drives the "nag" escalation — see overdueSeverity and getDayTodos.
+export function daysOverdue(task, todayISO = toISODate(today())) {
+  if (!isOverdue(task, todayISO)) return 0;
+  return Math.max(0, daysBetweenISO(task.dueDate, todayISO));
+}
+
+// Buckets days-overdue into an escalation level 0-4. The To-Do panel's nag
+// styling (calendar.css .nag-sev-*) gets louder at each step: a week late is
+// visibly worse than a day late, two weeks late pulses.
+export function overdueSeverity(days) {
+  if (days <= 0) return 0;
+  if (days <= 2) return 1;
+  if (days <= 6) return 2;
+  if (days <= 13) return 3;
+  return 4;
 }
 
 /**

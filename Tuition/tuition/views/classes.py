@@ -10,7 +10,7 @@ from ..util import (parse_int, smartcase, titlecase_name, pick_avatar_color,
                     derive_full_name, age_from_dob)
 from ..engine import (this_month, add_months, to_cents, resolve_lesson_fee, STATUS_KEYS,
                       forecast_expected_for, class_month_finance, class_stats, sync_month,
-                      class_bill_mode, CLASS_LEVEL_MODES, PAYMENT_METHODS)
+                      class_bill_mode, CLASS_LEVEL_MODES, PAYMENT_METHODS, teacher_commission)
 from .attendance import build_matrix
 
 bp = Blueprint("classes", __name__)
@@ -164,13 +164,13 @@ def new():
             flash(t("agent_required"), "error")
             return redirect(url_for("classes.new"))
         cid = execute(
-            """INSERT INTO classes (name, subject, level, kind, teacher,
+            """INSERT INTO classes (name, subject, level, kind, teacher, teacher_id,
                                     fee_model, pricing, default_fee_cents, status,
                                     bill_mode, lesson_fee_cents, base_fee_cents, base_head_count,
                                     per_head_cents, agent_name, agent_phone, billed_family_id)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (_resolve_class_name(f), smartcase(f.get("subject")), smartcase(f.get("level")),
-             kind, smartcase(f.get("teacher")),
+             kind, smartcase(f.get("teacher")), parse_int(f.get("teacher_id")) or None,
              _form_fee_model(f), pricing, fee_cents,
              "active" if f.get("status", "active") == "active" else "inactive",
              bm, lesson_fee, base_fee, base_heads, per_head, agent_name, agent_phone, fam_id))
@@ -182,7 +182,8 @@ def new():
     return render_template(
         "classes/form.html", cls=None, schedule={}, kinds=KINDS,
         families=query("SELECT id, name FROM families ORDER BY name"),
-        students=query("SELECT id, full_name FROM students WHERE status != 'left' ORDER BY full_name"))
+        students=query("SELECT id, full_name FROM students WHERE status != 'left' ORDER BY full_name"),
+        teachers=query("SELECT id, full_name FROM teachers WHERE status = 'active' ORDER BY full_name"))
 
 
 NEW_STUDENT_FIELDS = ("name_en", "name_zh", "phone", "gender", "dob", "age",
@@ -274,13 +275,14 @@ def detail(cid):
     finance = class_month_finance(cid, ym)
     stats = class_stats(cid, ym)
     matrix = build_matrix(cid, ym)
+    commission = teacher_commission(cid, ym, stats=stats)
 
     return render_template(
         "classes/detail.html", c=c, tab=tab, ym=ym, schedule=_schedule(cid), stats=stats,
         prev_month=add_months(ym, -1), next_month=add_months(ym, 1),
         enrollments=enr_view, all_students=all_students, enrolled_ids=enrolled_ids,
         finance=finance, matrix=matrix, methods=PAYMENT_METHODS,
-        statuses=STATUS_KEYS)
+        statuses=STATUS_KEYS, commission=commission)
 
 
 @bp.route("/<int:cid>/edit", methods=["GET", "POST"])
@@ -299,13 +301,13 @@ def edit(cid):
             flash(t("agent_required"), "error")
             return redirect(url_for("classes.edit", cid=cid))
         execute(
-            """UPDATE classes SET name=?, subject=?, level=?, kind=?, teacher=?,
+            """UPDATE classes SET name=?, subject=?, level=?, kind=?, teacher=?, teacher_id=?,
                   fee_model=?, pricing=?, default_fee_cents=?, status=?,
                   bill_mode=?, lesson_fee_cents=?, base_fee_cents=?, base_head_count=?, per_head_cents=?,
                   agent_name=?, agent_phone=?, billed_family_id=?
                 WHERE id=?""",
             (_resolve_class_name(f, cid=cid), smartcase(f.get("subject")), smartcase(f.get("level")),
-             kind, smartcase(f.get("teacher")),
+             kind, smartcase(f.get("teacher")), parse_int(f.get("teacher_id")) or None,
              _form_fee_model(f), pricing, fee_cents,
              "active" if f.get("status", "active") == "active" else "inactive",
              bm, lesson_fee, base_fee, base_heads, per_head, agent_name, agent_phone, fam_id, cid))
@@ -317,8 +319,13 @@ def edit(cid):
         flash(t("saved"), "ok")
         return redirect(url_for("classes.detail", cid=cid))
     families = query("SELECT id, name FROM families ORDER BY name")
-    return render_template("classes/form.html", cls=c, kinds=KINDS, families=families,
-                           schedule={r["weekday"]: r for r in _schedule(cid)})
+    return render_template(
+        "classes/form.html", cls=c, kinds=KINDS, families=families,
+        # include the currently-linked teacher even if since set inactive, so
+        # editing the class doesn't silently drop the link
+        teachers=query("SELECT id, full_name FROM teachers WHERE status = 'active' OR id = ? "
+                       "ORDER BY full_name", (c["teacher_id"] or 0,)),
+        schedule={r["weekday"]: r for r in _schedule(cid)})
 
 
 @bp.route("/<int:cid>/delete", methods=["POST"])

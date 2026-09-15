@@ -197,6 +197,70 @@ document.addEventListener('paste', function(e){
 </script>
 {%- endmacro %}
 
+{# A "pick from known options, or type a new one" widget — one pill per
+   option (checkbox for multi=True, radio for a single pick), reusing the
+   .seg pill style. `options` = known values (e.g. util.known_subjects()),
+   `selected` = the ones already chosen. Include chip_picker_script() ONCE
+   per page (it wires every .chip-picker via one delegated listener). #}
+{% macro chip_picker(name, options, selected=[], multi=True, empty_hint='') -%}
+<div class="chip-picker" data-name="{{ name }}" data-multi="{{ 'true' if multi else 'false' }}">
+  <div class="seg chip-picker-list"{% if not options %} hidden{% endif %}>
+    {% for opt in options %}
+    <label><input type="{{ 'checkbox' if multi else 'radio' }}" name="{{ name }}" value="{{ opt }}" {{ 'checked' if opt in selected }}><span>{{ opt }}</span></label>
+    {% endfor %}
+  </div>
+  {% if not options %}<p class="chip-picker-empty">{{ empty_hint }}</p>{% endif %}
+  <div class="chip-picker-add">
+    <input type="text" class="chip-picker-input" placeholder="{{ t('chip_add_placeholder') }}">
+    <button type="button" class="btn sm chip-picker-btn">+ {{ t('add') }}</button>
+  </div>
+</div>
+{%- endmacro %}
+
+{% macro chip_picker_script() -%}
+<script>
+function chipPickerAdd(container) {
+  var input = container.querySelector('.chip-picker-input');
+  var val = (input.value || '').trim();
+  if (!val) return;
+  var list = container.querySelector('.chip-picker-list');
+  var name = container.dataset.name;
+  var multi = container.dataset.multi === 'true';
+  var existing = null;
+  list.querySelectorAll('input').forEach(function (inp) {
+    if (!existing && inp.value.toLowerCase() === val.toLowerCase()) existing = inp;
+  });
+  if (existing) {
+    existing.checked = true;
+  } else {
+    var label = document.createElement('label');
+    var inp = document.createElement('input');
+    inp.type = multi ? 'checkbox' : 'radio';
+    inp.name = name;
+    inp.value = val;
+    inp.checked = true;
+    var span = document.createElement('span');
+    span.textContent = val;
+    label.appendChild(inp);
+    label.appendChild(span);
+    list.appendChild(label);
+  }
+  list.hidden = false;
+  input.value = '';
+  input.focus();
+}
+document.addEventListener('click', function (e) {
+  if (e.target.classList.contains('chip-picker-btn')) chipPickerAdd(e.target.closest('.chip-picker'));
+});
+document.addEventListener('keydown', function (e) {
+  if (e.key === 'Enter' && e.target.classList.contains('chip-picker-input')) {
+    e.preventDefault();
+    chipPickerAdd(e.target.closest('.chip-picker'));
+  }
+});
+</script>
+{%- endmacro %}
+
 {% macro avatar(name, color, big=False) -%}
 {% set parts = name.split() %}
 {% set ini = (parts[0][0] ~ (parts[-1][0] if parts|length > 1 else (parts[0][1] if parts[0]|length > 1 else '')))|upper %}

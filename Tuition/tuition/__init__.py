@@ -81,7 +81,9 @@ def create_app(data_dir=None):
     # ── blueprints ─────────────────────────────────────────────────
     from .auth import bp as auth_bp
     from .views.students import bp as students_bp
+    from .views.prospects import bp as prospects_bp
     from .views.classes import bp as classes_bp
+    from .views.teachers import bp as teachers_bp
     from .views.attendance import bp as attendance_bp
     from .views.finance import bp as finance_bp
     from .views.bills import bp as bills_bp
@@ -90,7 +92,9 @@ def create_app(data_dir=None):
 
     app.register_blueprint(auth_bp, url_prefix="/auth")
     app.register_blueprint(students_bp, url_prefix="/students")
+    app.register_blueprint(prospects_bp, url_prefix="/prospects")
     app.register_blueprint(classes_bp, url_prefix="/classes")
+    app.register_blueprint(teachers_bp, url_prefix="/teachers")
     app.register_blueprint(attendance_bp, url_prefix="/attendance")
     app.register_blueprint(finance_bp, url_prefix="/finance")
     app.register_blueprint(bills_bp, url_prefix="/bills")

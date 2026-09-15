@@ -13,7 +13,7 @@ const UNDOABLE_KEYS = [
   "categories", "tasks", "events", "specialDays", "customFieldDefs", "customDates",
   "showWeekTray", "showDayTray", "showTodoTargetTab", "weekStartsOn", "dayStartHour",
   "todoDeadlineRequired", "todoShowDetail", "todoUrgentThresholdHours", "timePickerStyle",
-  "todoDisplayMode", "todoSortMode", "todoOrder",
+  "todoDisplayMode", "todoSortMode", "todoOrder", "todoNag",
 ];
 const HISTORY_LIMIT = 50;
 
@@ -146,6 +146,7 @@ function persist(state, userId) {
     showWeekTray, showDayTray, showTodoTargetTab, weekTrayCollapsed, dayTrayCollapsed,
     weekStartsOn, dayStartHour, todoDeadlineRequired, todoShowDetail, todoUrgentThresholdHours,
     todoDisplayMode, todoSortMode, todoOrder, todoPanelCollapsed, todoPanelDate,
+    todoNag, todoNagLastShown,
     timePickerStyle, categoryFilterActive, categoryFilterIds, view, cursorDate, modal,
   } = state;
   try {
@@ -176,6 +177,8 @@ function persist(state, userId) {
         todoOrder,
         todoPanelCollapsed,
         todoPanelDate,
+        todoNag,
+        todoNagLastShown,
         timePickerStyle,
         categoryFilterActive,
         categoryFilterIds,
@@ -254,6 +257,16 @@ function initialState(userId = null) {
     // visible 5-day window on render (see dayGridView.js). A view preference
     // like cursorDate: persisted, not undoable.
     todoPanelDate: persisted?.todoPanelDate || toISODate(today()),
+    // "Nag" mode for overdue to-dos (Settings › To-Do). On by default. When on,
+    // the To-Do panel floats overdue items to the top worst-first, paints them
+    // with an escalating red that gets louder the longer they're late (see
+    // overdueSeverity in rescheduleTracking.js, .nag-sev-* in calendar.css),
+    // shows a days-late counter on each, a summary line in the panel header, and
+    // a once-a-day reminder toast. Undoable like the rest of this section.
+    todoNag: persisted?.todoNag ?? true,
+    // ISO date the daily nag toast last fired — so it shows at most once per day
+    // (see maybeShowTodoNag in main.js). A view preference, not undoable.
+    todoNagLastShown: persisted?.todoNagLastShown || "",
     // "native" (browser's own time picker), "text" (type e.g. "2:30 PM"), or
     // "clock" (tap-to-select dial popup) — see timeInput.js, used by every
     // time field in the app (Add/Edit modal's Start/End, the To-Do deadline).
@@ -622,6 +635,18 @@ class Store {
 
   setTodoDisplayMode(mode) {
     this.set({ todoDisplayMode: mode });
+  }
+
+  // On/off for overdue-to-do nagging — see todoNag in initialState().
+  setTodoNag(on) {
+    this.set({ todoNag: on });
+  }
+
+  // Records that today's nag reminder has been shown (main.js) so it fires at
+  // most once a day. Not in UNDOABLE_KEYS, so it persists without touching undo
+  // history; the one extra render it triggers is a no-op for the nag check.
+  markTodoNagShown(isoDate) {
+    this.set({ todoNagLastShown: isoDate });
   }
 
   // "deadline" | "manual" — see todoSortMode in initialState().

@@ -16,7 +16,9 @@
         ('attendance.today', 'nav_today', '&#9733;', 'attendance.today'),
         ('attendance.index', 'nav_attendance', '✓', 'attendance.index'),
         ('students.index', 'nav_students', '&#128100;', 'students'),
+        ('prospects.index', 'nav_prospects', '&#128269;', 'prospects'),
         ('classes.index', 'nav_classes', '▤', 'classes'),
+        ('teachers.index', 'nav_teachers', '&#127891;', 'teachers'),
         ('finance.index', 'nav_finance', '&#36;', 'finance'),
         ('bills.index', 'nav_bills', '&#129534;', 'bills'),
         ('reports.index', 'nav_reports', '&#128202;', 'reports'),
@@ -63,6 +65,7 @@
   <form>
     <div class="btn-row" style="flex-direction:column;align-items:stretch">
       <a class="btn" href="{{ url_for('students.new') }}">+ {{ t('add_student') }}</a>
+      <a class="btn" href="{{ url_for('prospects.new') }}">+ {{ t('add_prospect') }}</a>
       <a class="btn" href="{{ url_for('classes.new') }}">+ {{ t('add_class') }}</a>
       <a class="btn" href="{{ url_for('attendance.today') }}">+ {{ t('record_attendance') }}</a>
       <a class="btn" href="{{ url_for('finance.index', tab='collect') }}">+ {{ t('record_payment') }}</a>

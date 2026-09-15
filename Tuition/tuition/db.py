@@ -65,6 +65,9 @@ def _run_migrations(con):
 
     if "address" not in cols("students"):
         con.execute("ALTER TABLE students ADD COLUMN address TEXT")
+    for col, decl in (("match_subject", "TEXT"), ("match_day", "INTEGER"), ("match_time", "TEXT")):
+        if col not in cols("students"):
+            con.execute(f"ALTER TABLE students ADD COLUMN {col} {decl}")
 
     con.execute("""CREATE TABLE IF NOT EXISTS families (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -93,6 +96,7 @@ def _run_migrations(con):
         ("agent_name", "TEXT"),
         ("agent_phone", "TEXT"),
         ("billed_family_id", "INTEGER REFERENCES families(id) ON DELETE SET NULL"),
+        ("teacher_id", "INTEGER REFERENCES teachers(id) ON DELETE SET NULL"),
     ):
         if col not in ccols:
             con.execute(f"ALTER TABLE classes ADD COLUMN {col} {decl}")
@@ -150,6 +154,52 @@ def _run_migrations(con):
         con.execute(
             "INSERT INTO class_schedule (class_id, weekday, start_time, end_time) VALUES (?,?,?,?)",
             (row[0], row[1], row[2], row[3]))
+
+    # prospects (added 2026-09-14, then extended with age/budget/start_date +
+    # a weekly-availability table 2026-09-16)
+    for col, decl in (
+        ("age", "INTEGER"),
+        ("budget_cents", "INTEGER NOT NULL DEFAULT 0"),
+        ("budget_unit", "TEXT NOT NULL DEFAULT 'month'"),
+        ("start_date", "TEXT"),
+    ):
+        if col not in cols("prospects"):
+            con.execute(f"ALTER TABLE prospects ADD COLUMN {col} {decl}")
+    con.execute("""CREATE TABLE IF NOT EXISTS prospect_availability (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        prospect_id INTEGER NOT NULL REFERENCES prospects(id) ON DELETE CASCADE,
+        weekday INTEGER NOT NULL, start_time TEXT, end_time TEXT,
+        UNIQUE(prospect_id, weekday))""")
+    con.execute("CREATE INDEX IF NOT EXISTS idx_prospect_avail ON prospect_availability(prospect_id)")
+
+    # prospects: parent contact + a tentative assigned teacher (2026-09-17)
+    for col, decl in (
+        ("parent_name", "TEXT"), ("parent_phone", "TEXT"), ("parent_relationship", "TEXT"),
+        ("teacher_id", "INTEGER REFERENCES teachers(id) ON DELETE SET NULL"),
+    ):
+        if col not in cols("prospects"):
+            con.execute(f"ALTER TABLE prospects ADD COLUMN {col} {decl}")
+
+    # prospects: a specific one-off trial-lesson slot (2026-09-18)
+    for col in ("trial_date", "trial_time"):
+        if col not in cols("prospects"):
+            con.execute(f"ALTER TABLE prospects ADD COLUMN {col} TEXT")
+
+    # teachers: screening / basic-info intake fields (2026-09-19)
+    for col, decl in (
+        ("age", "INTEGER"),
+        ("experience_summary", "TEXT"),
+        ("current_work", "TEXT"),
+        ("academic_results", "TEXT"),
+        ("subjects_notes", "TEXT"),
+        ("rate_1v1_min_cents", "INTEGER"),
+        ("rate_1v1_max_cents", "INTEGER"),
+        ("rate_group_min_cents", "INTEGER"),
+        ("rate_group_max_cents", "INTEGER"),
+        ("has_tablet", "INTEGER"),
+    ):
+        if col not in cols("teachers"):
+            con.execute(f"ALTER TABLE teachers ADD COLUMN {col} {decl}")
 
 
 def backup_db(app):

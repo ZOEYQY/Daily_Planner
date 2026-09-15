@@ -211,6 +211,8 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .pill-row { display: flex; gap: 8px; flex-wrap: wrap; }
 .progress { height: 8px; background: #edeff3; border-radius: 999px; overflow: hidden; }
 .progress > i { display: block; height: 100%; background: var(--accent); }
+.matchbar { height: 8px; background: #edeff3; border-radius: 999px; overflow: hidden; }
+.matchbar-fill { height: 100%; background: var(--accent-ink); border-radius: 999px; }
 .kv { display: grid; grid-template-columns: 150px 1fr; gap: 8px 16px; }
 .kv dt { color: var(--ink-soft); font-weight: 600; }
 .kv dd { margin: 0; }
@@ -281,6 +283,12 @@ label.opt, .opt { display: flex; align-items: center; gap: 8px; font-weight: 400
   background: var(--accent-ink); border-color: var(--accent-ink); color: #fff;
 }
 .seg > label:has(input:focus-visible) { box-shadow: 0 0 0 3px var(--accent-soft); }
+
+/* ── chip picker: a .seg of checkbox/radio pills + a "type to add a new
+   option" row (macros.html chip_picker / chip_picker_script) ── */
+.chip-picker-empty { color: var(--ink-soft); font-size: .85rem; margin: 2px 0 8px; }
+.chip-picker-add { display: flex; gap: 8px; margin-top: 8px; max-width: 360px; }
+.chip-picker-add input { flex: 1; }
 
 /* ── class weekly schedule picker ── */
 .sched-grid { display: flex; flex-direction: column; gap: 6px; max-width: 440px; }

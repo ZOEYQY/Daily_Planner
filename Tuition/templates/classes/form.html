@@ -33,6 +33,14 @@
         <label><input type="radio" name="status" value="inactive" {{ 'checked' if c and c.status=='inactive' }}><span>{{ t('st_inactive') }}</span></label>
       </div>
     </div>
+    <div class="field">
+      <label>{{ t('linked_teacher') }} <span class="muted">({{ t('optional') }})</span></label>
+      <select name="teacher_id">
+        <option value="">—</option>
+        {% for tc in teachers %}<option value="{{ tc.id }}" {{ 'selected' if c and c.teacher_id==tc.id }}>{{ tc.full_name }}</option>{% endfor %}
+      </select>
+      <span class="rc-hint muted">{{ t('linked_teacher_hint') }}</span>
+    </div>
   </div>
   <hr>
   <h3>{{ t('class_schedule') }}</h3>

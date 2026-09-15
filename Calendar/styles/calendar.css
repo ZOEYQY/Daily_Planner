@@ -974,6 +974,28 @@
   color: var(--color-ink);
 }
 
+/* Nag summary line — "you're this far behind", under the panel header.
+   A quiet labelled line with a dot, not an alert box. */
+.todo-side-panel-nag {
+  flex: 0 0 auto;
+  margin: 8px 10px 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-danger);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.1px;
+}
+.todo-side-panel-nag::before {
+  content: "";
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
 .todo-side-panel-list {
   flex: 1 1 auto;
   overflow-y: auto;
@@ -1054,6 +1076,46 @@
   font-size: 10.5px;
   color: var(--chip-ink, var(--color-muted));
   opacity: 0.8;
+}
+
+/* ---- Overdue "nag" (Settings › To-Do › Nag me about overdue to-dos) --------
+   The row's own border does the work: the longer a to-do is left, the THICKER
+   and deeper that border gets (user's idea — "越拖越粗"). It follows the rounded
+   rect exactly, so no spine / ring / glow. The small age tag gives the exact
+   day count. Both share the severity shade via --nag. */
+.todo-panel-row.is-overdue-nag {
+  --nag: #c8912f;
+  border-color: var(--nag);
+  border-width: var(--nag-w, 2px);
+}
+.todo-panel-row.is-overdue-nag.nag-sev-2 { --nag: #c26a33; }
+.todo-panel-row.is-overdue-nag.nag-sev-3 { --nag: var(--color-danger); }
+.todo-panel-row.is-overdue-nag.nag-sev-4 { --nag: #a62d2d; }
+
+.todo-panel-row-age {
+  align-self: flex-start;
+  margin-top: 3px;
+  padding: 1px 6px;
+  border-radius: var(--radius-xs);
+  background: var(--nag, var(--color-danger));
+  color: #fff;
+  font-size: 9.5px;
+  font-weight: 600;
+  line-height: 1.4;
+  letter-spacing: 0.1px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Two weeks+ late: a slow opacity breathe on just the tag — no moving shadow. */
+@keyframes todo-nag-breathe {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+.todo-panel-row.nag-sev-4 .todo-panel-row-age {
+  animation: todo-nag-breathe 2.4s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .todo-panel-row.nag-sev-4 .todo-panel-row-age { animation: none; }
 }
 
 .reschedule-badge {

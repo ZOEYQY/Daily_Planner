@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% from "partials/macros.html" import avatar, class_days %}
+{% block title %}{{ t('match_teacher') }}{% endblock %}
+{% block content %}
+<div class="toolbar">
+  <a class="btn sm" href="{{ url_for('prospects.detail', pid=prospect.id) if prospect else url_for('teachers.index') }}">
+    &larr; {{ t('back_to_prospect') if prospect else t('back') }}</a>
+  <h1>{{ t('match_teacher') }}</h1>
+</div>
+{% if prospect %}
+<p><strong>{{ t('matching_for') }}</strong> {{ prospect.name }}</p>
+{% else %}
+<p class="muted">{{ t('match_hint') }}</p>
+{% endif %}
+
+<datalist id="subjectList">
+  {% for s in known_subjects %}<option value="{{ s }}">{% endfor %}
+</datalist>
+
+<form method="get" class="card">
+  {% if prospect %}<input type="hidden" name="prospect" value="{{ prospect.id }}">{% endif %}
+  <div class="grid c3">
+    <div class="field"><label>{{ t('m_subject') }}</label>
+      <input type="text" name="subject" list="subjectList" value="{{ want.subject }}"></div>
+    <div class="field"><label>{{ t('m_level') }}</label>
+      <input type="text" name="level" value="{{ want.level }}" placeholder="Std 4 / Form 3"></div>
+    <div class="field"><label>{{ t('m_language') }}</label>
+      <select name="lang">
+        <option value="">{{ t('all') }}</option>
+        {% for code, label in langs.items() %}<option value="{{ code }}" {{ 'selected' if want.lang==code }}>{{ label }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="field"><label>{{ t('preferred_day') }}</label>
+      <select name="day">
+        <option value="">{{ t('any_day') }}</option>
+        {% for i in range(7) %}<option value="{{ i }}" {{ 'selected' if want.day==i }}>{{ weekday_name(i) }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="field"><label>{{ t('preferred_time') }}</label>
+      <input type="time" name="time" value="{{ want.time }}"></div>
+  </div>
+  <div class="btn-row"><button class="btn primary">{{ t('find_matches') }}</button></div>
+</form>
+
+{% if any_criteria %}
+<div class="card-grid wide">
+  {% for r in ranked %}{% set tc = r.t %}
+  <a class="entity-card" href="{{ url_for('teachers.detail', tid=tc.id) }}">
+    <div class="ec-head">
+      {{ avatar(tc.full_name, tc.avatar_color) }}
+      <div class="ec-grow">
+        <div class="ec-name">{{ tc.full_name }}</div>
+        <div class="ec-sub">
+          {% if tc.experience_years %}{{ tc.experience_years }} {{ t('years_short') }} · {% endif %}
+          {{ r.langs | map('upper') | join(' / ') }}
+        </div>
+      </div>
+    </div>
+    <div class="matchbar" style="margin:10px 0 6px">
+      <div class="matchbar-fill" style="width: {{ (r.score / max_score * 100)|round }}%"></div>
+    </div>
+    <div class="ec-sub" style="margin-bottom:8px">
+      {% for w in r.why %}<span class="badge b-green">{{ t(w) }}</span> {% endfor %}
+    </div>
+    <div class="ec-rows">
+      <div class="ec-row"><span class="k">{{ t('subjects_taught') }}</span>
+        <span class="v">{{ r.subjects | join(', ') if r.subjects else '—' }}</span></div>
+      {% if r.levels %}<div class="ec-row"><span class="k">{{ t('levels_taught') }}</span>
+        <span class="v">{{ r.levels | join(', ') }}</span></div>{% endif %}
+      <div class="ec-row"><span class="k">{{ t('availability') }}</span>
+        <span class="v">{{ class_days(r.avail) }}</span></div>
+    </div>
+  </a>
+  {% else %}
+  <div class="card"><p class="empty">{{ t('no_matches') }}</p></div>
+  {% endfor %}
+</div>
+{% elif total_teachers == 0 %}
+<div class="card"><p class="empty">{{ t('teachers_none') }}
+  <a href="{{ url_for('teachers.new') }}">+ {{ t('add_teacher') }}</a></p></div>
+{% endif %}
+{% endblock %}

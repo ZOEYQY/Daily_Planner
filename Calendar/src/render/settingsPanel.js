@@ -229,6 +229,18 @@ function renderTodoTab(body, state, actions) {
       </div>
       <p class="settings-lead settings-lead-sm">Dragging a to-do by its ⠿ handle in the side panel switches Sort order to “My order” automatically.</p>
     </div>
+
+    <div class="settings-section">
+      <h3 class="settings-h">Overdue</h3>
+      <div class="setting-rows">
+        ${switchRow(
+          "vis-todo-nag",
+          "Nag me about overdue to-dos",
+          state.todoNag !== false,
+          "Floats overdue to-dos to the top, escalates their colour the longer they slip, counts the days late on each, and reminds you once a day"
+        )}
+      </div>
+    </div>
   `;
   wireTodoSettings(body, state, actions);
 }
@@ -260,6 +272,9 @@ function wireTodoSettings(body, state, actions) {
   });
   body.querySelector("#vis-todo-show-detail")?.addEventListener("click", () => {
     actions.setTodoShowDetail(state.todoShowDetail === false);
+  });
+  body.querySelector("#vis-todo-nag")?.addEventListener("click", () => {
+    actions.setTodoNag(state.todoNag === false);
   });
   const hoursInput = body.querySelector("#todo-urgent-hours");
   hoursInput?.addEventListener("change", () => {

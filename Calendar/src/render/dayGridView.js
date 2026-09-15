@@ -12,7 +12,7 @@ import { esc, inkOn } from "../utils.js";
 import { fieldLabels, FIXED_FIELD_DEFS } from "../extraFields.js";
 import { layoutDayEvents, HOUR_ROW_PX, minutesToTop } from "../timeLayout.js";
 import { startPointerInteraction, snapMinutes, createAutoScroller } from "../dragUtils.js";
-import { isOverdue, computeReschedulePatch } from "../rescheduleTracking.js";
+import { isOverdue, computeReschedulePatch, daysOverdue, overdueSeverity } from "../rescheduleTracking.js";
 import { handleOccurrenceClick } from "./recurrenceUI.js";
 import { showToast, openFormPopup, showConfirm } from "./notify.js";
 import { timeInputHTML, wireTimeInput } from "./timeInput.js";
@@ -1311,6 +1311,15 @@ function todoSidePanelHTML(state, panelDate) {
   const sortNote = state.todoSortMode === "manual" ? "My order" : "By deadline";
   const d = parseISODate(panelDate);
   const dayLabel = `${WEEKDAY_LABELS[d.getDay()].slice(0, 3)} · ${formatFullDate(d).split(", ")[1]}${isToday ? " · Today" : ""}`;
+
+  // Nag summary — how much you're behind, right under the header. Only on the
+  // "today" column (that's where overdue to-dos pile up) and only with nag on.
+  const lateDays = todos.map((t) => daysOverdue(t, todayISO)).filter((n) => n > 0);
+  const nagLine =
+    state?.todoNag !== false && isToday && lateDays.length
+      ? `<div class="todo-side-panel-nag" title="Overdue to-dos rolled onto today">${lateDays.length} overdue · oldest ${Math.max(...lateDays)}d</div>`
+      : "";
+
   return `
     <div class="todo-side-panel">
       <div class="todo-side-panel-header">
@@ -1319,6 +1328,7 @@ function todoSidePanelHTML(state, panelDate) {
         <button type="button" class="todo-side-panel-hide-btn" id="todo-panel-hide-btn" title="Hide the To-Do panel">${icons.close}<span>Hide</span></button>
       </div>
       <button type="button" class="todo-side-panel-sort" id="todo-panel-sort-btn" title="Switch between deadline order and your own drag order">⇅ ${sortNote}</button>
+      ${nagLine}
       <div class="todo-side-panel-list">
         ${
           todos.length === 0
@@ -1338,19 +1348,45 @@ function todoPanelRow(item, todayISO, state) {
   const urgent = !overdue && isTodoUrgent(item, state?.todoUrgentThresholdHours ?? 24, todayISO);
   const postponed = todoPostponedClass(item);
   const severity = postponed ? "" : rescheduleSeverityClass(item.rescheduleCount || 0);
+
+  // Nag mode (Settings › To-Do, on by default): overdue to-dos get a loud,
+  // escalating look and a running "days late" counter instead of the app's
+  // usual muted-amber ring — the whole point is that they're hard to ignore.
+  const nag = state?.todoNag !== false;
+  const late = nag && overdue ? daysOverdue(item, todayISO) : 0;
+  const moved = item.rescheduleCount || 0;
+  const ageBadge =
+    late > 0
+      ? `<span class="todo-panel-row-age">${late}d late${moved ? ` · ${moved}×` : ""}</span>`
+      : "";
+  // Border thickens a little more each day it's left — "越拖越粗" — ramping
+  // from a hair over the normal 1px up to a hard 6px cap around three weeks.
+  const nagVars = late > 0 ? `;--nag-w:${Math.min(6, 1.4 + late * 0.34).toFixed(2)}px` : "";
+
   // The panel is already scoped to one day, so the row only needs the deadline
   // *time* — plus the original date when this is an overdue item rolled onto
-  // today's view (its due day is no longer the day being shown).
+  // today's view (its due day is no longer the day being shown). Nag mode
+  // replaces that date with the age badge above.
   const bits = [];
-  if (overdue && item.dueDate && item.dueDate < todayISO) bits.push(esc(formatFullDate(parseISODate(item.dueDate)).split(", ")[1]));
+  if (!nag && overdue && item.dueDate && item.dueDate < todayISO)
+    bits.push(esc(formatFullDate(parseISODate(item.dueDate)).split(", ")[1]));
   if (item.startTime) bits.push(esc(formatTime(item.startTime)));
   const deadline = bits.length ? `<span class="todo-panel-row-deadline">${bits.join(" · ")}</span>` : "";
+
+  const statusClass =
+    late > 0
+      ? `is-overdue-nag nag-sev-${overdueSeverity(late)}`
+      : overdue
+        ? "is-overdue"
+        : postponed || (urgent ? "is-todo-urgent" : severity);
+
   return `
-    <div class="todo-panel-row is-reorderable ${overdue ? "is-overdue" : postponed || (urgent ? "is-todo-urgent" : severity)}" style="--chip-color:${item.color};--chip-ink:${inkOn(item.color)}" data-id="${item.id}" title="${esc(item.title)} · Click to edit">
+    <div class="todo-panel-row is-reorderable ${statusClass}" style="--chip-color:${item.color};--chip-ink:${inkOn(item.color)}${nagVars}" data-id="${item.id}" title="${esc(item.title)} · Click to edit">
       <span class="todo-panel-row-handle" aria-hidden="true" title="Drag to reorder">⠿</span>
       <button type="button" class="timegrid-task-checkbox" data-id="${item.id}" data-occurrence="" aria-label="Toggle done"></button>
       <div class="todo-panel-row-body">
         <span class="todo-panel-row-title">${esc(item.title)}</span>
+        ${ageBadge}
         ${deadline}
       </div>
     </div>

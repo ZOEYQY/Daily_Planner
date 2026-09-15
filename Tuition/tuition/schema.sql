@@ -47,6 +47,12 @@ CREATE TABLE IF NOT EXISTS students (
     left_reason   TEXT,
     avatar_color  TEXT    NOT NULL DEFAULT '#c2456f',
     remarks       TEXT,
+    -- What a new student is looking for — feeds the teacher-match page
+    -- (views/teachers.py match()) so matching can start the moment they're
+    -- keyed in, without re-typing. All optional.
+    match_subject TEXT,
+    match_day     INTEGER,                        -- 0=Mon .. 6=Sun
+    match_time    TEXT,
     created_at    TEXT    NOT NULL DEFAULT (datetime('now')),
     updated_at    TEXT    NOT NULL DEFAULT (datetime('now'))
 );
@@ -76,6 +82,10 @@ CREATE TABLE IF NOT EXISTS classes (
     start_time        TEXT,                       -- legacy
     end_time          TEXT,                       -- legacy
     teacher           TEXT,
+    -- Optional link to a Teachers-module profile, separate from the free-text
+    -- `teacher` name above — only used to auto-compute a per-lesson commission
+    -- (see engine.teacher_commission) when that teacher is paid per lesson.
+    teacher_id        INTEGER REFERENCES teachers(id) ON DELETE SET NULL,
     location          TEXT,
     fee_model         TEXT    NOT NULL DEFAULT 'monthly',  -- legacy, always 'monthly' now
     pricing           TEXT    NOT NULL DEFAULT 'fixed',    -- legacy ('fixed' | 'per_student')
@@ -227,6 +237,101 @@ CREATE TABLE IF NOT EXISTS monthly_finance (
     snapshot_json     TEXT,
     closed_at         TEXT    NOT NULL DEFAULT (datetime('now'))
 );
+
+-- ── Prospects (still deciding / trying us out — matching only, no billing,
+--    no attendance; "转为正式学生" hands them off to a real students row) ──
+CREATE TABLE IF NOT EXISTS prospects (
+    id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+    name                  TEXT    NOT NULL,
+    phone                 TEXT,
+    age                   INTEGER,
+    grade                 TEXT,                     -- 年级, optional — helps level matching
+    match_subject         TEXT    NOT NULL DEFAULT '[]',    -- JSON array of subject names
+    match_day             INTEGER,                  -- 0=Mon .. 6=Sun — derived: earliest
+    match_time            TEXT,                      -- row in prospect_availability
+    budget_cents          INTEGER NOT NULL DEFAULT 0,       -- 学费预算 / fee expectation
+    budget_unit           TEXT    NOT NULL DEFAULT 'month', -- 'hour' | 'lesson' | 'month'
+    start_date            TEXT,                      -- 几时想开始
+    -- A specific one-off trial-lesson slot — distinct from the recurring
+    -- weekly availability above (prospect_availability).
+    trial_date            TEXT,
+    trial_time            TEXT,
+    notes                 TEXT,
+    parent_name           TEXT,
+    parent_phone          TEXT,
+    parent_relationship   TEXT,
+    -- Tentative — who'd likely teach this student. Only for a rough commission
+    -- preview (engine has no lessons/attendance yet at this stage); not carried
+    -- over automatically when converted to a student.
+    teacher_id            INTEGER REFERENCES teachers(id) ON DELETE SET NULL,
+    status                TEXT    NOT NULL DEFAULT 'open',  -- open/converted/dropped
+    converted_student_id  INTEGER REFERENCES students(id) ON DELETE SET NULL,
+    created_at            TEXT    NOT NULL DEFAULT (datetime('now')),
+    updated_at            TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_prospects_status ON prospects(status);
+
+-- ── Prospect weekly availability (one time range per weekday, same shape as
+--    teacher_availability / class_schedule) — "可以的时间"; covers both a
+--    trial slot and the eventual regular class. match_day/match_time above
+--    are kept in sync with the earliest row here for the match page. ──────
+CREATE TABLE IF NOT EXISTS prospect_availability (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    prospect_id  INTEGER NOT NULL REFERENCES prospects(id) ON DELETE CASCADE,
+    weekday      INTEGER NOT NULL,
+    start_time   TEXT,
+    end_time     TEXT,
+    UNIQUE(prospect_id, weekday)
+);
+CREATE INDEX IF NOT EXISTS idx_prospect_avail ON prospect_availability(prospect_id);
+
+-- ── Teachers (profiles for matching new students) ───────────────────
+CREATE TABLE IF NOT EXISTS teachers (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    name_en          TEXT,
+    name_zh          TEXT,
+    full_name        TEXT    NOT NULL,               -- derived display name
+    phone            TEXT,
+    email            TEXT,
+    gender           TEXT,
+    subjects         TEXT    NOT NULL DEFAULT '[]',  -- JSON array of subject names
+    levels           TEXT    NOT NULL DEFAULT '[]',  -- JSON array of grade / level names
+    languages        TEXT    NOT NULL DEFAULT '[]',  -- JSON array: 'en' / 'zh' / 'ms'
+    experience_years INTEGER,
+    rate_cents       INTEGER NOT NULL DEFAULT 0,
+    rate_unit        TEXT    NOT NULL DEFAULT 'hour',  -- 'hour' | 'lesson' | 'month'
+    bio              TEXT,
+    -- ── screening / basic-info intake ("通常会问老师的基本资料") ──
+    age                  INTEGER,
+    experience_summary   TEXT,   -- e.g. "1V1 小学-英文/数学/科学补习" — what/how, not a year count
+    current_work         TEXT,   -- 目前工作/大学
+    academic_results     TEXT,   -- 成绩（如果是大学生）
+    subjects_notes       TEXT,   -- free text for level+subject combos the chip pickers
+                                  -- can't express cleanly, e.g. "小学-All, Form1-3-Math/Science"
+    -- 理想时薪 (asking-rate range at interview, RM/hour) — separate from rate_cents/
+    -- rate_unit above, which is what they're actually paid once hired/assigned.
+    rate_1v1_min_cents   INTEGER,
+    rate_1v1_max_cents   INTEGER,
+    rate_group_min_cents INTEGER,
+    rate_group_max_cents INTEGER,
+    has_tablet           INTEGER,   -- 0/1/NULL(unknown) — 有平板吗？
+    avatar_color     TEXT    NOT NULL DEFAULT '#c2456f',
+    status           TEXT    NOT NULL DEFAULT 'active',  -- active/inactive
+    remarks          TEXT,
+    created_at       TEXT    NOT NULL DEFAULT (datetime('now')),
+    updated_at       TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+
+-- ── Teacher weekly availability (one time range per weekday) ─────────
+CREATE TABLE IF NOT EXISTS teacher_availability (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    teacher_id  INTEGER NOT NULL REFERENCES teachers(id) ON DELETE CASCADE,
+    weekday     INTEGER NOT NULL,                    -- 0=Mon .. 6=Sun
+    start_time  TEXT,                                -- '' / NULL = any time that day
+    end_time    TEXT,
+    UNIQUE(teacher_id, weekday)
+);
+CREATE INDEX IF NOT EXISTS idx_teacher_avail ON teacher_availability(teacher_id);
 
 -- ── Audit log ───────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS audit_log (

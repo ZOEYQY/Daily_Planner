@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% from "partials/macros.html" import avatar, class_days %}
+{% block title %}{{ t('nav_prospects') }}{% endblock %}
+{% block content %}
+<div class="toolbar">
+  <h1>{{ t('nav_prospects') }}</h1>
+  <span class="spacer"></span>
+  <a class="btn primary" href="{{ url_for('prospects.new') }}">+ {{ t('add_prospect') }}</a>
+</div>
+<p class="muted">{{ t('prospects_hint') }}</p>
+
+<form class="toolbar" method="get">
+  <input type="search" name="q" value="{{ q }}" placeholder="{{ t('search') }}…" style="max-width:260px">
+  <select name="status" onchange="this.form.submit()">
+    {% for s in statuses %}<option value="{{ s }}" {{ 'selected' if status==s }}>{{ t('pr_' ~ s) }}</option>{% endfor %}
+  </select>
+  <button class="btn">{{ t('search') }}</button>
+</form>
+
+<div class="card-grid">
+  {% for r in rows %}{% set p = r.p %}
+  <a class="entity-card" href="{{ url_for('prospects.detail', pid=p.id) }}">
+    <div class="ec-head">
+      {{ avatar(p.name, '#c2456f') }}
+      <div class="ec-grow">
+        <div class="ec-name">{{ p.name }}</div>
+        <div class="ec-sub">
+          <span class="badge {{ 'b-green' if p.status=='open' else ('b-grey' if p.status=='dropped' else 'b-purple') }}">{{ t('pr_' ~ p.status) }}</span>
+          {% if p.age %} · {{ p.age }} {{ t('years_short') }}{% endif %}
+          {% if p.phone %} · {{ p.phone }}{% endif %}
+        </div>
+      </div>
+    </div>
+    <div class="ec-rows">
+      <div class="ec-row"><span class="k">{{ t('subjects_wanted') }}</span><span class="v">{{ r.subjects | join(', ') if r.subjects else '—' }}</span></div>
+      <div class="ec-row"><span class="k">{{ t('grade') }}</span><span class="v">{{ p.grade or '—' }}</span></div>
+      <div class="ec-row"><span class="k">{{ t('availability') }}</span><span class="v">{{ class_days(r.avail) }}</span></div>
+      {% if p.start_date %}<div class="ec-row"><span class="k">{{ t('start_date') }}</span><span class="v">{{ p.start_date }}</span></div>{% endif %}
+      {% if p.trial_date %}<div class="ec-row"><span class="k">{{ t('trial_class_time') }}</span><span class="v">{{ p.trial_date }}{% if p.trial_time %} {{ p.trial_time }}{% endif %}</span></div>{% endif %}
+    </div>
+  </a>
+  {% else %}
+  <div class="card"><p class="empty">{{ t('prospects_none') }}</p></div>
+  {% endfor %}
+</div>
+{% endblock %}

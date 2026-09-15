@@ -83,6 +83,21 @@
   <p class="muted" style="margin:10px 0 0">{{ t('billed_whole_class') }}</p>
 </div>
 {% endif %}
+{% if commission %}
+<div class="card" style="margin-top:18px">
+  <div class="ec-name">{{ t('commission') }} <span class="muted">· {{ commission.teacher_name }}</span></div>
+  <p class="muted rc-hint" style="margin:4px 0 10px">{{ t('commission_hint') }}</p>
+  <div class="ec-rows">
+    <div class="ec-row"><span class="k">{{ t('pay_per_lesson') }}</span><span class="v">{{ money(commission.rate_cents) }}</span></div>
+    <div class="ec-row"><span class="k">{{ t('stat_held_lessons') }}</span><span class="v">× {{ commission.held_lessons }}</span></div>
+    <div class="ec-row"><span class="k">{{ t('teacher_payout') }}</span><span class="v">{{ money(commission.payout) }}</span></div>
+    <div class="ec-row"><span class="k">{{ t('fin_due') }}</span><span class="v">{{ money(commission.revenue) }}</span></div>
+    <div class="ec-row"><span class="k">{{ t('my_commission') }}</span><span class="v"><strong>{{ money(commission.commission) }}</strong></span></div>
+  </div>
+</div>
+{% elif c.teacher_id %}
+<div class="card" style="margin-top:18px"><p class="empty">{{ t('commission_no_teacher') }}</p></div>
+{% endif %}
 <div class="card-grid" style="margin-top:18px">
   {% for row in enrollments if row.e.status == 'active' %}
   <a class="entity-card" href="{{ url_for('students.detail', sid=row.e.student_id) }}">

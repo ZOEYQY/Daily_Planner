@@ -106,11 +106,24 @@ def new():
              f.get("remarks", "").strip()))
         # optional parent 1
         _save_parent(sid, 1, f, prefix="p1_")
+        # Came from an inquiry's "Convert to Student" button -> mark it converted
+        # and link it to the new record (see prospects/detail.html).
+        from_prospect = parse_int(f.get("from_prospect"))
+        if from_prospect:
+            execute(
+                "UPDATE prospects SET status='converted', converted_student_id=?, "
+                "updated_at=datetime('now') WHERE id=?", (sid, from_prospect))
+            log("prospect_convert", f"prospect {from_prospect} -> student {sid}")
         log("student_add", full)
         flash(t("saved"), "ok")
         return redirect(url_for("students.detail", sid=sid))
+    prospect = None
+    prospect_id = parse_int(request.args.get("from_prospect"))
+    if prospect_id:
+        prospect = query("SELECT * FROM prospects WHERE id = ?", (prospect_id,), one=True)
     return render_template("students/form.html", student=None, statuses=STATUSES,
-                           families=query("SELECT id, name FROM families ORDER BY name"))
+                           families=query("SELECT id, name FROM families ORDER BY name"),
+                           prospect=prospect)
 
 
 def _save_parent(sid, slot, f, prefix):
@@ -228,7 +241,8 @@ def edit(sid):
         flash(t("saved"), "ok")
         return redirect(url_for("students.detail", sid=sid))
     return render_template("students/form.html", student=s, statuses=STATUSES,
-                           families=query("SELECT id, name FROM families ORDER BY name"))
+                           families=query("SELECT id, name FROM families ORDER BY name"),
+                           prospect=None)
 
 
 @bp.route("/<int:sid>/delete", methods=["POST"])

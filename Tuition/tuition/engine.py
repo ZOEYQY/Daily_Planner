@@ -484,6 +484,34 @@ def class_stats(class_id, ym):
     }
 
 
+def teacher_commission(class_id, ym, stats=None):
+    """What the centre keeps this month on a class taught by a linked, hired
+    teacher (classes.teacher_id) — the user's own framing: "我付老师固定每堂费，
+    差额就是我赚的" (I pay the teacher a fixed per-lesson rate; the difference
+    is my commission). Only computable when that teacher is paid per lesson
+    (rate_unit='lesson') — an hourly/monthly rate has no per-lesson figure to
+    diff against, so this returns None for those (and for an unlinked class).
+    `stats` lets a caller that already has class_stats(class_id, ym) pass it in
+    instead of it being recomputed here."""
+    c = query("SELECT teacher_id FROM classes WHERE id = ?", (class_id,), one=True)
+    if not c or not c["teacher_id"]:
+        return None
+    tc = query("SELECT full_name, rate_cents, rate_unit FROM teachers WHERE id = ?",
+               (c["teacher_id"],), one=True)
+    if not tc or tc["rate_unit"] != "lesson" or not tc["rate_cents"]:
+        return None
+    st = stats or class_stats(class_id, ym)
+    payout = tc["rate_cents"] * st["held_lessons"]
+    return {
+        "teacher_name": tc["full_name"],
+        "rate_cents": tc["rate_cents"],
+        "held_lessons": st["held_lessons"],
+        "revenue": st["due"],
+        "payout": payout,
+        "commission": st["due"] - payout,
+    }
+
+
 def class_bill_row(class_id, ym):
     return query("SELECT * FROM class_bills WHERE class_id=? AND month=?", (class_id, ym), one=True)
 
