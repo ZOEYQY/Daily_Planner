@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <title>Debts</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='finance.css') }}">
+    <style>
+        .debt-totals { display: flex; gap: 10px; flex-wrap: wrap; margin: 12px 0; }
+        .debt-stat { flex: 1; min-width: 150px; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px 12px; }
+        .debt-stat .k { font-size: 11px; color: var(--text-muted); }
+        .debt-stat .v { font-size: 18px; font-weight: 700; }
+        .debt-item { border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; margin-bottom: 12px; }
+        .debt-item.is-settled { opacity: 0.55; }
+        .debt-name { font-size: 15px; font-weight: 700; }
+        .debt-meta { font-size: 12px; color: var(--text-muted); margin-top: 3px; }
+        .debt-forms { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-top: 10px; }
+        .debt-forms button { font-size: 12px; padding: 4px 9px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); cursor: pointer; color: var(--text-main); }
+        .debt-forms button:hover { border-color: var(--border-strong); }
+        .pay-table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 12px; }
+        .pay-table td { padding: 4px 8px; border-bottom: 1px solid var(--border); }
+        details.debt-pay { margin-top: 10px; }
+        details.debt-pay summary { cursor: pointer; font-size: 13px; color: var(--text-muted); }
+        .debt-pay .summary-grid, .debt-edit .summary-grid { margin-top: 10px; }
+    </style>
+</head>
+
+<body>
+
+<div class="topbar">
+    <div class="topbar-title">Debts &amp; Loans</div>
+    <div class="topbar-links">
+        <a href="{{ url_for('finance.finance_home') }}">Dashboard</a>
+        <a href="{{ url_for('finance.add_financial') }}">Add</a>
+        <a href="{{ url_for('finance.view_financial') }}">View</a>
+        <a href="{{ url_for('finance.recurring') }}">Recurring</a>
+        <a href="{{ url_for('finance.summary') }}">Summary</a>
+        <a href="{{ url_for('finance.plan') }}">Plan</a>
+        <a href="{{ url_for('finance.debts') }}" class="active-link">Debts</a>
+        <a href="{{ url_for('finance.accounts') }}">Accounts</a>
+        <a href="{{ url_for('finance.networth') }}">Net Worth</a>
+        <a href="{{ url_for('finance.shopping') }}">Shopping</a>
+        <a href="{{ url_for('finance.categories') }}">Categories</a>
+        <a href="{{ url_for('finance.currency') }}">Currency</a>
+        <a href="{{ url_for('finance.data_tools') }}">Data</a>
+        <a href="{{ url_for('finance.profiles_page') }}">👤 {{ current_profile.name if current_profile else 'Profile' }}</a>
+    </div>
+</div>
+
+<div class="summary-wrapper">
+
+    <div class="summary-card hover-card">
+
+        <div class="page-header">
+            <h1 class="summary-main-title">Debts &amp; Loans</h1>
+            <p class="add-subtitle">
+                Track money you owe and money owed to you. Log repayments as they
+                happen; optionally mirror each one into your transactions.
+            </p>
+        </div>
+
+        {% if error %}
+        <div class="insight-box" style="margin-bottom:16px;"><p class="negative">{{ error }}</p></div>
+        {% endif %}
+
+        <div class="debt-totals">
+            <div class="debt-stat"><div class="k">You owe (outstanding)</div><div class="v">RM {{ "%.2f"|format(totals.you_owe) }}</div></div>
+            <div class="debt-stat"><div class="k">Owed to you (outstanding)</div><div class="v">RM {{ "%.2f"|format(totals.owed_to_you) }}</div></div>
+        </div>
+
+        <form method="POST" class="add-form">
+            <input type="hidden" name="action" value="create">
+            <div class="summary-grid">
+                <div>
+                    <label>Direction</label>
+                    <select name="direction" required>
+                        <option value="owe">I owe someone</option>
+                        <option value="owed">Someone owes me</option>
+                    </select>
+                </div>
+                <div>
+                    <label>Person / party</label>
+                    <input type="text" name="counterparty" placeholder="Example: Ethan" required>
+                </div>
+            </div>
+            <div class="summary-grid">
+                <div>
+                    <label>Amount (RM)</label>
+                    <input type="number" name="principal" step="0.01" min="0.01" required>
+                </div>
+                <div>
+                    <label>Date incurred</label>
+                    <input type="date" name="date" value="{{ today }}">
+                </div>
+            </div>
+            <div class="summary-grid">
+                <div>
+                    <label>Description</label>
+                    <input type="text" name="description" placeholder="Example: Loan for laptop">
+                </div>
+                <div>
+                    <label>Due date (optional)</label>
+                    <input type="date" name="due_date">
+                </div>
+            </div>
+            <label>Notes (optional)</label>
+            <input type="text" name="notes">
+            <div class="add-button-row">
+                <button type="submit" class="primary-btn">Add Debt</button>
+            </div>
+        </form>
+
+    </div>
+
+    <div class="summary-card hover-card">
+
+        <h2 class="section-title">Records</h2>
+
+        {% if not debts %}
+        <div class="empty-card"><h3>Nothing tracked yet</h3><p>Add a debt or loan above.</p></div>
+        {% endif %}
+
+        {% for d in debts %}
+        <div class="debt-item {{ 'is-settled' if d.settled else '' }}">
+            <div class="debt-name">
+                {{ d.counterparty }}
+                <span class="badge {{ 'expense' if d.direction == 'owe' else 'income' }}">
+                    {{ 'you owe' if d.direction == 'owe' else 'owes you' }}
+                </span>
+            </div>
+            <div class="debt-meta">
+                {% if d.description %}{{ d.description }} · {% endif %}
+                RM {{ "%.2f"|format(d.principal) }} principal
+                · paid RM {{ "%.2f"|format(d.paid) }}
+                · <strong>RM {{ "%.2f"|format(d.outstanding) }} outstanding</strong>
+                {% if d.overpaid %} · overpaid RM {{ "%.2f"|format(d.overpaid) }}{% endif %}
+                {% if d.due_date %} · due {{ d.due_date }}{% endif %}
+                {% if d.settled %} · SETTLED{% endif %}
+            </div>
+
+            <div class="progress-container" style="margin-top:8px;">
+                <div class="progress-bar {{ 'over' if d.percent_paid >= 100 else 'safe' }}" style="--width: {{ d.percent_paid }}%;"></div>
+            </div>
+
+            {% if d.payments %}
+            <table class="pay-table">
+                {% for p in d.payments %}
+                <tr>
+                    <td>{{ p.date }}</td>
+                    <td>RM {{ "%.2f"|format(p.amount) }}</td>
+                    <td>{{ p.note }}{% if p.record_id %} · logged as transaction{% endif %}</td>
+                    <td style="text-align:right;">
+                        <form method="post" style="display:inline;" onsubmit="return confirm('Remove this payment?')">
+                            <input type="hidden" name="action" value="delete_payment">
+                            <input type="hidden" name="id" value="{{ d.id }}">
+                            <input type="hidden" name="payment_id" value="{{ p.id }}">
+                            <button type="submit" style="border:none;background:none;cursor:pointer;color:var(--text-muted);">✕</button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </table>
+            {% endif %}
+
+            {% if not d.settled %}
+            <details class="debt-pay">
+                <summary>Record a payment</summary>
+                <form method="POST" class="add-form">
+                    <input type="hidden" name="action" value="add_payment">
+                    <input type="hidden" name="id" value="{{ d.id }}">
+                    <div class="summary-grid">
+                        <div>
+                            <label>Amount (RM)</label>
+                            <input type="number" name="amount" step="0.01" min="0.01" value="{{ '%.2f'|format(d.outstanding) }}" required>
+                        </div>
+                        <div>
+                            <label>Date</label>
+                            <input type="date" name="date" value="{{ today }}">
+                        </div>
+                    </div>
+                    <label>Note (optional)</label>
+                    <input type="text" name="note">
+                    <label style="display:inline-flex;align-items:center;gap:8px;font-weight:600;margin-top:8px;">
+                        <input type="checkbox" name="as_transaction" style="width:auto;margin:0;">
+                        Also record this as a transaction
+                        ({{ 'expense' if d.direction == 'owe' else 'income' }})
+                    </label>
+                    <div class="summary-grid">
+                        <div>
+                            <label>Transaction account</label>
+                            <select name="txn_account">
+                                <option value="">-- Account --</option>
+                                {% for a in accounts %}
+                                <option value="{{ a.name }}" {{ 'selected' if a.name == d.account else '' }}>{{ a.name }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div>
+                            <label>Transaction category</label>
+                            <select name="txn_category">
+                                <option value="">-- Category --</option>
+                                {% for c in categories[ 'expense' if d.direction == 'owe' else 'income' ] %}
+                                <option value="{{ c }}">{{ c }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                    </div>
+                    <div class="add-button-row">
+                        <button type="submit" class="primary-btn">Save payment</button>
+                    </div>
+                </form>
+            </details>
+            {% endif %}
+
+            <div class="debt-forms">
+                {% if d.settled %}
+                <form method="post"><input type="hidden" name="action" value="reopen"><input type="hidden" name="id" value="{{ d.id }}"><button type="submit">Reopen</button></form>
+                {% else %}
+                <form method="post"><input type="hidden" name="action" value="settle"><input type="hidden" name="id" value="{{ d.id }}"><button type="submit">Mark settled</button></form>
+                {% endif %}
+                <form method="post" onsubmit="return confirm('Delete this debt and its payment history?')"><input type="hidden" name="action" value="delete"><input type="hidden" name="id" value="{{ d.id }}"><button type="submit">Delete</button></form>
+            </div>
+
+            <details class="debt-edit">
+                <summary style="cursor:pointer;font-size:13px;color:var(--text-muted);margin-top:8px;">Edit details</summary>
+                <form method="POST" class="add-form">
+                    <input type="hidden" name="action" value="update">
+                    <input type="hidden" name="id" value="{{ d.id }}">
+                    <div class="summary-grid">
+                        <div>
+                            <label>Direction</label>
+                            <select name="direction">
+                                <option value="owe" {{ 'selected' if d.direction == 'owe' else '' }}>I owe someone</option>
+                                <option value="owed" {{ 'selected' if d.direction == 'owed' else '' }}>Someone owes me</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label>Person / party</label>
+                            <input type="text" name="counterparty" value="{{ d.counterparty }}">
+                        </div>
+                    </div>
+                    <div class="summary-grid">
+                        <div>
+                            <label>Amount (RM)</label>
+                            <input type="number" name="principal" step="0.01" min="0.01" value="{{ '%.2f'|format(d.principal) }}">
+                        </div>
+                        <div>
+                            <label>Date incurred</label>
+                            <input type="date" name="date" value="{{ d.date }}">
+                        </div>
+                    </div>
+                    <div class="summary-grid">
+                        <div>
+                            <label>Description</label>
+                            <input type="text" name="description" value="{{ d.description }}">
+                        </div>
+                        <div>
+                            <label>Due date</label>
+                            <input type="date" name="due_date" value="{{ d.due_date }}">
+                        </div>
+                    </div>
+                    <label>Notes</label>
+                    <input type="text" name="notes" value="{{ d.notes }}">
+                    <div class="add-button-row">
+                        <button type="submit" class="primary-btn">Save changes</button>
+                    </div>
+                </form>
+            </details>
+
+        </div>
+        {% endfor %}
+
+    </div>
+
+</div>
+
+</body>
+</html>

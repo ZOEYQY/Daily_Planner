@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <title>Net Worth</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='finance.css') }}">
+    <style>
+        .nw-now { display: flex; gap: 10px; flex-wrap: wrap; margin: 12px 0; }
+        .nw-stat { flex: 1; min-width: 130px; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px 12px; }
+        .nw-stat .k { font-size: 11px; color: var(--text-muted); }
+        .nw-stat .v { font-size: 18px; font-weight: 700; }
+        .nw-table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        .nw-table th, .nw-table td { padding: 8px 10px; border-bottom: 1px solid var(--border); text-align: left; font-size: 13px; }
+        .nw-table th { color: var(--text-muted); font-weight: 700; }
+        .nw-bar-wrap { background: var(--surface-alt); border-radius: 4px; height: 14px; min-width: 80px; position: relative; }
+        .nw-bar { background: var(--text-main); height: 100%; border-radius: 4px; }
+        .nw-block { border-top: 1px solid var(--border); padding-top: 14px; margin-top: 14px; }
+    </style>
+</head>
+
+<body>
+
+<div class="topbar">
+    <div class="topbar-title">Net Worth</div>
+    <div class="topbar-links">
+        <a href="{{ url_for('finance.finance_home') }}">Dashboard</a>
+        <a href="{{ url_for('finance.add_financial') }}">Add</a>
+        <a href="{{ url_for('finance.view_financial') }}">View</a>
+        <a href="{{ url_for('finance.recurring') }}">Recurring</a>
+        <a href="{{ url_for('finance.summary') }}">Summary</a>
+        <a href="{{ url_for('finance.plan') }}">Plan</a>
+        <a href="{{ url_for('finance.debts') }}">Debts</a>
+        <a href="{{ url_for('finance.accounts') }}">Accounts</a>
+        <a href="{{ url_for('finance.networth') }}" class="active-link">Net Worth</a>
+        <a href="{{ url_for('finance.shopping') }}">Shopping</a>
+        <a href="{{ url_for('finance.categories') }}">Categories</a>
+        <a href="{{ url_for('finance.currency') }}">Currency</a>
+        <a href="{{ url_for('finance.data_tools') }}">Data</a>
+        <a href="{{ url_for('finance.profiles_page') }}">👤 {{ current_profile.name if current_profile else 'Profile' }}</a>
+    </div>
+</div>
+
+<div class="summary-wrapper">
+
+    <div class="summary-card hover-card">
+
+        <div class="page-header">
+            <h1 class="summary-main-title">Net Worth</h1>
+            <p class="add-subtitle">
+                Take a snapshot to track how your net worth changes over time.
+                "Snapshot now" is computed from your account balances plus money
+                owed to you, minus money you owe.
+            </p>
+        </div>
+
+        {% if error %}
+        <div class="insight-box" style="margin-bottom:16px;"><p class="negative">{{ error }}</p></div>
+        {% endif %}
+
+        <div class="nw-now">
+            <div class="nw-stat"><div class="k">Assets (now)</div><div class="v">RM {{ "%.2f"|format(computed.assets) }}</div></div>
+            <div class="nw-stat"><div class="k">Liabilities (now)</div><div class="v">RM {{ "%.2f"|format(computed.liabilities) }}</div></div>
+            <div class="nw-stat"><div class="k">Net worth (now)</div><div class="v">RM {{ "%.2f"|format(computed.net) }}</div></div>
+        </div>
+
+        <div class="nw-stat" style="min-width:0;">
+            <div class="k">Computed from</div>
+            <div style="font-size:12px;color:var(--text-muted);margin-top:4px;">
+                Liquid (accounts): RM {{ "%.2f"|format(computed.breakdown.liquid) }}
+                · Receivable (owed to you): RM {{ "%.2f"|format(computed.breakdown.receivable) }}
+                · You owe: RM {{ "%.2f"|format(computed.breakdown.owed) }}
+            </div>
+        </div>
+
+        <div class="nw-block">
+            <form method="post" style="display:inline-flex;gap:8px;align-items:flex-end;flex-wrap:wrap;">
+                <input type="hidden" name="action" value="snapshot">
+                <div>
+                    <label>Note (optional)</label>
+                    <input type="text" name="note" placeholder="e.g. after bonus">
+                </div>
+                <button type="submit" class="primary-btn">Snapshot now</button>
+            </form>
+        </div>
+
+        <div class="nw-block">
+            <h3>Add a manual snapshot</h3>
+            <p class="add-subtitle">Enter totals directly — useful to include things the app doesn't track (property, car).</p>
+            <form method="post" class="add-form">
+                <input type="hidden" name="action" value="add">
+                <div class="summary-grid">
+                    <div><label>Date</label><input type="date" name="date" value="{{ today }}"></div>
+                    <div><label>Assets (RM)</label><input type="number" name="assets" step="0.01" min="0"></div>
+                </div>
+                <div class="summary-grid">
+                    <div><label>Liabilities (RM)</label><input type="number" name="liabilities" step="0.01" min="0"></div>
+                    <div><label>Note</label><input type="text" name="note"></div>
+                </div>
+                <div class="add-button-row"><button type="submit" class="primary-btn">Add snapshot</button></div>
+            </form>
+        </div>
+
+    </div>
+
+    <div class="summary-card hover-card">
+
+        <h2 class="section-title">History</h2>
+
+        {% if not snapshots %}
+        <div class="empty-card"><h3>No snapshots yet</h3><p>Take your first snapshot above.</p></div>
+        {% else %}
+        <div class="table-wrapper">
+            <table class="nw-table">
+                <tr>
+                    <th>Date</th><th>Assets</th><th>Liabilities</th><th>Net</th><th>Change</th><th>Trend</th><th>Note</th><th></th>
+                </tr>
+                {% for s in snapshots %}
+                <tr>
+                    <td>{{ s.date }}{% if not s.auto %} <span class="pill">manual</span>{% endif %}</td>
+                    <td>RM {{ "%.2f"|format(s.assets) }}</td>
+                    <td>RM {{ "%.2f"|format(s.liabilities) }}</td>
+                    <td><strong>RM {{ "%.2f"|format(s.net) }}</strong></td>
+                    <td>
+                        {% if s.change is not none %}
+                        {{ '+' if s.change >= 0 else '−' }}RM {{ "%.2f"|format(s.change | abs) }}
+                        {% else %}—{% endif %}
+                    </td>
+                    <td><div class="nw-bar-wrap"><div class="nw-bar" style="width: {{ s.bar_pct }}%;"></div></div></td>
+                    <td>{{ s.note }}</td>
+                    <td>
+                        <form method="post" onsubmit="return confirm('Delete this snapshot?')">
+                            <input type="hidden" name="action" value="delete">
+                            <input type="hidden" name="id" value="{{ s.id }}">
+                            <button type="submit" class="delete-btn">Delete</button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </table>
+        </div>
+        {% endif %}
+
+    </div>
+
+</div>
+
+</body>
+</html>

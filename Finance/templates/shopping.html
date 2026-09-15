@@ -50,6 +50,23 @@
         details.shop-edit { margin-top: 10px; }
         details.shop-edit summary { cursor: pointer; font-size: 13px; color: var(--text-muted); }
         details.shop-edit .summary-grid { margin-top: 10px; }
+
+        .shop-advice { margin-top: 10px; }
+        .shop-advise-btn {
+            font-size: 12px; padding: 5px 10px; border: 1px solid var(--border-strong);
+            border-radius: var(--radius-sm); background: var(--surface); cursor: pointer;
+            color: var(--text-main);
+        }
+        .shop-advise-btn:disabled { opacity: 0.55; cursor: default; }
+        .shop-advice-status { font-size: 12px; margin-left: 8px; color: var(--text-muted); }
+        .shop-advice-status.is-error { color: var(--text-main); font-weight: 700; }
+        .shop-advice-card {
+            margin-top: 8px; padding: 10px 12px; border: 1px solid var(--border);
+            border-radius: var(--radius-sm); background: var(--surface-alt);
+        }
+        .shop-advice-card .rec { font-weight: 700; font-size: 13px; }
+        .shop-advice-card p { font-size: 13px; margin: 6px 0; white-space: pre-wrap; }
+        .shop-advice-card small { font-size: 11px; color: var(--text-muted); }
     </style>
 </head>
 
@@ -61,12 +78,17 @@
         <a href="{{ url_for('finance.finance_home') }}">Dashboard</a>
         <a href="{{ url_for('finance.add_financial') }}">Add</a>
         <a href="{{ url_for('finance.view_financial') }}">View</a>
+        <a href="{{ url_for('finance.recurring') }}">Recurring</a>
         <a href="{{ url_for('finance.summary') }}">Summary</a>
-        <a href="{{ url_for('finance.budget') }}">Budget</a>
-        <a href="{{ url_for('finance.goals') }}">Goals</a>
+        <a href="{{ url_for('finance.plan') }}">Plan</a>
+        <a href="{{ url_for('finance.debts') }}">Debts</a>
         <a href="{{ url_for('finance.accounts') }}">Accounts</a>
+        <a href="{{ url_for('finance.networth') }}">Net Worth</a>
         <a href="{{ url_for('finance.shopping') }}" class="active-link">Shopping</a>
         <a href="{{ url_for('finance.categories') }}">Categories</a>
+        <a href="{{ url_for('finance.currency') }}">Currency</a>
+        <a href="{{ url_for('finance.data_tools') }}">Data</a>
+        <a href="{{ url_for('finance.profiles_page') }}">👤 {{ current_profile.name if current_profile else 'Profile' }}</a>
     </div>
 </div>
 
@@ -97,6 +119,18 @@
             <div class="shop-stat"><div class="k">Decided to buy</div><div class="v">RM {{ "%.2f"|format(totals.to_buy_value) }}</div></div>
             <div class="shop-stat"><div class="k">Bought so far</div><div class="v">RM {{ "%.2f"|format(totals.spent_value) }}</div></div>
         </div>
+
+        {% if history.count %}
+        <div class="insight-box" style="margin:12px 0;">
+            <p>
+                <strong>{{ history.count }}</strong> bought
+                · rated {{ history.rated }}/{{ history.count }}
+                ({{ history.worth_it }} worth it, {{ history.not_worth }} not, {{ history.meh }} meh)
+                · spent {{ '+' if history.vs_estimate >= 0 else '−' }}RM {{ "%.2f"|format(history.vs_estimate | abs) }}
+                vs estimates
+            </p>
+        </div>
+        {% endif %}
 
         <form method="POST" class="add-form">
             <input type="hidden" name="action" value="create">
@@ -149,10 +183,14 @@
                     <input type="date" name="target_date">
                 </div>
                 <div>
-                    <label>Notes (optional)</label>
-                    <input type="text" name="notes" placeholder="Anything else to remember">
+                    <label>Cooling-off days before you can buy</label>
+                    <input type="number" name="wait_days" min="0" value="0"
+                           placeholder="0 = no wait">
                 </div>
             </div>
+
+            <label>Notes (optional)</label>
+            <input type="text" name="notes" placeholder="Anything else to remember">
 
             <div class="add-button-row">
                 <button type="submit" class="primary-btn">Add to Shopping List</button>
@@ -198,7 +236,31 @@
                             {% elif it.decision == 'undecided' %}Undecided
                             {% else %}{{ it.decision | capitalize }}{% endif %}
                         </span>
+                        {% if it.wait_until and not it.ready %}
+                        <span class="shop-tag" style="border-color:var(--border-strong);">
+                            Cooling off · {{ it.wait_days_left }} day{{ '' if it.wait_days_left == 1 else 's' }} left ({{ it.wait_until }})
+                        </span>
+                        {% elif it.wait_until and it.ready and it.status == 'open' %}
+                        <span class="shop-tag">Wait's over — ready to decide</span>
+                        {% endif %}
                     </div>
+
+                    {% if it.budget_check and it.status != 'bought' %}
+                    <div class="shop-meta" style="margin-top:4px;">
+                        Budget check ({{ it.budget_check.category }}, {{ it.budget_check.period }}):
+                        buying this → RM {{ "%.2f"|format(it.budget_check.after) }}
+                        / RM {{ "%.2f"|format(it.budget_check.limit) }}
+                        ({{ it.budget_check.percent_after }}%{% if it.budget_check.over_by %}, RM {{ "%.2f"|format(it.budget_check.over_by) }} over{% endif %})
+                    </div>
+                    {% endif %}
+
+                    {% if it.lowest_price %}
+                    <div class="shop-meta" style="margin-top:2px;">
+                        Price checks: lowest RM {{ "%.2f"|format(it.lowest_price) }}
+                        · latest RM {{ "%.2f"|format(it.latest_price) }}
+                        ({{ it.price_checks | length }} logged)
+                    </div>
+                    {% endif %}
                 </div>
             </div>
 
@@ -217,6 +279,34 @@
 
             {% if it.notes %}
             <div class="shop-meta">Notes: {{ it.notes }}</div>
+            {% endif %}
+
+            <!-- AI PURCHASE ADVISOR -->
+            {% if it.status != 'bought' %}
+            <div class="shop-advice" data-item="{{ it.id }}">
+                <button type="button" class="shop-advise-btn"
+                        data-advise-url="{{ url_for('finance.shopping_advise') }}">
+                    {% if it.ai_suggestion %}✨ Ask AI again{% else %}✨ Ask AI whether to buy{% endif %}
+                </button>
+                <span class="shop-advice-status" aria-live="polite"></span>
+                <div class="shop-advice-result" {% if not it.ai_suggestion %}hidden{% endif %}>
+                    {% if it.ai_suggestion %}
+                    {% set s = it.ai_suggestion %}
+                    <div class="shop-advice-card">
+                        <div class="rec">
+                            AI:
+                            {% if s.recommendation == 'buy' %}Buy
+                            {% elif s.recommendation == 'dont_buy' %}Don't buy
+                            {% else %}Wait{% endif %}
+                            {% if s.suggested_wait_days %} · wait ~{{ s.suggested_wait_days }} days{% endif %}
+                            · {{ s.confidence }} confidence
+                        </div>
+                        <p>{{ s.reasoning }}</p>
+                        <small>Generated {{ s.generated_at }} · advice only — you decide.</small>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
             {% endif %}
 
             <!-- DECISION + STATUS ACTIONS -->
@@ -240,12 +330,32 @@
             </div>
             {% endif %}
 
+            <!-- COOLING-OFF: still waiting -->
+            {% if it.status == 'open' and it.wait_until and not it.ready %}
+            <div class="shop-purchase" style="border-style:solid;">
+                <p style="font-size:12px;color:var(--text-muted);margin-bottom:6px;">
+                    Cooling-off period: you set {{ it.wait_days }} day(s) to think it over.
+                    You can buy from {{ it.wait_until }} ({{ it.wait_days_left }} to go).
+                </p>
+                <form method="POST" style="display:inline;">
+                    <input type="hidden" name="action" value="skip_wait">
+                    <input type="hidden" name="id" value="{{ it.id }}">
+                    <button type="submit">Skip the wait</button>
+                </form>
+            </div>
+            {% endif %}
+
             <!-- RECORD PURCHASE -> creates an expense -->
             {% if it.status == 'open' and it.decision == 'buy' %}
             <form method="POST" class="shop-purchase shop-row-forms">
                 <input type="hidden" name="action" value="purchase">
                 <input type="hidden" name="id" value="{{ it.id }}">
+                {% if it.wait_until and not it.ready %}
+                <input type="hidden" name="force" value="1">
+                <span class="lbl">Buy now anyway (overrides the cooling-off period):</span>
+                {% else %}
                 <span class="lbl">Record purchase as expense:</span>
+                {% endif %}
                 <select name="account" required>
                     <option value="">-- Account --</option>
                     {% for a in accounts %}
@@ -255,11 +365,76 @@
                 <input type="date" name="date" value="{{ today }}">
                 <input type="number" name="amount" step="0.01" min="0.01"
                        value="{{ '%.2f'|format(it.estimated_price or 0) }}">
-                <button type="submit">Create expense</button>
+                <button type="submit">{% if it.wait_until and not it.ready %}Buy now anyway{% else %}Create expense{% endif %}</button>
             </form>
             {% if not accounts %}
             <div class="shop-meta">Add an account first to record a purchase.</div>
             {% endif %}
+            {% endif %}
+
+            <!-- PRICE CHECKS -->
+            {% if it.status == 'open' %}
+            <details style="margin-top:10px;">
+                <summary style="cursor:pointer;font-size:13px;color:var(--text-muted);">
+                    Price checks{% if it.price_checks %} ({{ it.price_checks | length }}){% endif %}
+                </summary>
+                {% if it.price_checks %}
+                <table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:8px;">
+                    {% for c in it.price_checks %}
+                    <tr>
+                        <td style="padding:3px 6px;border-bottom:1px solid var(--border);">{{ c.date }}</td>
+                        <td style="padding:3px 6px;border-bottom:1px solid var(--border);">RM {{ "%.2f"|format(c.price) }}</td>
+                        <td style="padding:3px 6px;border-bottom:1px solid var(--border);">{{ c.source }}{% if c.note %} — {{ c.note }}{% endif %}</td>
+                        <td style="padding:3px 6px;border-bottom:1px solid var(--border);text-align:right;">
+                            <form method="post" style="display:inline;">
+                                <input type="hidden" name="action" value="delete_price_check">
+                                <input type="hidden" name="id" value="{{ it.id }}">
+                                <input type="hidden" name="check_id" value="{{ c.id }}">
+                                <button type="submit" style="border:none;background:none;cursor:pointer;color:var(--text-muted);">✕</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </table>
+                {% endif %}
+                <form method="POST" class="shop-row-forms" style="margin-top:8px;">
+                    <input type="hidden" name="action" value="add_price_check">
+                    <input type="hidden" name="id" value="{{ it.id }}">
+                    <input type="number" name="price" step="0.01" min="0.01" placeholder="Price" required style="width:100px;">
+                    <input type="date" name="date" value="{{ today }}">
+                    <input type="text" name="source" placeholder="Where (shop / site)" style="width:150px;">
+                    <input type="text" name="note" placeholder="Note" style="width:150px;">
+                    <button type="submit">Log price</button>
+                </form>
+            </details>
+            {% endif %}
+
+            <!-- HINDSIGHT RATING -->
+            {% if it.status == 'bought' %}
+            <div style="margin-top:10px;padding:10px;border:1px solid var(--border);border-radius:var(--radius-sm);">
+                <div class="lbl">Was it worth it?</div>
+                {% if it.worth_it %}
+                <p style="font-size:13px;margin:4px 0;">
+                    <strong>{% if it.worth_it == 'yes' %}👍 Worth it{% elif it.worth_it == 'no' %}👎 Not worth it{% else %}😐 Meh{% endif %}</strong>
+                    {% if it.hindsight_note %} — {{ it.hindsight_note }}{% endif %}
+                    <span class="shop-meta">(rated {{ it.rated_at }})</span>
+                </p>
+                {% endif %}
+                <form method="POST" class="add-form" style="margin-top:4px;">
+                    <input type="hidden" name="action" value="rate">
+                    <input type="hidden" name="id" value="{{ it.id }}">
+                    <div class="shop-row-forms">
+                        <select name="worth_it" required>
+                            <option value="">-- {% if it.worth_it %}Change rating{% else %}Rate it{% endif %} --</option>
+                            <option value="yes">👍 Worth it</option>
+                            <option value="no">👎 Not worth it</option>
+                            <option value="meh">😐 Meh</option>
+                        </select>
+                        <input type="text" name="hindsight_note" value="{{ it.hindsight_note }}" placeholder="Why? (optional)" style="width:220px;">
+                        <button type="submit">Save rating</button>
+                    </div>
+                </form>
+            </div>
             {% endif %}
 
             <!-- EDIT -->
@@ -317,10 +492,12 @@
                             <input type="date" name="target_date" value="{{ it.target_date }}">
                         </div>
                         <div>
-                            <label>Notes</label>
-                            <input type="text" name="notes" value="{{ it.notes }}">
+                            <label>Cooling-off days</label>
+                            <input type="number" name="wait_days" min="0" value="{{ it.wait_days or 0 }}">
                         </div>
                     </div>
+                    <label>Notes</label>
+                    <input type="text" name="notes" value="{{ it.notes }}">
                     <div class="shop-row-forms" style="margin-top:10px;">
                         <button type="submit" class="primary-btn">Save changes</button>
                     </div>
@@ -348,6 +525,8 @@
     </div>
 
 </div>
+
+<script src="{{ url_for('static', filename='shopping_ai.js') }}"></script>
 
 </body>
 </html>

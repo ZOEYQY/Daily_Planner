@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <title>Data</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='finance.css') }}">
+    <style>
+        .data-grid { display: flex; gap: 10px; flex-wrap: wrap; margin: 12px 0 6px; }
+        .data-stat {
+            flex: 1; min-width: 110px; border: 1px solid var(--border);
+            border-radius: var(--radius-sm); padding: 10px 12px;
+        }
+        .data-stat .k { font-size: 11px; color: var(--text-muted); }
+        .data-stat .v { font-size: 18px; font-weight: 700; }
+        .data-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 10px 0; }
+        .data-block { border-top: 1px solid var(--border); padding-top: 14px; margin-top: 14px; }
+        .data-block h3 { margin-bottom: 4px; }
+        .data-block p { font-size: 13px; color: var(--text-muted); margin-bottom: 8px; }
+    </style>
+</head>
+
+<body>
+
+<div class="topbar">
+    <div class="topbar-title">Data</div>
+    <div class="topbar-links">
+        <a href="{{ url_for('finance.finance_home') }}">Dashboard</a>
+        <a href="{{ url_for('finance.add_financial') }}">Add</a>
+        <a href="{{ url_for('finance.view_financial') }}">View</a>
+        <a href="{{ url_for('finance.recurring') }}">Recurring</a>
+        <a href="{{ url_for('finance.summary') }}">Summary</a>
+        <a href="{{ url_for('finance.plan') }}">Plan</a>
+        <a href="{{ url_for('finance.debts') }}">Debts</a>
+        <a href="{{ url_for('finance.accounts') }}">Accounts</a>
+        <a href="{{ url_for('finance.networth') }}">Net Worth</a>
+        <a href="{{ url_for('finance.shopping') }}">Shopping</a>
+        <a href="{{ url_for('finance.categories') }}">Categories</a>
+        <a href="{{ url_for('finance.currency') }}">Currency</a>
+        <a href="{{ url_for('finance.data_tools') }}" class="active-link">Data</a>
+        <a href="{{ url_for('finance.profiles_page') }}">👤 {{ current_profile.name if current_profile else 'Profile' }}</a>
+    </div>
+</div>
+
+<div class="summary-wrapper">
+    <div class="summary-card hover-card">
+
+        <div class="page-header">
+            <h1 class="summary-main-title">Data</h1>
+            <p class="add-subtitle">Export your records, or back up and restore everything.</p>
+        </div>
+
+        {% if error %}
+        <div class="insight-box" style="margin-bottom:16px;"><p class="negative">{{ error }}</p></div>
+        {% endif %}
+        {% if request.args.get('restored') %}
+        <div class="insight-box" style="margin-bottom:16px;">
+            <p class="positive">Restored {{ request.args.get('restored') }} data file(s) from backup.</p>
+        </div>
+        {% endif %}
+
+        {% if import_result %}
+        <div class="insight-box" style="margin-bottom:16px;">
+            {% if import_result.error %}
+            <p class="negative">{{ import_result.error }}</p>
+            {% else %}
+            <p class="positive">Imported {{ import_result.imported }} record(s).</p>
+            {% if import_result.skipped %}
+            <p class="negative">Skipped {{ import_result.skipped | length }}:</p>
+            <ul style="font-size:12px;margin:4px 0 0 18px;">
+                {% for s in import_result.skipped[:20] %}<li>{{ s }}</li>{% endfor %}
+                {% if import_result.skipped | length > 20 %}<li>…and {{ import_result.skipped | length - 20 }} more</li>{% endif %}
+            </ul>
+            {% endif %}
+            {% endif %}
+        </div>
+        {% endif %}
+
+        <div class="data-grid">
+            <div class="data-stat"><div class="k">Records</div><div class="v">{{ counts.records }}</div></div>
+            <div class="data-stat"><div class="k">In Trash</div><div class="v">{{ counts.trashed }}</div></div>
+            <div class="data-stat"><div class="k">Accounts</div><div class="v">{{ counts.accounts }}</div></div>
+            <div class="data-stat"><div class="k">Budgets</div><div class="v">{{ counts.budgets }}</div></div>
+            <div class="data-stat"><div class="k">Goals</div><div class="v">{{ counts.goals }}</div></div>
+            <div class="data-stat"><div class="k">Recurring</div><div class="v">{{ counts.recurring }}</div></div>
+            <div class="data-stat"><div class="k">Debts</div><div class="v">{{ counts.debts }}</div></div>
+            <div class="data-stat"><div class="k">Categories</div><div class="v">{{ counts.categories }}</div></div>
+            <div class="data-stat"><div class="k">Shopping</div><div class="v">{{ counts.shopping }}</div></div>
+        </div>
+
+        <div class="data-block">
+            <h3>Export records (CSV)</h3>
+            <p>A spreadsheet of every transaction record.</p>
+            <div class="data-row">
+                <a href="{{ url_for('finance.data_export_csv') }}" class="primary-btn">Download CSV</a>
+                <a href="{{ url_for('finance.data_export_csv', trashed=1) }}" class="secondary-btn">Include trashed</a>
+            </div>
+        </div>
+
+        <div class="data-block">
+            <h3>Import records (CSV)</h3>
+            <p>
+                Upload a CSV with a header row. Required columns: <code>date</code>
+                (YYYY-MM-DD), <code>type</code> (income/expense/saving),
+                <code>amount</code>. Optional: <code>category</code>,
+                <code>account</code>, <code>item</code>, <code>tags</code>.
+                Rows are appended; bad rows are skipped and listed.
+            </p>
+            <form method="post" action="{{ url_for('finance.data_import_csv') }}" enctype="multipart/form-data">
+                <div class="data-row">
+                    <input type="file" name="csvfile" accept=".csv,text/csv" required>
+                    <button type="submit" class="primary-btn">Import CSV</button>
+                </div>
+            </form>
+        </div>
+
+        <div class="data-block">
+            <h3>Backup (ZIP)</h3>
+            <p>Every JSON store in one zip — records, accounts, budgets, goals, categories, shopping list.</p>
+            <div class="data-row">
+                <a href="{{ url_for('finance.data_backup') }}" class="primary-btn">Download backup</a>
+            </div>
+        </div>
+
+        <div class="data-block">
+            <h3>Restore from backup</h3>
+            <p>
+                Upload a backup zip. Recognised files replace their current contents —
+                this overwrites your data, so download a fresh backup first.
+            </p>
+            <form method="post" action="{{ url_for('finance.data_restore') }}"
+                  enctype="multipart/form-data"
+                  onsubmit="return confirm('Restore from this backup? Current data for the files in the zip will be overwritten.')">
+                <div class="data-row">
+                    <input type="file" name="backup" accept=".zip,application/zip" required>
+                    <button type="submit" class="delete-btn">Restore</button>
+                </div>
+            </form>
+        </div>
+
+        <div class="data-block">
+            <h3>Trash</h3>
+            <p>{{ counts.trashed }} deleted record(s) can be restored or permanently removed.</p>
+            <div class="data-row">
+                <a href="{{ url_for('finance.trash') }}" class="secondary-btn">Open Trash</a>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+</body>
+</html>

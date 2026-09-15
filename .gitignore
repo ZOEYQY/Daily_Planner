@@ -14,3 +14,10 @@ venv/
 Calendar/_migrate.json
 *.local.json
 .data/
+
+# Finance now supports multiple profiles (simple name-only switcher) sharing
+# one app instance — their data can belong to different real people, so
+# unlike the single-user data this repo used to track, it stays local only.
+Finance/data/profiles/
+Finance/data/profiles.json
+Finance/static/receipts/*/

@@ -43,7 +43,7 @@ def test_transfer_flow_still_works(client, load, make_account):
 def test_budget_uses_dynamic_categories(client, load):
     client.post("/categories", data={"action": "create", "name": "Gaming", "kind": "expense"})
 
-    budget_page = client.get("/budget").get_data(as_text=True)
+    budget_page = client.get("/plan?tab=budgets").get_data(as_text=True)
     assert "Gaming" in budget_page
 
     resp = client.post("/budget", data={
@@ -54,12 +54,12 @@ def test_budget_uses_dynamic_categories(client, load):
 
 
 def test_core_pages_load(client):
-    for path in ["/finance", "/view", "/summary", "/goals", "/budget", "/accounts"]:
+    for path in ["/finance", "/view", "/summary", "/plan", "/accounts"]:
         assert client.get(path).status_code == 200
 
 
 def test_receipt_endpoint_without_key_is_graceful(client, monkeypatch):
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     resp = client.post("/analyze-receipt", data={})
     # no image -> 400, never a 500 from the category-schema refactor
     assert resp.status_code == 400

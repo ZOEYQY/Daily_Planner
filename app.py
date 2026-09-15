@@ -28,6 +28,9 @@ app = Flask(
     template_folder=os.path.join(BASE_DIR, "Finance", "templates"),
     static_folder=os.path.join(BASE_DIR, "Finance", "static"),
 )
+# Needed for Finance's profile-switcher session cookie. Set FLASK_SECRET_KEY
+# in Finance/.env for anything beyond local/personal use.
+app.secret_key = os.environ.get("FLASK_SECRET_KEY", "daily-planner-dev-secret-change-me")
 app.register_blueprint(finance_bp, url_prefix="/finance")
 
 # Habit check-in (打卡) — SQLite in .data/ (gitignored), one shared store so the

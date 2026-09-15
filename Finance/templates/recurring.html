@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <title>Recurring</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='finance.css') }}">
+    <style>
+        .rec-item { border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; margin-bottom: 12px; }
+        .rec-item.is-paused { opacity: 0.55; }
+        .rec-item.is-due { border-color: var(--border-strong); }
+        .rec-top { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+        .rec-name { font-size: 15px; font-weight: 700; }
+        .rec-meta { font-size: 12px; color: var(--text-muted); margin-top: 3px; }
+        .rec-forms { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-top: 10px; }
+        .rec-forms form { display: inline-flex; }
+        .rec-forms button {
+            font-size: 12px; padding: 4px 9px; border: 1px solid var(--border);
+            border-radius: var(--radius-sm); background: var(--surface); cursor: pointer; color: var(--text-main);
+        }
+        .rec-forms button:hover { border-color: var(--border-strong); }
+        details.rec-edit { margin-top: 10px; }
+        details.rec-edit summary { cursor: pointer; font-size: 13px; color: var(--text-muted); }
+        details.rec-edit .summary-grid { margin-top: 10px; }
+    </style>
+</head>
+
+<body>
+
+<div class="topbar">
+    <div class="topbar-title">Recurring</div>
+    <div class="topbar-links">
+        <a href="{{ url_for('finance.finance_home') }}">Dashboard</a>
+        <a href="{{ url_for('finance.add_financial') }}">Add</a>
+        <a href="{{ url_for('finance.view_financial') }}">View</a>
+        <a href="{{ url_for('finance.recurring') }}" class="active-link">Recurring</a>
+        <a href="{{ url_for('finance.summary') }}">Summary</a>
+        <a href="{{ url_for('finance.plan') }}">Plan</a>
+        <a href="{{ url_for('finance.debts') }}">Debts</a>
+        <a href="{{ url_for('finance.accounts') }}">Accounts</a>
+        <a href="{{ url_for('finance.networth') }}">Net Worth</a>
+        <a href="{{ url_for('finance.shopping') }}">Shopping</a>
+        <a href="{{ url_for('finance.categories') }}">Categories</a>
+        <a href="{{ url_for('finance.currency') }}">Currency</a>
+        <a href="{{ url_for('finance.data_tools') }}">Data</a>
+        <a href="{{ url_for('finance.profiles_page') }}">👤 {{ current_profile.name if current_profile else 'Profile' }}</a>
+    </div>
+</div>
+
+<div class="summary-wrapper">
+
+    <!-- ===== CREATE ===== -->
+
+    <div class="summary-card hover-card">
+
+        <div class="page-header">
+            <h1 class="summary-main-title">Recurring Transactions</h1>
+            <p class="add-subtitle">
+                Set up a transaction that repeats — rent, subscriptions, salary.
+                Post each occurrence yourself, or turn on auto-post and it's
+                recorded when you open the Dashboard.
+            </p>
+        </div>
+
+        {% if error %}
+        <div class="insight-box" style="margin-bottom:16px;"><p class="negative">{{ error }}</p></div>
+        {% endif %}
+
+        {% if due_count %}
+        <div class="insight-box" style="margin-bottom:16px;">
+            <p class="positive">{{ due_count }} rule(s) due.</p>
+            <form method="post" style="margin-top:6px;">
+                <input type="hidden" name="action" value="post_all">
+                <button type="submit" class="primary-btn">Post all due now</button>
+            </form>
+        </div>
+        {% endif %}
+
+        {% if not accounts %}
+        <div class="insight-box" style="margin-bottom:16px;">
+            <p class="negative">Add an account first (Accounts page) before creating a recurring rule.</p>
+        </div>
+        {% endif %}
+
+        <form method="POST" class="add-form">
+            <input type="hidden" name="action" value="create">
+
+            <div class="summary-grid">
+                <div>
+                    <label>Type</label>
+                    <select name="type" required>
+                        {% for k in kinds %}
+                        <option value="{{ k }}" {{ 'selected' if k == 'expense' else '' }}>{{ k | capitalize }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label>Category</label>
+                    <select name="category" id="createCategory" required>
+                        <option value="">-- Category --</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="summary-grid">
+                <div>
+                    <label>Account</label>
+                    <select name="account" required>
+                        <option value="">-- Account --</option>
+                        {% for a in accounts %}
+                        <option value="{{ a.name }}">{{ a.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label>Amount (RM)</label>
+                    <input type="number" name="amount" step="0.01" min="0.01" required>
+                </div>
+            </div>
+
+            <div class="summary-grid">
+                <div>
+                    <label>Item / description</label>
+                    <input type="text" name="item" placeholder="Example: Netflix">
+                </div>
+                <div>
+                    <label>Tags (comma-separated)</label>
+                    <input type="text" name="tags" placeholder="subscription">
+                </div>
+            </div>
+
+            <div class="summary-grid">
+                <div>
+                    <label>Frequency</label>
+                    <select name="frequency" required>
+                        {% for fr in frequencies %}
+                        <option value="{{ fr }}" {{ 'selected' if fr == 'monthly' else '' }}>{{ fr | capitalize }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label>Every</label>
+                    <input type="number" name="interval" min="1" value="1"> <span class="add-subtitle">period(s)</span>
+                </div>
+            </div>
+
+            <div class="summary-grid">
+                <div>
+                    <label>Start date</label>
+                    <input type="date" name="start_date" value="{{ today }}" required>
+                </div>
+                <div>
+                    <label>End date (optional)</label>
+                    <input type="date" name="end_date">
+                </div>
+            </div>
+
+            <label style="display:inline-flex;align-items:center;gap:8px;font-weight:600;margin-top:6px;">
+                <input type="checkbox" name="auto_post" style="width:auto;margin:0;">
+                Auto-post when due (otherwise you post it by hand)
+            </label>
+
+            <div class="add-button-row">
+                <button type="submit" class="primary-btn">Add Recurring Rule</button>
+            </div>
+        </form>
+
+    </div>
+
+    <!-- ===== RULES ===== -->
+
+    <div class="summary-card hover-card">
+
+        <h2 class="section-title">Your Recurring Rules</h2>
+
+        {% if not rules %}
+        <div class="empty-card">
+            <h3>No recurring rules yet</h3>
+            <p>Create one above for anything that repeats on a schedule.</p>
+        </div>
+        {% endif %}
+
+        {% for r in rules %}
+        <div class="rec-item {{ 'is-paused' if not r.active else '' }} {{ 'is-due' if r.due_now else '' }}">
+
+            <div class="rec-top">
+                <div>
+                    <div class="rec-name">
+                        {{ r.item or r.category }}
+                        <span class="badge {{ r.type }}">{{ r.type }}</span>
+                    </div>
+                    <div class="rec-meta">
+                        RM {{ "%.2f"|format(r.amount) }} · {{ r.category }} · {{ r.account }}
+                        · every {{ r.interval }} {{ r.frequency }}{{ '' if r.interval == 1 else 's' }}
+                    </div>
+                    <div class="rec-meta">
+                        {% if r.active %}
+                            Next due <strong>{{ r.next_due }}</strong>{% if r.due_now %} — due now{% endif %}
+                        {% else %}Paused{% endif %}
+                        {% if r.last_posted %} · last posted {{ r.last_posted }}{% endif %}
+                        {% if r.end_date %} · ends {{ r.end_date }}{% endif %}
+                        {% if r.auto_post %} · auto-post on{% endif %}
+                        {% if r.tags %} · {% for t in r.tags %}#{{ t }} {% endfor %}{% endif %}
+                    </div>
+                </div>
+            </div>
+
+            <div class="rec-forms">
+                {% if r.active %}
+                <form method="post"><input type="hidden" name="action" value="post"><input type="hidden" name="id" value="{{ r.id }}"><button type="submit">Post now</button></form>
+                <form method="post"><input type="hidden" name="action" value="skip"><input type="hidden" name="id" value="{{ r.id }}"><button type="submit">Skip next</button></form>
+                <form method="post"><input type="hidden" name="action" value="pause"><input type="hidden" name="id" value="{{ r.id }}"><button type="submit">Pause</button></form>
+                {% else %}
+                <form method="post"><input type="hidden" name="action" value="resume"><input type="hidden" name="id" value="{{ r.id }}"><button type="submit">Resume</button></form>
+                {% endif %}
+                <form method="post" onsubmit="return confirm('Delete this recurring rule? Records it already created stay.')"><input type="hidden" name="action" value="delete"><input type="hidden" name="id" value="{{ r.id }}"><button type="submit">Delete</button></form>
+            </div>
+
+            <details class="rec-edit">
+                <summary>Edit rule</summary>
+                <form method="POST" class="add-form">
+                    <input type="hidden" name="action" value="update">
+                    <input type="hidden" name="id" value="{{ r.id }}">
+                    <div class="summary-grid">
+                        <div>
+                            <label>Type</label>
+                            <select name="type" class="rec-edit-type">
+                                {% for k in kinds %}
+                                <option value="{{ k }}" {{ 'selected' if k == r.type else '' }}>{{ k | capitalize }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div>
+                            <label>Category</label>
+                            <select name="category" class="rec-edit-category" data-selected="{{ r.category }}">
+                                <option value="">-- Category --</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="summary-grid">
+                        <div>
+                            <label>Account</label>
+                            <select name="account">
+                                {% for a in accounts %}
+                                <option value="{{ a.name }}" {{ 'selected' if a.name == r.account else '' }}>{{ a.name }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div>
+                            <label>Amount (RM)</label>
+                            <input type="number" name="amount" step="0.01" min="0.01" value="{{ '%.2f'|format(r.amount) }}">
+                        </div>
+                    </div>
+                    <div class="summary-grid">
+                        <div>
+                            <label>Item</label>
+                            <input type="text" name="item" value="{{ r.item }}">
+                        </div>
+                        <div>
+                            <label>Tags</label>
+                            <input type="text" name="tags" value="{{ (r.tags or []) | join(', ') }}">
+                        </div>
+                    </div>
+                    <div class="summary-grid">
+                        <div>
+                            <label>Frequency</label>
+                            <select name="frequency">
+                                {% for fr in frequencies %}
+                                <option value="{{ fr }}" {{ 'selected' if fr == r.frequency else '' }}>{{ fr | capitalize }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div>
+                            <label>Every</label>
+                            <input type="number" name="interval" min="1" value="{{ r.interval }}">
+                        </div>
+                    </div>
+                    <div class="summary-grid">
+                        <div>
+                            <label>Start date</label>
+                            <input type="date" name="start_date" value="{{ r.start_date }}">
+                        </div>
+                        <div>
+                            <label>End date</label>
+                            <input type="date" name="end_date" value="{{ r.end_date }}">
+                        </div>
+                    </div>
+                    <label style="display:inline-flex;align-items:center;gap:8px;font-weight:600;margin-top:6px;">
+                        <input type="checkbox" name="auto_post" {{ 'checked' if r.auto_post else '' }} style="width:auto;margin:0;">
+                        Auto-post when due
+                    </label>
+                    <div class="add-button-row">
+                        <button type="submit" class="primary-btn">Save changes</button>
+                    </div>
+                </form>
+            </details>
+
+        </div>
+        {% endfor %}
+
+    </div>
+
+</div>
+
+<script id="rec-categories" type="application/json">{{ categories | tojson }}</script>
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    let cats = {};
+    try { cats = JSON.parse(document.getElementById("rec-categories").textContent); } catch { cats = {}; }
+
+    function fill(select, type, selected) {
+        const list = cats[type] || [];
+        select.innerHTML = '<option value="">-- Category --</option>';
+        list.forEach(function (c) {
+            const o = document.createElement("option");
+            o.value = c; o.textContent = c;
+            if (c === selected) o.selected = true;
+            select.appendChild(o);
+        });
+    }
+
+    // create form
+    const createCategory = document.getElementById("createCategory");
+    const createForm = createCategory ? createCategory.closest("form") : null;
+    const createType = createForm ? createForm.querySelector('select[name="type"]') : null;
+    if (createType && createCategory) {
+        const sync = function () { fill(createCategory, createType.value, createCategory.value); };
+        createType.addEventListener("change", sync);
+        sync();
+    }
+
+    // edit forms
+    document.querySelectorAll(".rec-edit").forEach(function (box) {
+        const t = box.querySelector(".rec-edit-type");
+        const c = box.querySelector(".rec-edit-category");
+        if (!t || !c) return;
+        const sync = function () { fill(c, t.value, c.dataset.selected || c.value); };
+        t.addEventListener("change", function () { c.dataset.selected = ""; sync(); });
+        sync();
+    });
+});
+</script>
+
+</body>
+</html>

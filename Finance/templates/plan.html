@@ -1,0 +1,602 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <title>Plan</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='finance.css') }}">
+    <style>
+        .plan-tabs {
+            display: flex; gap: 6px; margin-bottom: 14px; flex-wrap: wrap;
+        }
+        .plan-tabs a {
+            padding: 8px 16px; border: 1px solid var(--border);
+            border-radius: var(--radius-sm); text-decoration: none;
+            color: var(--text-main); font-weight: 700; font-size: 14px;
+            background: var(--surface);
+        }
+        .plan-tabs a:hover { border-color: var(--border-strong); }
+        .plan-tabs a.active {
+            background: var(--text-main); color: #fff; border-color: var(--text-main);
+        }
+        .plan-summary-grid { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 10px; }
+        .plan-summary-col {
+            flex: 1; min-width: 240px; border: 1px solid var(--border);
+            border-radius: var(--radius-sm); padding: 14px 16px;
+        }
+        .plan-summary-col h3 { margin: 0 0 8px; font-size: 14px; }
+        .plan-summary-col .big { font-size: 22px; font-weight: 700; }
+        .plan-summary-col .sub { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
+    </style>
+</head>
+
+<body>
+
+<div class="topbar">
+    <div class="topbar-title">Plan</div>
+    <div class="topbar-links">
+        <a href="{{ url_for('finance.finance_home') }}">Dashboard</a>
+        <a href="{{ url_for('finance.add_financial') }}">Add</a>
+        <a href="{{ url_for('finance.view_financial') }}">View</a>
+        <a href="{{ url_for('finance.recurring') }}">Recurring</a>
+        <a href="{{ url_for('finance.summary') }}">Summary</a>
+        <a href="{{ url_for('finance.plan') }}" class="active-link">Plan</a>
+        <a href="{{ url_for('finance.debts') }}">Debts</a>
+        <a href="{{ url_for('finance.accounts') }}">Accounts</a>
+        <a href="{{ url_for('finance.networth') }}">Net Worth</a>
+        <a href="{{ url_for('finance.shopping') }}">Shopping</a>
+        <a href="{{ url_for('finance.categories') }}">Categories</a>
+        <a href="{{ url_for('finance.currency') }}">Currency</a>
+        <a href="{{ url_for('finance.data_tools') }}">Data</a>
+        <a href="{{ url_for('finance.profiles_page') }}">👤 {{ current_profile.name if current_profile else 'Profile' }}</a>
+    </div>
+</div>
+
+<div class="summary-wrapper">
+
+    <!-- ================= SUB-NAV: three sections ================= -->
+    <div class="plan-tabs">
+        <a href="{{ url_for('finance.plan', tab='summary') }}" class="{{ 'active' if tab == 'summary' else '' }}">Summary</a>
+        <a href="{{ url_for('finance.plan', tab='budgets') }}" class="{{ 'active' if tab == 'budgets' else '' }}">Budgets</a>
+        <a href="{{ url_for('finance.plan', tab='goals') }}" class="{{ 'active' if tab == 'goals' else '' }}">Goals</a>
+    </div>
+
+
+    {% if tab == 'summary' %}
+    <!-- ================= 1. SUMMARY ================= -->
+
+    <div class="summary-card hover-card">
+
+        <div class="page-header">
+            <h1 class="summary-main-title">Plan — Summary</h1>
+            <p class="add-subtitle">
+                Budgets and savings goals at a glance.
+                <a href="{{ url_for('finance.plan', tab='budgets') }}">Manage budgets →</a>
+                &nbsp;·&nbsp;
+                <a href="{{ url_for('finance.plan', tab='goals') }}">Manage goals →</a>
+            </p>
+        </div>
+
+        <div class="plan-summary-grid">
+
+            <div class="plan-summary-col">
+                <h3>Budgets — this period</h3>
+                <div class="big">
+                    RM {{ "%.2f"|format(plan_summary.total_spent) }}
+                    <span style="font-size:14px;color:var(--text-muted);">
+                        / RM {{ "%.2f"|format(plan_summary.total_limit) }}
+                    </span>
+                </div>
+                <div class="progress-container" style="margin-top:8px;">
+                    <div class="progress-bar {{ 'over' if plan_summary.budget_percent > 100 else ('warning' if plan_summary.budget_percent >= 80 else 'safe') }}"
+                         style="--width: {{ [plan_summary.budget_percent, 100] | min }}%;"></div>
+                </div>
+                <div class="sub">
+                    {{ plan_summary.budget_count }} budget(s) ·
+                    {{ plan_summary.budget_percent }}% used ·
+                    RM {{ "%.2f"|format(plan_summary.budget_headroom) }} headroom
+                    {% if plan_summary.budgets_over %} · {{ plan_summary.budgets_over }} over/at limit{% endif %}
+                    {% if plan_summary.budgets_near %} · {{ plan_summary.budgets_near }} near{% endif %}
+                </div>
+            </div>
+
+            <div class="plan-summary-col">
+                <h3>Goals — active</h3>
+                <div class="big">
+                    RM {{ "%.2f"|format(plan_summary.goal_saved) }}
+                    <span style="font-size:14px;color:var(--text-muted);">
+                        / RM {{ "%.2f"|format(plan_summary.goal_target) }}
+                    </span>
+                </div>
+                <div class="progress-container" style="margin-top:8px;">
+                    <div class="progress-bar safe"
+                         style="--width: {{ [plan_summary.goal_percent, 100] | min }}%;"></div>
+                </div>
+                <div class="sub">
+                    {{ plan_summary.active_goal_count }} active ·
+                    {{ plan_summary.completed_goal_count }} completed ·
+                    RM {{ "%.2f"|format(plan_summary.goal_remaining) }} to go
+                    {% if plan_summary.goal_monthly_need %}
+                    · need ~RM {{ "%.2f"|format(plan_summary.goal_monthly_need) }}/month
+                    {% endif %}
+                </div>
+            </div>
+
+            <div class="plan-summary-col">
+                <h3>Budget headroom vs goal need</h3>
+                {% set slack = plan_summary.budget_headroom - plan_summary.goal_monthly_need %}
+                <div class="big {{ 'negative' if slack < 0 else 'positive' }}">
+                    RM {{ "%.2f"|format(slack) }}
+                </div>
+                <div class="sub">
+                    {% if slack >= 0 %}
+                    Your remaining budget headroom covers this month's goal saving.
+                    {% else %}
+                    Goal saving needs RM {{ "%.2f"|format(slack | abs) }} more than your
+                    budget headroom this period — tighten a budget or ease a goal deadline.
+                    {% endif %}
+                </div>
+            </div>
+
+        </div>
+
+    </div>
+
+    {% if budget_warnings %}
+    <div class="summary-card hover-card">
+        <h2 class="section-title">Budget warnings</h2>
+        {% for w in budget_warnings %}
+        <div class="budget-warning-banner">
+            <strong>{{ w.category }}</strong> exceeded by
+            <strong>RM {{ "%.2f"|format(w.overspent) }}</strong>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+
+    {% elif tab == 'budgets' %}
+    <!-- ================= 2. BUDGETS ================= -->
+
+    <div class="summary-card hover-card">
+
+        <div class="budget-header">
+            <div>
+                <h1 class="summary-main-title" style="font-size:22px;">Budgets</h1>
+                <p class="budget-subtitle">Spending limits per category.</p>
+            </div>
+        </div>
+
+        {% if budget_error %}
+        <div class="budget-error">{{ budget_error }}</div>
+        {% endif %}
+
+        {% for w in budget_warnings %}
+        <div class="budget-warning-banner">
+            Warning: <strong>{{ w.category }}</strong> budget exceeded by
+            <strong>RM {{ "%.2f"|format(w.overspent) }}</strong>
+        </div>
+        {% endfor %}
+
+        <form method="POST" action="{{ url_for('finance.budget') }}">
+            <div class="summary-grid">
+                <div>
+                    <label>Category</label>
+                    <select name="category" required>
+                        <option value="">-- Select Category --</option>
+                        {% for cat in budget_categories %}
+                        <option value="{{ cat }}">{{ cat }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label>Budget Period</label>
+                    <select name="period">
+                        <option value="weekly">Weekly</option>
+                        <option value="monthly" selected>Monthly</option>
+                        <option value="yearly">Yearly</option>
+                    </select>
+                </div>
+                <div>
+                    <label>Budget Amount (RM)</label>
+                    <input type="number" name="amount" step="0.01" min="0.01" value="" required>
+                </div>
+            </div>
+            <label style="display:inline-flex;align-items:center;gap:8px;font-weight:600;margin-top:8px;">
+                <input type="checkbox" name="rollover" style="width:auto;margin:0;">
+                Roll unspent budget over to the next period (and carry overspend forward)
+            </label>
+            <div class="budget-button-row">
+                <button type="submit">Save Budget</button>
+            </div>
+        </form>
+
+    </div>
+
+    <div class="summary-card hover-card">
+
+        <h2 class="budget-section-title">Your Budgets</h2>
+
+        {% if budgets %}
+        <div class="budget-grid">
+            {% for b in budgets %}
+            <div class="budget-modern hover-card">
+                <div class="budget-card-top">
+                    <div>
+                        <h3>{{ b.category }}</h3>
+                        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:6px;">
+                            <span class="pill">{{ b.period | capitalize }}</span>
+                            {% if b.rollover %}<span class="pill">rollover</span>{% endif %}
+                            <span class="budget-status-pill budget-status-{{ b.status }}">
+                                {% if b.status == 'over' %}Exceeded
+                                {% elif b.status == 'full' %}At Limit
+                                {% elif b.status == 'warning' %}Near Limit
+                                {% else %}Safe{% endif %}
+                            </span>
+                        </div>
+                    </div>
+                    <div class="budget-actions">
+                        <a href="{{ url_for('finance.edit_budget', category=b.category) }}" class="budget-icon-btn" title="Edit">Edit</a>
+                        <form method="post" action="{{ url_for('finance.delete_budget', category=b.category) }}" onsubmit="return confirm('Delete {{ b.category }} budget?')" style="display:inline;">
+                            <button type="submit" class="budget-icon-btn budget-icon-del" title="Delete">✕</button>
+                        </form>
+                    </div>
+                </div>
+
+                {% if b.rollover and b.carryover %}
+                <div style="font-size:12px;color:var(--text-muted);margin-top:4px;">
+                    Base RM {{ "%.2f"|format(b.amount) }}
+                    {{ '+' if b.carryover >= 0 else '−' }} RM {{ "%.2f"|format(b.carryover | abs) }} rolled over
+                    = <strong>RM {{ "%.2f"|format(b.effective_limit) }}</strong> this period
+                </div>
+                {% endif %}
+
+                <div style="display:flex;margin:12px 0;">
+                    <div style="flex:1;padding:10px 12px;border-right:1px solid var(--border);min-width:0;">
+                        <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">{% if b.rollover %}Effective{% else %}Budget{% endif %}</div>
+                        <div style="font-weight:700;font-size:15px;white-space:nowrap;">RM {{ "%.2f"|format(b.effective_limit) }}</div>
+                    </div>
+                    <div style="flex:1;padding:10px 12px;border-right:1px solid var(--border);min-width:0;">
+                        <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">Spent</div>
+                        <div style="font-weight:700;font-size:15px;white-space:nowrap;">RM {{ "%.2f"|format(b.spent) }}</div>
+                    </div>
+                    <div style="flex:1;padding:10px 12px;min-width:0;">
+                        <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">{% if b.remaining < 0 %}Overspent{% else %}Remaining{% endif %}</div>
+                        <div class="budget-remaining {% if b.remaining < 0 %}budget-remaining-over{% else %}budget-remaining-ok{% endif %}">
+                            RM {{ "%.2f"|format(b.remaining | abs) }}
+                        </div>
+                    </div>
+                </div>
+
+                <div class="progress-container">
+                    <div class="progress-bar {{ b.status }}" style="--width: {{ b.display_percent }}%;"></div>
+                </div>
+                <div style="font-size:16px;color:var(--text-muted);margin-top:6px;">{{ "%.0f"|format(b.percent) }}% Used</div>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="empty-card">
+            <h3>No budgets created yet</h3>
+            <p>Start by creating your first budget above.</p>
+        </div>
+        {% endif %}
+
+    </div>
+
+
+    {% else %}
+    <!-- ================= 3. GOALS ================= -->
+
+    <div class="summary-card hover-card">
+
+        <h1 class="summary-main-title" style="font-size:22px;">Goals</h1>
+        <p class="goal-subtitle">Track your savings progress and hit your targets.</p>
+
+        {% if goal_error %}
+        <div class="budget-error">{{ goal_error }}</div>
+        {% endif %}
+
+        <form method="POST" action="{{ url_for('finance.goals') }}" class="goal-form">
+            <input type="hidden" name="action" value="create">
+            <div class="summary-grid">
+                <div>
+                    <label>Goal Name</label>
+                    <input type="text" name="name" placeholder="Example: Japan Trip" required>
+                </div>
+                <div>
+                    <label>Goal Type</label>
+                    <select name="type" required>
+                        <option value="">Select Goal Type</option>
+                        <option value="short">Short-Term</option>
+                        <option value="long">Long-Term</option>
+                    </select>
+                </div>
+                <div>
+                    <label>Priority</label>
+                    <select name="priority">
+                        <option value="medium">Medium</option>
+                        <option value="high">High</option>
+                        <option value="low">Low</option>
+                    </select>
+                </div>
+                <div>
+                    <label>Target Date (Optional)</label>
+                    <input type="date" name="target_date">
+                </div>
+            </div>
+            <label>Target Amount (RM)</label>
+            <input type="number" name="target" step="0.01" min="0.01" required>
+            <label>Notes (Optional)</label>
+            <textarea name="notes" placeholder="Example: Flight + Hotel + Food" rows="2" style="resize:none;"></textarea>
+            <div class="add-button-row">
+                <button type="submit">Create Goal</button>
+            </div>
+        </form>
+
+    </div>
+
+    {% for section, section_title, section_goals, grid_id, sort_id in [
+        ('short', 'Short-Term Goals', short_goals, 'short-goals-grid', 'shortSortSelect'),
+        ('long', 'Long-Term Goals', long_goals, 'long-goals-grid', 'longSortSelect')
+    ] %}
+    <div class="summary-card hover-card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+            <h2 class="goal-section-title" style="margin:0;">{{ section_title }}</h2>
+            <div style="display:flex;align-items:center;gap:8px;">
+                <span style="font-size:13px;color:var(--text-muted);white-space:nowrap;">Sort:</span>
+                <select id="{{ sort_id }}" onchange="syncSort(this.value)" style="width:auto;padding:5px 10px;border-radius:8px;font-size:13px;">
+                    <option value="default">Default</option>
+                    <option value="priority">Priority (High → Low)</option>
+                    <option value="progress_desc">Progress (Highest → Lowest)</option>
+                    <option value="progress_asc">Progress (Lowest → Highest)</option>
+                    <option value="date_asc">Target Date (Nearest First)</option>
+                    <option value="date_desc">Target Date (Latest First)</option>
+                    <option value="remaining_asc">Amount Remaining (Lowest First)</option>
+                    <option value="remaining_desc">Amount Remaining (Highest First)</option>
+                    <option value="name">Goal Name (A → Z)</option>
+                </select>
+            </div>
+        </div>
+
+        {% if section_goals %}
+        <div class="summary-grid" id="{{ grid_id }}">
+            {% for g in section_goals %}
+            <div class="goal-card hover-card"
+                 data-priority="{{ {'high':0,'medium':1,'low':2}.get(g.priority, 1) }}"
+                 data-percent="{{ g.percent }}" data-remaining="{{ g.remaining }}"
+                 data-date="{{ g.target_date or '9999-12-31' }}" data-name="{{ g.name }}">
+
+                <div class="budget-card-top">
+                    <div>
+                        <h3>{{ g.name }}</h3>
+                        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;">
+                            <small class="pill{% if g.status == 'In Progress' %} pill-solid{% endif %}">
+                                {% if g.status == 'Paused' %}Paused
+                                {% elif g.status == 'Cancelled' %}Cancelled
+                                {% else %}In Progress{% endif %}
+                            </small>
+                            <small class="pill">
+                                {% if g.priority == 'high' %}High Priority
+                                {% elif g.priority == 'low' %}Low Priority
+                                {% else %}Medium Priority{% endif %}
+                            </small>
+                        </div>
+                    </div>
+                    <div class="action-buttons">
+                        <a href="{{ url_for('finance.edit_goal', goal_id=g.id) }}" class="edit-btn">Edit</a>
+                        <form method="post" action="{{ url_for('finance.delete_goal', goal_id=g.id) }}" onsubmit="return confirm('Delete this goal?')" style="display:inline;">
+                            <button type="submit" class="delete-btn">Delete</button>
+                        </form>
+                    </div>
+                </div>
+
+                <h2>RM {{ "%.2f"|format(g.saved) }}</h2>
+                <p>Target: RM {{ "%.2f"|format(g.target) }}</p>
+
+                <div style="display:flex;gap:6px;margin:8px 0;">
+                    {% for pct, reached in [('25%', g.milestone_25), ('50%', g.milestone_50), ('75%', g.milestone_75), ('100%', g.milestone_100)] %}
+                    <span class="milestone{% if reached %} milestone-reached{% endif %}">{{ pct }}</span>
+                    {% endfor %}
+                </div>
+
+                <div class="progress-container">
+                    <div class="progress-bar {% if g.percent >= 80 %}warning{% else %}safe{% endif %}" style="--width: {{ g.display_percent }}%;"></div>
+                </div>
+                <div class="goal-footer">
+                    <span>{{ "%.0f"|format(g.percent) }}% Complete</span>
+                    <span>RM {{ "%.2f"|format(g.remaining) }} left</span>
+                </div>
+
+                {% if g.target_date %}
+                <div class="inset-box">
+                    <div>Target: <strong>{{ g.target_date }}</strong></div>
+                    {% if g.overdue %}
+                    <div class="text-alert" style="margin-top:4px;">Overdue</div>
+                    {% else %}
+                    <div style="margin-top:4px;"><strong>{{ g.days_remaining }}</strong> days left ({{ g.months_remaining }} months)</div>
+                    {% endif %}
+                </div>
+                {% endif %}
+
+                {% if g.target_date and not g.overdue and g.remaining > 0 %}
+                <div class="inset-box">
+                    Need <strong>RM {{ "%.2f"|format(g.required_daily) }}/day</strong>
+                    &nbsp;·&nbsp; RM {{ "%.2f"|format(g.required_weekly) }}/week
+                    &nbsp;·&nbsp; RM {{ "%.2f"|format(g.required_monthly) }}/month
+                </div>
+                {% endif %}
+
+                {% if g.notes %}
+                <div style="margin-top:8px;font-size:15px;color:var(--text-muted);">{{ g.notes }}</div>
+                {% endif %}
+
+                <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;">
+                    {% if g.status == 'Paused' %}
+                    <form method="post" action="{{ url_for('finance.resume_goal', goal_id=g.id) }}" style="display:inline;"><button type="submit" class="chip-btn">Resume</button></form>
+                    {% else %}
+                    <form method="post" action="{{ url_for('finance.pause_goal', goal_id=g.id) }}" style="display:inline;"><button type="submit" class="chip-btn">Pause</button></form>
+                    {% endif %}
+                    <form method="post" action="{{ url_for('finance.complete_goal', goal_id=g.id) }}" style="display:inline;"><button type="submit" class="chip-btn">Mark Complete</button></form>
+                    <form method="post" action="{{ url_for('finance.cancel_goal', goal_id=g.id) }}" onsubmit="return confirm('Cancel this goal?')" style="display:inline;"><button type="submit" class="chip-btn">Cancel</button></form>
+                </div>
+
+                <form method="POST" action="{{ url_for('finance.goals') }}" style="margin-top:12px;">
+                    <input type="hidden" name="action" value="save">
+                    <input type="hidden" name="goal_name" value="{{ g.name }}">
+                    <input type="hidden" name="goal_id" value="{{ g.id }}">
+                    <div class="goal-add-savings-row">
+                        <select name="account" class="goal-account-select" required>
+                            <option value="">Select Account</option>
+                            {% for account in accounts %}
+                            <option value="{{ account.name }}">{{ account.name }}</option>
+                            {% endfor %}
+                        </select>
+                        <input type="number" name="amount" class="goal-amount-input" placeholder="0.00" step="0.01" min="0.01" required>
+                    </div>
+                    <br>
+                    <button type="submit">Add Savings</button>
+                </form>
+
+                {% if g.contributions %}
+                <button type="button" onclick='openContributions({{ g.contributions | tojson }}, "{{ g.name }}")' class="contrib-history-btn">
+                    Contributions ({{ g.contributions|length }})
+                </button>
+                {% endif %}
+
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="empty-card"><h3>No {{ section }}-term goals yet</h3></div>
+        {% endif %}
+    </div>
+    {% endfor %}
+
+    {% if completed_goals %}
+    <div class="summary-card hover-card">
+        <h2 class="goal-section-title">Completed Goals</h2>
+        <div class="summary-grid">
+            {% for g in completed_goals %}
+            <div class="goal-card hover-card">
+                <div class="budget-card-top">
+                    <div>
+                        <h3>{{ g.name }}</h3>
+                        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;">
+                            <small class="pill pill-solid">{{ g.status }}</small>
+                            <small class="pill">{% if g.goal_type == 'short' %}Short-Term{% else %}Long-Term{% endif %}</small>
+                        </div>
+                    </div>
+                    <div class="action-buttons">
+                        <a href="{{ url_for('finance.edit_goal', goal_id=g.id) }}" class="edit-btn">Edit</a>
+                        <form method="post" action="{{ url_for('finance.delete_goal', goal_id=g.id) }}" onsubmit="return confirm('Delete this goal?')" style="display:inline;">
+                            <button type="submit" class="delete-btn">Delete</button>
+                        </form>
+                    </div>
+                </div>
+                <h2>RM {{ "%.2f"|format(g.saved) }}</h2>
+                <p>Target: RM {{ "%.2f"|format(g.target) }}</p>
+                <div class="progress-container"><div class="progress-bar safe" style="--width: 100%;"></div></div>
+                <div class="goal-footer"><span>100% Complete</span><span>Goal Achieved</span></div>
+                {% if g.completion_date %}<div class="inset-box">Completed on {{ g.completion_date }}</div>{% endif %}
+                {% if g.notes %}<div style="margin-top:8px;font-size:14px;color:var(--text-muted);">{{ g.notes }}</div>{% endif %}
+                <div style="margin-top:12px;">
+                    <form method="post" action="{{ url_for('finance.reopen_goal', goal_id=g.id) }}" style="display:inline;">
+                        <button type="submit" class="chip-btn">Reopen Goal</button>
+                    </form>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    {% endif %}
+
+</div>
+
+<!-- ================= CONTRIBUTIONS MODAL ================= -->
+<div id="contribModal" onclick="if(event.target===this)closeContributions()"
+    style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1000;align-items:center;justify-content:center;">
+    <div class="contrib-modal-inner">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+            <h3 id="contribModalTitle" style="margin:0;font-size:16px;">Contributions</h3>
+            <button onclick="closeContributions()" class="contrib-modal-close">✕</button>
+        </div>
+        <div id="contribModalBody"></div>
+    </div>
+</div>
+
+<script>
+const UPDATE_URL_TMPL = "{{ url_for('finance.update_financial', rid='RID') }}";
+const DELETE_URL_TMPL = "{{ url_for('finance.delete_financial', rid='RID') }}";
+
+function syncSort(value) {
+    ['shortSortSelect', 'longSortSelect'].forEach(function (id) {
+        const el = document.getElementById(id);
+        if (el) el.value = value;
+    });
+    sortGoals(value);
+}
+
+function openContributions(contributions, goalName) {
+    document.getElementById('contribModalTitle').textContent = goalName + ' — Contributions';
+    const body = document.getElementById('contribModalBody');
+    if (!contributions.length) {
+        body.innerHTML = '<p style="color:var(--text-muted);text-align:center;padding:16px 0;">No contributions yet.</p>';
+    } else {
+        body.innerHTML = contributions.map(function (c) {
+            return '<div class="contrib-row"><div>' +
+                '<div style="font-size:13px;font-weight:600;">' + c.date + '</div>' +
+                '<div style="font-size:12px;color:var(--text-muted);">' + c.account + '</div></div>' +
+                '<div style="display:flex;align-items:center;gap:12px;">' +
+                '<span style="font-size:14px;font-weight:700;">+RM ' + Number(c.amount).toFixed(2) + '</span>' +
+                '<a href="' + UPDATE_URL_TMPL.replace('RID', c.id) + '?source=goal" style="text-decoration:none;font-size:13px;font-weight:700;">Edit</a>' +
+                '<a href="#" style="text-decoration:none;font-size:13px;font-weight:700;" onclick="deleteContribution(&quot;' + c.id + '&quot;); return false;">✕</a>' +
+                '</div></div>';
+        }).join('');
+    }
+    document.getElementById('contribModal').style.display = 'flex';
+}
+
+function closeContributions() {
+    document.getElementById('contribModal').style.display = 'none';
+}
+
+function deleteContribution(rid) {
+    if (!confirm('Move this contribution to Trash?')) return;
+    const form = document.createElement('form');
+    form.method = 'POST';
+    form.action = DELETE_URL_TMPL.replace('RID', rid);
+    const src = document.createElement('input');
+    src.type = 'hidden'; src.name = 'source'; src.value = 'goal';
+    form.appendChild(src);
+    document.body.appendChild(form);
+    form.submit();
+}
+
+function sortGoals(sortBy) {
+    ['short-goals-grid', 'long-goals-grid'].forEach(function (gridId) {
+        const grid = document.getElementById(gridId);
+        if (!grid) return;
+        const cards = Array.from(grid.querySelectorAll('.goal-card'));
+        cards.sort(function (a, b) {
+            switch (sortBy) {
+                case 'priority': return parseInt(a.dataset.priority) - parseInt(b.dataset.priority);
+                case 'progress_desc': return parseFloat(b.dataset.percent) - parseFloat(a.dataset.percent);
+                case 'progress_asc': return parseFloat(a.dataset.percent) - parseFloat(b.dataset.percent);
+                case 'date_asc': return a.dataset.date.localeCompare(b.dataset.date);
+                case 'date_desc': return b.dataset.date.localeCompare(a.dataset.date);
+                case 'remaining_asc': return parseFloat(a.dataset.remaining) - parseFloat(b.dataset.remaining);
+                case 'remaining_desc': return parseFloat(b.dataset.remaining) - parseFloat(a.dataset.remaining);
+                case 'name': return a.dataset.name.localeCompare(b.dataset.name);
+                default: return 0;
+            }
+        });
+        cards.forEach(function (card) { grid.appendChild(card); });
+    });
+}
+</script>
+
+</body>
+</html>
