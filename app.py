@@ -13,10 +13,8 @@ Each module can also be run on its own:
 
 Tuition is a separate project and is intentionally not part of this app.
 """
-import hmac
 import os
 import secrets
-import time
 from datetime import timedelta
 
 from flask import Flask, redirect, url_for, send_from_directory, abort, request, session
@@ -24,7 +22,7 @@ from flask import Flask, redirect, url_for, send_from_directory, abort, request,
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CALENDAR_DIR = os.path.join(BASE_DIR, "Calendar")
 
-from Finance.finance_routes import finance_bp
+from Finance.finance_routes import finance_bp, authed_profile
 from Calendar import habits as calendar_habits
 
 app = Flask(
@@ -32,87 +30,46 @@ app = Flask(
     template_folder=os.path.join(BASE_DIR, "Finance", "templates"),
     static_folder=os.path.join(BASE_DIR, "Finance", "static"),
 )
-# Needed for Finance's profile-switcher session cookie. Set FLASK_SECRET_KEY
-# in Finance/.env for anything beyond local/personal use.
-# Site password: set APP_PASSWORD (e.g. on Render) and every page asks for it
-# once per browser (remembered 30 days). Unset = no gate, for local use.
-APP_PASSWORD = os.environ.get("APP_PASSWORD", "")
-
+# Signs the login cookie. Set FLASK_SECRET_KEY for anything beyond local use;
+# on Render (which sets RENDER) a missing key falls back to a random one rather
+# than the public dev value, which would let anyone forge a login.
 app.secret_key = os.environ.get("FLASK_SECRET_KEY") or (
-    # With a password on, the public dev fallback would let anyone forge a
-    # logged-in cookie — use a random key instead (logins reset on restart).
-    secrets.token_hex(32) if APP_PASSWORD else "daily-planner-dev-secret-change-me")
+    secrets.token_hex(32) if os.environ.get("RENDER") else "daily-planner-dev-secret-change-me")
 app.permanent_session_lifetime = timedelta(days=30)
 app.register_blueprint(finance_bp, url_prefix="/finance")
 
-# Habit check-in (打卡) — SQLite in .data/ (gitignored), one shared store so the
-# calendar's habit view reads the same list/streaks from any device that reaches
-# this server. The calendar's events/tasks stay in the browser; only habits are
+# Habit check-in (打卡) — SQLite in .data/ (gitignored), shared by every device
+# that reaches this server, with each profile seeing only its own habits.
+# The calendar's events/tasks stay in the browser; only habits are
 # server-backed. Mounted where the calendar page can fetch it with "./api/...".
 calendar_habits.init(os.path.join(BASE_DIR, ".data", "habits.db"))
 app.register_blueprint(calendar_habits.bp, url_prefix="/calendar/api")
 
 
-# ── site password ───────────────────────────────────────────────────
-LOGIN_HTML = """<!doctype html>
-<html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Daily Planner</title>
-<style>
-  :root { color-scheme: light dark; }
-  body { margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center;
-    background:#f6f7f9; color:#232733;
-    font:16px/1.5 -apple-system,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif; }
-  form { display:flex; flex-direction:column; gap:14px; width:min(320px,100% - 32px); padding:28px;
-    background:#fff; border:1px solid #e7e9ee; border-radius:16px;
-    box-shadow:0 1px 2px rgba(20,25,40,.04),0 8px 24px rgba(20,25,40,.05); }
-  h1 { margin:0; font-size:1.4rem; letter-spacing:-.02em; }
-  input, button { font:inherit; padding:10px 12px; border-radius:10px; }
-  input { border:1px solid #d5d9e2; }
-  button { border:0; background:#2f4b7c; color:#fff; font-weight:650; cursor:pointer; }
-  .err { margin:0; color:#b3261e; font-size:.9rem; }
-</style></head><body>
-  <form method="post">
-    <h1>Daily Planner</h1>
-    __ERR__
-    <input type="password" name="password" placeholder="Password" autofocus required>
-    <button type="submit">Log in</button>
-  </form>
-</body></html>"""
-
-
-def _safe_next(target):
-    return target if target and target.startswith("/") and not target.startswith("//") else "/"
-
-
+# ── login: every page needs a profile logged in with its password ───
+# Finance's own before_request does this for /finance/*; this covers the rest
+# (home, calendar, habits API). The login screen is /finance/profiles.
 @app.before_request
-def _require_password():
-    if not APP_PASSWORD or request.endpoint == "login" or session.get("dp_auth"):
+def _require_profile():
+    if request.blueprint == "finance":
+        return None
+    if request.endpoint == "static":
+        # Receipt images are served per-profile by /finance/receipts/ —
+        # never straight out of the static folder.
+        if (request.view_args or {}).get("filename", "").startswith("receipts/"):
+            abort(404)
+        return None
+    if authed_profile():
         return None
     if request.method == "GET" and request.accept_mimetypes.accept_html:
-        return redirect(url_for("login", next=request.full_path.rstrip("?")))
+        return redirect(url_for("finance.profiles_page", next=request.full_path.rstrip("?")))
     abort(401)
-
-
-@app.route("/login", methods=["GET", "POST"])
-def login():
-    if not APP_PASSWORD:
-        return redirect("/")
-    err = ""
-    if request.method == "POST":
-        if hmac.compare_digest(request.form.get("password", "").encode(), APP_PASSWORD.encode()):
-            session["dp_auth"] = True
-            session.permanent = True
-            return redirect(_safe_next(request.args.get("next")))
-        time.sleep(1)  # slow down guessing
-        err = '<p class="err">Wrong password</p>'
-    return LOGIN_HTML.replace("__ERR__", err)
 
 
 @app.route("/logout")
 def logout():
-    session.pop("dp_auth", None)
-    return redirect(url_for("login") if APP_PASSWORD else "/")
+    session.clear()
+    return redirect(url_for("finance.profiles_page"))
 
 
 # ── home / portal ───────────────────────────────────────────────────
@@ -178,6 +135,8 @@ body{padding-top:40px !important}
   <a href="/" title="Home">&#127968;</a>
   <a href="/finance/" class="__F__">$ Finance</a>
   <a href="/calendar/" class="__C__">&#128197; Calendar</a>
+  <a href="/finance/profiles" style="margin-left:auto" title="My profile">&#128100;</a>
+  <a href="/logout">Log out</a>
 </div>
 """
 

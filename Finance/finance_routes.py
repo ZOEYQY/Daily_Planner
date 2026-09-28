@@ -8,6 +8,7 @@ import mimetypes
 import os
 import re
 import statistics
+import time
 import uuid
 import zipfile
 from datetime import datetime, timedelta
@@ -34,6 +35,7 @@ try:
         load_rates, save_rates, find_rate, clean_currency_code, BASE_CURRENCY,
         load_profiles, save_profiles, find_profile, ensure_default_profile,
         create_profile, rename_profile, delete_profile, apply_profile_paths,
+        find_profile_by_name, check_profile_password, set_profile_password,
     )
 except ImportError:
     # Plain import: used when running Finance/app.py directly, where
@@ -57,6 +59,7 @@ except ImportError:
         load_rates, save_rates, find_rate, clean_currency_code, BASE_CURRENCY,
         load_profiles, save_profiles, find_profile, ensure_default_profile,
         create_profile, rename_profile, delete_profile, apply_profile_paths,
+        find_profile_by_name, check_profile_password, set_profile_password,
     )
 
 # Load Finance/.env (if present) so GEMINI_API_KEY / GEMINI_MODEL can
@@ -119,28 +122,42 @@ def _store_paths():
 
 _PROFILE_EXEMPT_ENDPOINTS = {
     "finance.profiles_page",
+    "finance.login_route",
     "finance.create_profile_route",
-    "finance.switch_profile_route",
-    "finance.rename_profile_route",
-    "finance.delete_profile_route",
     "finance.switch_off_profile_route",
 }
+
+MIN_PASSWORD_LEN = 6
+
+
+def authed_profile():
+    """The profile this browser logged into with its password, or None.
+    ``auth_profile`` is only ever set after a password check, so cookies from
+    the old name-only switcher (which only carry ``profile_id``) don't count."""
+    profile_id = session.get("auth_profile")
+    if not profile_id or session.get("profile_id") != profile_id:
+        return None
+    return find_profile(load_profiles(), profile_id)
+
+
+def _log_in(profile_id):
+    session.clear()
+    session["profile_id"] = profile_id
+    session["auth_profile"] = profile_id
+    session.permanent = True
+
+
+def _safe_next(target):
+    return target if target and target.startswith("/") and not target.startswith("//") else None
 
 
 @finance_bp.before_request
 def _activate_profile():
-    profile_id = session.get("profile_id")
-    active = find_profile(load_profiles(), profile_id) if profile_id else None
+    active = authed_profile()
 
     if not active:
         if request.endpoint in _PROFILE_EXEMPT_ENDPOINTS:
-            # Don't bootstrap a profile just because someone hit a
-            # profile-management route (e.g. /profiles/create itself
-            # creates the one and only profile — no phantom extra one).
             return None
-        # First time anything actually needs a profile to exist: bootstrap
-        # one, migrating pre-profiles flat data into it if there is any.
-        load_profiles() or ensure_default_profile()
         return redirect(url_for("finance.profiles_page", next=request.path))
 
     paths = apply_profile_paths(active["id"])
@@ -162,15 +179,20 @@ def _inject_current_profile():
     return {"current_profile": getattr(g, "profile", None)}
 
 
-def _render_profiles(error=None):
-    profiles = load_profiles() or ensure_default_profile()
+def _render_profiles(error=None, notice=None, status=200):
+    # The login screen never lists profile names — you type yours.
     return render_template(
         "profiles.html",
-        profiles=sorted(profiles, key=lambda p: p.get("created_at", "")),
-        current_id=session.get("profile_id"),
+        me=authed_profile(),
         next_url=request.values.get("next", ""),
         error=error,
-    )
+        notice=notice,
+        min_len=MIN_PASSWORD_LEN,
+    ), status
+
+
+def _after_login():
+    return redirect(_safe_next(request.form.get("next")) or url_for("finance.finance_home"))
 
 
 @finance_bp.route("/profiles")
@@ -178,58 +200,84 @@ def profiles_page():
     return _render_profiles()
 
 
+@finance_bp.route("/profiles/login", methods=["POST"])
+def login_route():
+    name = request.form.get("name") or ""
+    password = request.form.get("password") or ""
+    profiles = load_profiles() or ensure_default_profile()
+    profile = find_profile_by_name(profiles, name)
+    if profile and not profile.get("password_hash"):
+        # Profile from before passwords existed: the first login sets it.
+        if len(password) < MIN_PASSWORD_LEN:
+            return _render_profiles(
+                error=f'"{profile["name"]}" has no password yet — choose one '
+                      f'(at least {MIN_PASSWORD_LEN} characters) to claim it.', status=400)
+        set_profile_password(profile["id"], password)
+        _log_in(profile["id"])
+        return _after_login()
+    if profile and check_profile_password(profile, password):
+        _log_in(profile["id"])
+        return _after_login()
+    time.sleep(1)  # slow down guessing
+    return _render_profiles(error="Wrong profile name or password.", status=401)
+
+
 @finance_bp.route("/profiles/create", methods=["POST"])
 def create_profile_route():
     name = (request.form.get("name") or "").strip()
+    password = request.form.get("password") or ""
     if not name:
-        return _render_profiles(error="Enter a name for the new profile.")
-    profile_id = create_profile(name)
-    session["profile_id"] = profile_id
-    session.permanent = True
-    return redirect(request.form.get("next") or url_for("finance.finance_home"))
-
-
-@finance_bp.route("/profiles/switch", methods=["POST"])
-def switch_profile_route():
-    profile_id = request.form.get("id")
-    if not find_profile(load_profiles(), profile_id):
-        return _render_profiles(error="That profile no longer exists.")
-    session["profile_id"] = profile_id
-    session.permanent = True
-    return redirect(request.form.get("next") or url_for("finance.finance_home"))
+        return _render_profiles(error="Enter a name for the new profile.", status=400)
+    if find_profile_by_name(load_profiles(), name):
+        return _render_profiles(error="That name is taken — pick another.", status=400)
+    if len(password) < MIN_PASSWORD_LEN:
+        return _render_profiles(error=f"Password needs at least {MIN_PASSWORD_LEN} characters.", status=400)
+    if password != (request.form.get("password2") or ""):
+        return _render_profiles(error="The two passwords don't match.", status=400)
+    _log_in(create_profile(name, password))
+    return _after_login()
 
 
 @finance_bp.route("/profiles/switch-off", methods=["POST"])
 def switch_off_profile_route():
-    # Not real security — just "this isn't me anymore" on a shared device.
-    session.pop("profile_id", None)
+    session.clear()
     return redirect(url_for("finance.profiles_page"))
 
 
-@finance_bp.route("/profiles/<profile_id>/rename", methods=["POST"])
-def rename_profile_route(profile_id):
+@finance_bp.route("/profiles/rename", methods=["POST"])
+def rename_profile_route():
     name = (request.form.get("name") or "").strip()
     if not name:
-        return _render_profiles(error="Enter a name.")
-    if not rename_profile(profile_id, name):
-        return _render_profiles(error="That profile no longer exists.")
+        return _render_profiles(error="Enter a name.", status=400)
+    other = find_profile_by_name(load_profiles(), name)
+    if other and other["id"] != g.profile_id:
+        return _render_profiles(error="That name is taken — pick another.", status=400)
+    rename_profile(g.profile_id, name)
     return redirect(url_for("finance.profiles_page"))
 
 
-@finance_bp.route("/profiles/<profile_id>/delete", methods=["POST"])
-def delete_profile_route(profile_id):
-    profile = find_profile(load_profiles(), profile_id)
-    if not profile:
-        return redirect(url_for("finance.profiles_page"))
+@finance_bp.route("/profiles/password", methods=["POST"])
+def change_password_route():
+    if not check_profile_password(g.profile, request.form.get("current") or ""):
+        time.sleep(1)
+        return _render_profiles(error="Current password is wrong.", status=401)
+    new = request.form.get("password") or ""
+    if len(new) < MIN_PASSWORD_LEN:
+        return _render_profiles(error=f"Password needs at least {MIN_PASSWORD_LEN} characters.", status=400)
+    if new != (request.form.get("password2") or ""):
+        return _render_profiles(error="The two passwords don't match.", status=400)
+    set_profile_password(g.profile_id, new)
+    return _render_profiles(notice="Password changed.")
 
-    # No password to gate this, so require re-typing the name — deleting a
-    # profile permanently destroys every record/budget/goal/... it has.
-    if (request.form.get("confirm_name") or "").strip().casefold() != profile["name"].casefold():
-        return _render_profiles(error=f'Type "{profile["name"]}" exactly to confirm deleting it.')
 
-    delete_profile(profile_id)
-    if session.get("profile_id") == profile_id:
-        session.pop("profile_id", None)
+@finance_bp.route("/profiles/delete", methods=["POST"])
+def delete_profile_route():
+    # Deleting destroys every record/budget/goal/... — needs the password.
+    if not check_profile_password(g.profile, request.form.get("password") or ""):
+        time.sleep(1)
+        return _render_profiles(error="Wrong password — profile not deleted.", status=401)
+    delete_profile(g.profile_id)
+    session.clear()
     return redirect(url_for("finance.profiles_page"))
 
 

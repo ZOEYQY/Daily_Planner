@@ -3,36 +3,31 @@
 
 <head>
     <meta charset="UTF-8">
-    <title>Who's using Finance?</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% if me %}My profile{% else %}Log in · Daily Planner{% endif %}</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='finance.css') }}">
     <style>
-        .profile-grid { display: flex; gap: 12px; flex-wrap: wrap; margin: 14px 0; }
-        .profile-card {
-            width: 160px; border: 1px solid var(--border); border-radius: var(--radius);
-            padding: 16px; text-align: center;
-        }
-        .profile-card.is-current { border-color: var(--border-strong); }
+        .auth-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 24px; margin-top: 8px; }
+        .auth-grid h3 { margin-top: 0; }
         .profile-avatar {
-            width: 48px; height: 48px; border-radius: 50%; margin: 0 auto 10px;
+            width: 48px; height: 48px; border-radius: 50%;
             background: var(--surface-alt); display: flex; align-items: center;
             justify-content: center; font-size: 18px; font-weight: 700;
         }
-        .profile-name { font-weight: 700; font-size: 14px; margin-bottom: 10px; word-break: break-word; }
-        .profile-current-tag { font-size: 11px; color: var(--text-muted); margin-bottom: 8px; }
-        details.profile-manage { margin-top: 8px; text-align: left; }
-        details.profile-manage summary { cursor: pointer; font-size: 12px; color: var(--text-muted); text-align: center; }
-        details.profile-manage .add-form { margin-top: 8px; }
-        details.profile-manage input { font-size: 12px; }
-        details.profile-manage button { font-size: 12px; padding: 4px 8px; }
+        .me-row { display: flex; align-items: center; gap: 14px; margin-bottom: 18px; }
+        .me-name { font-weight: 700; font-size: 18px; }
+        details.profile-manage { border-top: 1px solid var(--border); padding-top: 12px; margin-top: 12px; }
+        details.profile-manage summary { cursor: pointer; font-weight: 600; }
+        details.profile-manage .add-form { margin-top: 10px; }
     </style>
 </head>
 
 <body>
 
 <div class="topbar">
-    <div class="topbar-title">Who's using Finance?</div>
+    <div class="topbar-title">{% if me %}My profile{% else %}Log in{% endif %}</div>
     <div class="topbar-links">
-        {% if current_profile %}
+        {% if me %}
         <a href="{{ url_for('finance.finance_home') }}">Back to Dashboard</a>
         {% endif %}
     </div>
@@ -42,70 +37,94 @@
 
     <div class="summary-card hover-card">
 
-        <div class="page-header">
-            <h1 class="summary-main-title">Who's using Finance?</h1>
-            <p class="add-subtitle">
-                Each profile keeps its own completely separate records, budgets, goals,
-                and everything else — nothing here is shared between profiles.
-                This is a simple name-only switcher, not a password-protected login
-                (that can be added later).
-            </p>
-        </div>
-
         {% if error %}
         <div class="insight-box" style="margin-bottom:16px;"><p class="negative">{{ error }}</p></div>
         {% endif %}
-
-        <div class="profile-grid">
-            {% for p in profiles %}
-            <div class="profile-card {{ 'is-current' if p.id == current_id else '' }}">
-                <div class="profile-avatar">{{ p.name[:1] | upper }}</div>
-                <div class="profile-name">{{ p.name }}</div>
-                {% if p.id == current_id %}
-                <div class="profile-current-tag">Currently active</div>
-                {% endif %}
-
-                <form method="POST" action="{{ url_for('finance.switch_profile_route') }}">
-                    <input type="hidden" name="id" value="{{ p.id }}">
-                    <input type="hidden" name="next" value="{{ next_url }}">
-                    <button type="submit" class="primary-btn" style="width:100%;">
-                        {% if p.id == current_id %}Continue{% else %}Switch to{% endif %}
-                    </button>
-                </form>
-
-                <details class="profile-manage">
-                    <summary>Rename / delete</summary>
-                    <form method="POST" action="{{ url_for('finance.rename_profile_route', profile_id=p.id) }}" class="add-form">
-                        <input type="text" name="name" value="{{ p.name }}" required>
-                        <button type="submit">Rename</button>
-                    </form>
-                    <form method="POST" action="{{ url_for('finance.delete_profile_route', profile_id=p.id) }}" class="add-form"
-                          onsubmit="return confirm('Delete {{ p.name }} and ALL of its Finance data? This cannot be undone.');">
-                        <input type="text" name="confirm_name" placeholder="Type &quot;{{ p.name }}&quot; to confirm" required>
-                        <button type="submit" class="delete-btn">Delete profile</button>
-                    </form>
-                </details>
-            </div>
-            {% endfor %}
-        </div>
-
-        {% if current_profile %}
-        <form method="POST" action="{{ url_for('finance.switch_off_profile_route') }}" style="margin-bottom:18px;">
-            <button type="submit" class="secondary-btn">Not {{ current_profile.name }}? Switch off</button>
-        </form>
+        {% if notice %}
+        <div class="insight-box" style="margin-bottom:16px;"><p class="positive">{{ notice }}</p></div>
         {% endif %}
 
-        <div style="border-top:1px solid var(--border);padding-top:16px;">
-            <h3>Add a new profile</h3>
-            <form method="POST" action="{{ url_for('finance.create_profile_route') }}" class="add-form">
-                <input type="hidden" name="next" value="{{ next_url }}">
-                <label>Name</label>
-                <input type="text" name="name" placeholder="Example: Zoey" required>
-                <div class="add-button-row">
-                    <button type="submit" class="primary-btn">Create &amp; switch to it</button>
-                </div>
-            </form>
+        {% if me %}
+        <div class="me-row">
+            <div class="profile-avatar">{{ me.name[:1] | upper }}</div>
+            <div>
+                <div class="me-name">{{ me.name }}</div>
+                <div class="add-subtitle">Only you can see this profile's records.</div>
+            </div>
         </div>
+
+        <form method="POST" action="{{ url_for('finance.switch_off_profile_route') }}">
+            <button type="submit" class="primary-btn">Log out</button>
+        </form>
+
+        <details class="profile-manage">
+            <summary>Rename</summary>
+            <form method="POST" action="{{ url_for('finance.rename_profile_route') }}" class="add-form">
+                <input type="text" name="name" value="{{ me.name }}" maxlength="60" required>
+                <button type="submit">Rename</button>
+            </form>
+        </details>
+
+        <details class="profile-manage">
+            <summary>Change password</summary>
+            <form method="POST" action="{{ url_for('finance.change_password_route') }}" class="add-form">
+                <label>Current password</label>
+                <input type="password" name="current" autocomplete="current-password" required>
+                <label>New password (at least {{ min_len }} characters)</label>
+                <input type="password" name="password" minlength="{{ min_len }}" autocomplete="new-password" required>
+                <label>New password again</label>
+                <input type="password" name="password2" minlength="{{ min_len }}" autocomplete="new-password" required>
+                <div class="add-button-row"><button type="submit" class="primary-btn">Change password</button></div>
+            </form>
+        </details>
+
+        <details class="profile-manage">
+            <summary>Delete this profile</summary>
+            <form method="POST" action="{{ url_for('finance.delete_profile_route') }}" class="add-form"
+                  onsubmit="return confirm('Delete {{ me.name }} and ALL of its data? This cannot be undone.');">
+                <label>Enter your password to confirm</label>
+                <input type="password" name="password" autocomplete="current-password" required>
+                <button type="submit" class="delete-btn">Delete profile and all its data</button>
+            </form>
+        </details>
+
+        {% else %}
+        <div class="page-header">
+            <h1 class="summary-main-title">Daily Planner</h1>
+            <p class="add-subtitle">
+                Log in with your profile name and password. Each profile's records are
+                private — nobody else can see them.
+            </p>
+        </div>
+
+        <div class="auth-grid">
+            <div>
+                <h3>Log in</h3>
+                <form method="POST" action="{{ url_for('finance.login_route') }}" class="add-form">
+                    <input type="hidden" name="next" value="{{ next_url }}">
+                    <label>Profile name</label>
+                    <input type="text" name="name" autocomplete="username" required autofocus>
+                    <label>Password</label>
+                    <input type="password" name="password" autocomplete="current-password" required>
+                    <div class="add-button-row"><button type="submit" class="primary-btn">Log in</button></div>
+                </form>
+            </div>
+
+            <div>
+                <h3>New here? Create a profile</h3>
+                <form method="POST" action="{{ url_for('finance.create_profile_route') }}" class="add-form">
+                    <input type="hidden" name="next" value="{{ next_url }}">
+                    <label>Profile name</label>
+                    <input type="text" name="name" maxlength="60" placeholder="Example: Zoey" autocomplete="username" required>
+                    <label>Password (at least {{ min_len }} characters)</label>
+                    <input type="password" name="password" minlength="{{ min_len }}" autocomplete="new-password" required>
+                    <label>Password again</label>
+                    <input type="password" name="password2" minlength="{{ min_len }}" autocomplete="new-password" required>
+                    <div class="add-button-row"><button type="submit" class="primary-btn">Create &amp; log in</button></div>
+                </form>
+            </div>
+        </div>
+        {% endif %}
 
     </div>
 

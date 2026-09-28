@@ -7,6 +7,8 @@ import tempfile
 import uuid
 from datetime import date, datetime, timedelta
 
+from werkzeug.security import generate_password_hash, check_password_hash
+
 # ================= BASE =================
 # ================= 基础配置 =================
 
@@ -723,7 +725,7 @@ def find_rate(rates, code):
     return next((r for r in rates if r.get("code") == code), None)
 
 
-# ================= PROFILES (simple multi-user, no password yet) =================
+# ================= PROFILES (multi-user, each with its own password) =================
 # ================= 用户档案（简单多用户，暂无密码） =================
 # 一个 profile 只是一个名字 + id —— 不是账号系统，没有密码，"安全性"
 # 以后再加。每个 profile 在 data/profiles/<id>/ 下有自己完整的一套
@@ -864,14 +866,36 @@ def ensure_default_profile():
     return profiles
 
 
-def create_profile(name):
+def find_profile_by_name(profiles, name):
+    key = (name or "").strip().casefold()
+    return next((p for p in profiles if p.get("name", "").casefold() == key), None)
+
+
+def check_profile_password(profile, password):
+    h = profile.get("password_hash")
+    return bool(h) and check_password_hash(h, password or "")
+
+
+def set_profile_password(profile_id, password):
+    profiles = load_profiles()
+    profile = find_profile(profiles, profile_id)
+    if profile:
+        profile["password_hash"] = generate_password_hash(password)
+        save_profiles(profiles)
+    return profile
+
+
+def create_profile(name, password=None):
     profiles = load_profiles()
     profile_id = new_id()
-    profiles.append({
+    entry = {
         "id": profile_id,
         "name": (name or "").strip()[:60] or "Unnamed",
         "created_at": today_iso(),
-    })
+    }
+    if password:
+        entry["password_hash"] = generate_password_hash(password)
+    profiles.append(entry)
     save_profiles(profiles)
     profile_data_dir(profile_id)  # create its folder eagerly
     return profile_id
