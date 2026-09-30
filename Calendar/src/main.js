@@ -91,8 +91,39 @@ const authActions = {
   updateProfile: (userId, patch) => authStore.updateProfile(userId, patch),
 };
 
+const externalProfile = window.DAILY_PLANNER_PROFILE || null;
+
+function calendarUserIdForProfile(profileId) {
+  const mappingKey = "monoCalendar.profileUsers.v1";
+  let mappings = {};
+  try {
+    mappings = JSON.parse(localStorage.getItem(mappingKey) || "{}");
+  } catch {
+    mappings = {};
+  }
+  if (mappings[profileId]) return mappings[profileId];
+
+  const legacyUserId = Object.keys(mappings).length === 0 ? authStore.state.currentUserId : null;
+  const userId = legacyUserId || `planner-${profileId}`;
+  mappings[profileId] = userId;
+  try {
+    localStorage.setItem(mappingKey, JSON.stringify(mappings));
+  } catch {
+    /* Calendar data remains available in-memory if storage is unavailable. */
+  }
+  return userId;
+}
+
+const externalCalendarUser = externalProfile
+  ? { ...externalProfile, id: calendarUserIdForProfile(externalProfile.id), external: true }
+  : null;
+
+if (externalCalendarUser && ["auth", "profile"].includes(store.state.modal?.type)) {
+  store.closeModal();
+}
+
 function render(state) {
-  const currentUser = authStore.getCurrentUser();
+  const currentUser = externalCalendarUser || authStore.getCurrentUser();
   renderTopbar(els.topbar, state, actions, currentUser);
   renderCalendarHeader(els.calHeader, state, actions);
 
@@ -305,11 +336,12 @@ document.addEventListener("keydown", (e) => {
 
 // A returning logged-in user's data should load immediately, not start on guest
 // data — this must happen before the subscriptions below are wired up.
-if (authStore.state.currentUserId) store.switchUser(authStore.state.currentUserId);
+if (externalCalendarUser) store.switchUser(externalCalendarUser.id);
+else if (authStore.state.currentUserId) store.switchUser(authStore.state.currentUserId);
 
 store.subscribe(render);
 authStore.subscribe((authState) => {
-  if (authState.currentUserId !== store.userId) {
+  if (!externalCalendarUser && authState.currentUserId !== store.userId) {
     nagPending = true; // re-check the overdue nag against the new account's to-dos
     store.switchUser(authState.currentUserId); // triggers render via store's own listeners
   } else {

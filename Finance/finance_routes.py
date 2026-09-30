@@ -3412,8 +3412,9 @@ def data_backup():
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
         for name, path in _store_paths().items():
-            if os.path.exists(path):
-                zf.write(path, arcname=name)
+            payload = load_data(path, None)
+            if payload is not None:
+                zf.writestr(name, json.dumps(payload, ensure_ascii=False, indent=2))
     buffer.seek(0)
 
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")

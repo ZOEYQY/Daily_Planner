@@ -1,0 +1,20 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: daily_planner
+      POSTGRES_USER: daily_planner
+      POSTGRES_PASSWORD: local-dev-password
+    ports:
+      - "5432:5432"
+    volumes:
+      - daily_planner_postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U daily_planner -d daily_planner"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  daily_planner_postgres:

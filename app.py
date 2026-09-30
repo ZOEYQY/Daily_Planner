@@ -13,6 +13,7 @@ Each module can also be run on its own:
 
 Tuition is a separate project and is intentionally not part of this app.
 """
+import json
 import os
 import secrets
 from datetime import timedelta
@@ -212,6 +213,14 @@ def _calendar_migrate_script():
 def calendar_index():
     with open(os.path.join(CALENDAR_DIR, "index.html"), "r", encoding="utf-8") as fh:
         html = fh.read()
+    profile = authed_profile()
+    identity = json.dumps({"id": profile["id"], "name": profile["name"]})
+    identity = identity.replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
+    html = html.replace(
+        "</head>",
+        f"<script>window.DAILY_PLANNER_PROFILE={identity};</script></head>",
+        1,
+    )
     seed = _calendar_migrate_script()
     if seed:
         html = html.replace("<head>", "<head>\n" + seed, 1)

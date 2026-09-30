@@ -41,6 +41,10 @@ export function renderTopbar(root, state, actions, currentUser) {
   });
 
   root.querySelector("#btn-account").addEventListener("click", () => {
+    if (currentUser?.external) {
+      window.location.assign("/finance/profiles");
+      return;
+    }
     actions.openModal(currentUser ? { type: "profile" } : { type: "auth", step: "login" });
   });
 

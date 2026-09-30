@@ -53,11 +53,29 @@ CATEGORY_MAP = {
     ]
 }
 
-# ================= JSON DATA STORE =================
-# ================= JSON 数据存储 =================
+# ================= JSON / DATABASE DATA STORE =================
+# ================= JSON / 数据库存储 =================
+
+
+def _database_store():
+    try:
+        from . import database
+    except ImportError:
+        import database
+    return database if database.configured() else None
+
+
+def _database_key(path):
+    relative = os.path.relpath(os.path.abspath(path), os.path.abspath(DATA_DIR))
+    if relative == os.pardir or relative.startswith(os.pardir + os.sep):
+        raise ValueError("Finance data path is outside DATA_DIR")
+    return relative.replace(os.sep, "/")
 
 
 def load_data(path, default):
+    database = _database_store()
+    if database:
+        return database.load_document(_database_key(path), default)
     if not os.path.exists(path):
         return default
     with open(path, "r", encoding="utf-8") as f:
@@ -68,6 +86,10 @@ def load_data(path, default):
 
 
 def save_data(path, data):
+    database = _database_store()
+    if database:
+        database.save_document(_database_key(path), data)
+        return
     # 先把内容写到同一个文件夹里的临时文件，再用 os.replace() 原子性地
     # 换成正式文件名 —— 这样即使程序中途崩溃或被两个请求同时写入，
     # 也不会留下一个写了一半、损坏掉的 JSON 文件。
@@ -915,5 +937,8 @@ def delete_profile(profile_id):
     profiles = load_profiles()
     profiles = [p for p in profiles if p.get("id") != profile_id]
     save_profiles(profiles)
+    database = _database_store()
+    if database:
+        database.delete_documents(f"profiles/{profile_id}/")
     shutil.rmtree(profile_data_dir(profile_id), ignore_errors=True)
     shutil.rmtree(profile_receipts_dir(profile_id), ignore_errors=True)
