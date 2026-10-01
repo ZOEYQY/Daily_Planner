@@ -1402,7 +1402,7 @@ function todoPanelRow(item, todayISO, state) {
 // with only a small 🎉 prefix as the difference.
 function specialDayTrayChip(d) {
   return `
-    <div class="day-tray-chip special-day-tray-chip" style="--chip-color:${d.color}" data-id="${d.id}" data-occurrence="${d.occurrenceDate || ""}" title="${esc(d.title)}">
+    <div class="day-tray-chip special-day-tray-chip" style="--chip-color:${d.color};--chip-ink:${inkOn(d.color)}" data-id="${d.id}" data-occurrence="${d.occurrenceDate || ""}" title="${esc(d.title)}">
       <span class="unscheduled-chip-label">${esc(d.title)}</span>
     </div>
   `;
@@ -1627,7 +1627,7 @@ function itemBlock({ event: item, col, cols, startMin, endMin }, todayISO, state
 
   return `
     <div class="timegrid-event ${compact ? "is-compact" : ""} ${selected ? "is-selected" : ""}"
-         style="top:${displayTop}px; height:${displayHeight}px; left:calc(${displayLeftPct}% + 2px); width:calc(${displayWidthPct}% - 4px); background-color:${item.color}; --event-color:${item.color};"
+      style="top:${displayTop}px; height:${displayHeight}px; left:calc(${displayLeftPct}% + 2px); width:calc(${displayWidthPct}% - 4px); background-color:${item.color}; --event-color:${item.color}; --event-ink:${inkOn(item.color)};"
          data-id="${item.id}" data-kind="event" data-occurrence="${item.occurrenceDate || ""}" title="${esc(item.title)}">
       ${resizeHandles}
       ${header}

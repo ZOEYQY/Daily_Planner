@@ -272,7 +272,7 @@
   display: block;
   background: var(--chip-color);
   border: none;
-  color: #000000;
+  color: var(--chip-ink, var(--color-ink));
   font-weight: 700;
   text-align: center;
   /* .event-chip's base rule truncates to one line with an ellipsis — wrap
@@ -764,7 +764,7 @@
   touch-action: auto;
   background: var(--chip-color);
   border-color: var(--chip-color);
-  color: #000000;
+  color: var(--chip-ink, var(--color-ink));
   font-weight: 700;
   /* .day-tray-col's align-items:flex-start leaves every chip only as wide as
      its own content by default — stretch just this one across the column's
@@ -1267,7 +1267,7 @@
   cursor: grab;
   touch-action: none;
   user-select: none;
-  color: #ffffff;
+  color: var(--event-ink, #ffffff);
   box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.5) inset;
   transition: filter 0.12s ease;
 }

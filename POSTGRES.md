@@ -44,4 +44,21 @@ The service creates the `finance_documents`, `habits`, `habit_checkins`, `calend
 
 After migrating, verify one record from each storage class, restart/redeploy, then verify again. Keep independent PostgreSQL backups and Cloudinary asset backups; Render and free-tier services do not guarantee protection from account deletion, provider incidents, or accidental data deletion.
 
+## Profile Login Recovery
+
+If Finance rejects a known Profile, open the Render Shell and first verify the configured database and Profile list:
+
+```powershell
+python Finance/profile_admin.py list
+python Finance/profile_admin.py check --name "ZOEY"
+```
+
+The check prompts for the password without echoing or logging it. If the Profile is present but the password hash does not match, reset it through the Render Shell:
+
+```powershell
+python Finance/profile_admin.py reset-password --name "ZOEY"
+```
+
+If the Profile is absent, do not create a replacement under the same name yet; first confirm `DATABASE_URL` points to the original PostgreSQL database or import the old Profile/Finance backup. This tool refuses JSON fallback and never exposes a public password-reset endpoint.
+
 Run the app as usual with `python app.py`. The Calendar UI is unchanged, but in the combined app its state now syncs to PostgreSQL per Profile rather than using localStorage as its runtime store. Habit check-ins use PostgreSQL too.

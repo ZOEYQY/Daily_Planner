@@ -1,7 +1,7 @@
 import { getMonthGridDays, parseISODate, toISODate, isSameDay, today, orderedWeekdayLabels } from "../dateUtils.js";
 import { eventsOnDate, scheduledTasksOnDate, specialDaysOnDate, resolveOccurrence } from "../selectors.js";
 import { isOverdue } from "../rescheduleTracking.js";
-import { esc } from "../utils.js";
+import { esc, inkOn } from "../utils.js";
 import { requireAuth } from "../authGate.js";
 import { handleOccurrenceClick } from "./recurrenceUI.js";
 
@@ -113,7 +113,7 @@ function specialDayChip(d) {
   // — .special-day-chip's own CSS overrides all of .event-chip's visual
   // styling to get the solid-banner look instead.
   return `
-    <div class="event-chip special-day-chip" style="--chip-color:${d.color}" data-id="${d.id}" data-kind="specialDay" data-occurrence="${d.occurrenceDate || ""}" title="${esc(d.title)}">
+    <div class="event-chip special-day-chip" style="--chip-color:${d.color};--chip-ink:${inkOn(d.color)}" data-id="${d.id}" data-kind="specialDay" data-occurrence="${d.occurrenceDate || ""}" title="${esc(d.title)}">
       ${esc(d.title)}
     </div>`;
 }
