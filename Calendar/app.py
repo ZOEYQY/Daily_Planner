@@ -19,6 +19,9 @@ import habits as habits_module
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
+if os.environ.get("RENDER"):
+    raise RuntimeError("Deploy the repository-level app.py on Render so Calendar shares Profile authentication and PostgreSQL storage.")
+
 app = Flask(__name__)
 
 habits_module.init(os.path.join(BASE_DIR, "..", ".data", "habits.db"))

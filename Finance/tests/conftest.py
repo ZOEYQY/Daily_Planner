@@ -73,7 +73,11 @@ def client(app):
     c = app.test_client()
     # Activates a single default profile so every pre-existing test (written
     # before profiles existed) keeps working without touching /profiles itself.
-    resp = c.post("/profiles/create", data={"name": "Test User"})
+    resp = c.post("/profiles/create", data={
+        "name": "Test User",
+        "password": "test-password",
+        "password2": "test-password",
+    })
     assert resp.status_code == 302
     return c
 

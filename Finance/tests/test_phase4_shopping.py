@@ -92,9 +92,11 @@ def test_zero_wait_days_no_cooldown(client, load):
 # ================= PRE-BUY BUDGET CHECK =================
 
 def test_budget_check_shows_on_item(client):
+    from datetime import date
+
     _account(client)
     client.post("/budget", data={"category": "Food", "amount": "200", "period": "monthly"})
-    client.post("/add", data={"date": "2026-09-02", "type": "expense", "category": "Food",
+    client.post("/add", data={"date": date.today().isoformat(), "type": "expense", "category": "Food",
                               "account": "Wallet", "item": "groceries", "amount": "150"})
     _create(client, estimated_price="80", category="Food")
 

@@ -103,6 +103,8 @@ def test_monthly_review_no_key(client, monkeypatch):
 # ================= AFFORD CHECK =================
 
 def test_afford_check(client, load, monkeypatch):
+    from datetime import date
+
     import finance_routes
     captured = {}
 
@@ -112,8 +114,8 @@ def test_afford_check(client, load, monkeypatch):
 
     monkeypatch.setattr(finance_routes, "_ai_structured", fake)
     _account(client)
-    _add(client, date="2026-09-01", type="income", category="Salary", amount="3000")
-    _add(client, date="2026-09-03", amount="500", category="Food")
+    _add(client, date=date.today().isoformat(), type="income", category="Salary", amount="3000")
+    _add(client, date=date.today().isoformat(), amount="500", category="Food")
 
     resp = client.post("/afford", data={"amount": "800", "category": "Food", "note": "new chair"})
     assert resp.status_code == 200

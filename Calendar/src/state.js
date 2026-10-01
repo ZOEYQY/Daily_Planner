@@ -109,12 +109,7 @@ function storageKeyFor(userId) {
   return `monoCalendar.v1.user.${userId}`;
 }
 
-function loadPersisted(userId) {
-  if (!userId) return null;
-  try {
-    const raw = localStorage.getItem(storageKeyFor(userId));
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
+function normalizePersisted(parsed) {
     if (!parsed || !Array.isArray(parsed.categories)) return null;
     // Normalize categories saved by older versions of the app, where a
     // category had no nested `colors` array — without this, resolving a
@@ -134,12 +129,20 @@ function loadPersisted(userId) {
     parsed.specialDays = Array.isArray(parsed.specialDays) ? parsed.specialDays.map((d) => migrateRepeatShape(d, "date")) : [];
     parsed.customFieldDefs = Array.isArray(parsed.customFieldDefs) ? parsed.customFieldDefs : [];
     return parsed;
+}
+
+function loadPersisted(userId) {
+  if (!userId) return null;
+  try {
+    const raw = localStorage.getItem(storageKeyFor(userId));
+    if (!raw) return null;
+    return normalizePersisted(JSON.parse(raw));
   } catch {
     return null;
   }
 }
 
-function persist(state, userId) {
+function persist(state, userId, remoteSave = null) {
   if (!userId) return;
   const {
     categories, tasks, events, specialDays, customFieldDefs, customDates,
@@ -149,13 +152,7 @@ function persist(state, userId) {
     todoNag, todoNagLastShown,
     timePickerStyle, categoryFilterActive, categoryFilterIds, view, cursorDate, modal,
   } = state;
-  try {
-    localStorage.setItem(
-      storageKeyFor(userId),
-      // `modal` is only ever "add"/"edit"/"settings"/etc. plus plain ids/dates — never
-      // raw unsaved keystrokes — so reloading mid-edit reopens the same modal on the
-      // same item/date rather than resuming exactly-as-typed unsaved text.
-      JSON.stringify({
+  const payload = {
         categories,
         tasks,
         events,
@@ -185,8 +182,13 @@ function persist(state, userId) {
         view,
         cursorDate,
         modal,
-      })
-    );
+  };
+  if (remoteSave) {
+    remoteSave(userId, payload);
+    return;
+  }
+  try {
+    localStorage.setItem(storageKeyFor(userId), JSON.stringify(payload));
   } catch {
     /* storage unavailable — app still works in-memory */
   }
@@ -197,8 +199,8 @@ function defaultCustomDates() {
   return [0, 1, 2].map((n) => toISODate(addDays(t, n)));
 }
 
-function initialState(userId = null) {
-  const persisted = loadPersisted(userId);
+function initialState(userId = null, remoteState = undefined, remoteMode = false) {
+  const persisted = remoteMode ? normalizePersisted(remoteState) : loadPersisted(userId);
   const base = persisted || buildSeedData();
   return {
     categories: base.categories,
@@ -294,6 +296,34 @@ function initialState(userId = null) {
   };
 }
 
+function mergeRemoteCalendarState(base, remote, local) {
+  const merged = { ...remote, ...local };
+  for (const key of ["categories", "tasks", "events", "specialDays", "customFieldDefs"]) {
+    const before = Array.isArray(base[key]) ? base[key] : [];
+    const latest = Array.isArray(remote[key]) ? remote[key] : [];
+    const changed = Array.isArray(local[key]) ? local[key] : [];
+    const baseById = new Map(before.filter((item) => item?.id).map((item) => [item.id, item]));
+    const remoteById = new Map(latest.filter((item) => item?.id).map((item) => [item.id, item]));
+    const localById = new Map(changed.filter((item) => item?.id).map((item) => [item.id, item]));
+    const mergedById = new Map();
+    for (const id of new Set([...remoteById.keys(), ...localById.keys()])) {
+      const baseItem = baseById.get(id);
+      const remoteItem = remoteById.get(id);
+      const localItem = localById.get(id);
+      if (baseItem && !localItem) continue;
+      if (baseItem && !remoteItem) {
+        if (!localItem || JSON.stringify(localItem) === JSON.stringify(baseItem)) continue;
+        mergedById.set(id, localItem);
+        continue;
+      }
+      if (remoteItem && localItem) mergedById.set(id, { ...(baseItem || {}), ...remoteItem, ...localItem });
+      else if (remoteItem || localItem) mergedById.set(id, remoteItem || localItem);
+    }
+    merged[key] = [...mergedById.values()];
+  }
+  return merged;
+}
+
 class Store {
   constructor() {
     this.userId = null; // null = guest; set via switchUser once authStore knows who's logged in
@@ -301,6 +331,10 @@ class Store {
     this.listeners = new Set();
     this.undoStack = [];
     this.redoStack = [];
+    this.remoteMode = false;
+    this.remoteVersion = 0;
+    this.remoteState = null;
+    this.remoteSaveQueue = Promise.resolve();
   }
 
   subscribe(fn) {
@@ -325,7 +359,7 @@ class Store {
       this.redoStack = [];
     }
     this.state = { ...this.state, ...resolved };
-    if (!opts.silent) persist(this.state, this.userId);
+    if (!opts.silent) persist(this.state, this.userId, this.remoteMode ? this.persistRemote.bind(this) : null);
     this.listeners.forEach((fn) => fn(this.state));
   }
 
@@ -355,12 +389,51 @@ class Store {
   // storage — a load, not a mutation, so it bypasses set()/persist() entirely.
   // History is per-account (undoing across a user switch would silently touch the
   // wrong person's data), so it resets here too.
-  switchUser(userId) {
+  switchUser(userId, remoteState = undefined, remoteVersion = 0, remoteMode = false) {
     this.userId = userId;
-    this.state = initialState(userId);
+    this.remoteMode = remoteMode;
+    this.remoteVersion = remoteVersion;
+    this.remoteState = remoteMode && remoteState ? remoteState : {};
+    this.state = initialState(userId, remoteState, remoteMode);
     this.undoStack = [];
     this.redoStack = [];
     this.listeners.forEach((fn) => fn(this.state));
+  }
+
+  persistRemote(userId, payload) {
+    this.remoteSaveQueue = this.remoteSaveQueue.catch(() => {}).then(async () => {
+      let state = payload;
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        const response = await fetch(`./api/calendar-state?profile_id=${encodeURIComponent(userId)}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ profile_id: userId, state, version: this.remoteVersion }),
+        });
+        if (response.status === 409) {
+          const latestResponse = await fetch(`./api/calendar-state?profile_id=${encodeURIComponent(userId)}`);
+          if (!latestResponse.ok) throw new Error(`Calendar reload failed (${latestResponse.status})`);
+          const latest = await latestResponse.json();
+          this.remoteVersion = latest.version;
+          state = mergeRemoteCalendarState(this.remoteState || {}, latest.state || {}, state);
+          continue;
+        }
+        if (!response.ok) throw new Error(`Calendar save failed (${response.status})`);
+        const result = await response.json();
+        if (this.userId === userId) {
+          this.remoteVersion = result.version;
+          this.remoteState = state;
+        }
+        return;
+      }
+      window.dispatchEvent(new CustomEvent("calendar-storage-conflict"));
+    }).catch(() => window.dispatchEvent(new CustomEvent("calendar-storage-error")));
+    return this.remoteSaveQueue;
+  }
+
+  saveCurrentRemotely() {
+    if (this.remoteMode && this.userId) {
+      return persist(this.state, this.userId, this.persistRemote.bind(this));
+    }
   }
 
   // ---- tasks ----

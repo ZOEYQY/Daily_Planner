@@ -1,9 +1,21 @@
-"""Simple multi-user: name-only profiles, each with fully isolated Finance data."""
+"""Password-protected Profiles with isolated Finance data."""
 import json
 
 
 def _profiles(patched_helpers):
     return patched_helpers.load_profiles()
+
+
+def _create_profile(client, name, password=None):
+    password = password or f"{name.lower()}-test-password"
+    return client.post("/profiles/create", data={
+        "name": name, "password": password, "password2": password,
+    })
+
+
+def _login(client, name, password=None):
+    password = password or f"{name.lower()}-test-password"
+    return client.post("/profiles/login", data={"name": name, "password": password})
 
 
 def test_anonymous_session_is_gated_to_profiles_page(app):
@@ -16,8 +28,8 @@ def test_anonymous_session_is_gated_to_profiles_page(app):
     assert resp.status_code == 200  # the picker itself is reachable
 
 
-def test_first_visit_bootstraps_a_profile_from_legacy_flat_files(app, data_dir, _patched_helpers):
-    # simulate the pre-profiles layout: flat files sitting directly in data/
+def test_anonymous_visit_does_not_move_legacy_data(app, data_dir, _patched_helpers):
+    # Legacy files remain untouched until an explicit migration/import.
     data_dir.mkdir(exist_ok=True)
     (data_dir / "expenses.json").write_text(json.dumps([
         {"date": "2026-01-01", "type": "income", "category": "Salary",
@@ -25,14 +37,9 @@ def test_first_visit_bootstraps_a_profile_from_legacy_flat_files(app, data_dir, 
     ]), encoding="utf-8")
 
     anon = app.test_client()
-    anon.get("/plan")  # triggers the bootstrap/migration via before_request
-
-    profiles = _profiles(_patched_helpers)
-    assert len(profiles) == 1
-    pid = profiles[0]["id"]
-    migrated = json.loads((data_dir / "profiles" / pid / "expenses.json").read_text())
-    assert migrated[0]["item"] == "legacy pay"
-    assert not (data_dir / "expenses.json").exists()  # moved, not copied
+    assert anon.get("/plan").status_code == 302
+    assert _profiles(_patched_helpers) == []
+    assert json.loads((data_dir / "expenses.json").read_text())[0]["item"] == "legacy pay"
 
 
 def test_create_profile_activates_it_immediately(client, load):
@@ -44,8 +51,8 @@ def test_create_profile_activates_it_immediately(client, load):
 def test_two_profiles_have_fully_isolated_data(app):
     alice = app.test_client()
     bob = app.test_client()
-    alice.post("/profiles/create", data={"name": "Alice"})
-    bob.post("/profiles/create", data={"name": "Bob"})
+    _create_profile(alice, "Alice")
+    _create_profile(bob, "Bob")
 
     alice.post("/accounts", data={"name": "Alice Wallet", "purpose": "spending"})
     alice.post("/add", data={"date": "2026-09-01", "type": "expense", "category": "Food",
@@ -62,38 +69,37 @@ def test_two_profiles_have_fully_isolated_data(app):
 
 def test_profiles_page_lists_both_and_marks_current(app):
     alice = app.test_client()
-    alice.post("/profiles/create", data={"name": "Alice"})
-    alice.post("/profiles/create", data={"name": "Carla"})  # switches to Carla
+    _create_profile(alice, "Alice")
+    _create_profile(alice, "Carla")
 
     page = alice.get("/profiles").get_data(as_text=True)
-    assert "Alice" in page and "Carla" in page
-    assert "Currently active" in page
+    assert "Carla" in page
+    assert "Change password" in page
+    assert "Alice" not in page  # other Profile names are intentionally private
 
 
 def test_switch_profile(app, _patched_helpers):
     c = app.test_client()
-    c.post("/profiles/create", data={"name": "Alice"})
+    _create_profile(c, "Alice")
     c.post("/accounts", data={"name": "A1", "purpose": "spending"})
 
-    c.post("/profiles/create", data={"name": "Bob"})  # now active: Bob
+    _create_profile(c, "Bob")
     assert "A1" not in c.get("/accounts").get_data(as_text=True)
 
-    alice_id = next(p["id"] for p in _profiles(_patched_helpers) if p["name"] == "Alice")
-
-    resp = c.post("/profiles/switch", data={"id": alice_id})
+    resp = _login(c, "Alice")
     assert resp.status_code == 302
     assert "A1" in c.get("/accounts").get_data(as_text=True)
 
 
 def test_switch_to_unknown_profile_rejected(client):
-    resp = client.post("/profiles/switch", data={"id": "nope"})
-    assert resp.status_code == 200
-    assert "no longer exists" in resp.get_data(as_text=True)
+    resp = _login(client, "Unknown")
+    assert resp.status_code == 401
+    assert "Wrong profile name or password" in resp.get_data(as_text=True)
 
 
 def test_switch_off_clears_session(app):
     c = app.test_client()
-    c.post("/profiles/create", data={"name": "Alice"})
+    _create_profile(c, "Alice")
     resp = c.post("/profiles/switch-off")
     assert resp.status_code == 302
     assert "/profiles" in resp.headers["Location"]
@@ -102,25 +108,24 @@ def test_switch_off_clears_session(app):
 
 def test_rename_profile(app, _patched_helpers):
     c = app.test_client()
-    c.post("/profiles/create", data={"name": "Alice"})
-    pid = _profiles(_patched_helpers)[0]["id"]
+    _create_profile(c, "Alice")
 
-    c.post(f"/profiles/{pid}/rename", data={"name": "Alicia"})
+    c.post("/profiles/rename", data={"name": "Alicia"})
     assert _profiles(_patched_helpers)[0]["name"] == "Alicia"
     assert "Alicia" in c.get("/profiles").get_data(as_text=True)
 
 
 def test_delete_profile_requires_exact_name_confirmation(app, _patched_helpers):
     c = app.test_client()
-    c.post("/profiles/create", data={"name": "Alice"})
+    _create_profile(c, "Alice")
     pid = _profiles(_patched_helpers)[0]["id"]
 
-    resp = c.post(f"/profiles/{pid}/delete", data={"confirm_name": "wrong"})
-    assert resp.status_code == 200
-    assert "Type" in resp.get_data(as_text=True)
+    resp = c.post("/profiles/delete", data={"password": "wrong-password"})
+    assert resp.status_code == 401
+    assert "Wrong password" in resp.get_data(as_text=True)
     assert len(_profiles(_patched_helpers)) == 1  # not deleted
 
-    resp = c.post(f"/profiles/{pid}/delete", data={"confirm_name": "alice"})  # case-insensitive
+    resp = c.post("/profiles/delete", data={"password": "alice-test-password"})
     assert resp.status_code == 302
     assert _profiles(_patched_helpers) == []
     assert c.get("/plan").status_code == 302  # session profile gone -> gated again
@@ -128,18 +133,20 @@ def test_delete_profile_requires_exact_name_confirmation(app, _patched_helpers):
 
 def test_delete_profile_removes_its_data_directory(app, _patched_helpers, data_dir):
     c = app.test_client()
-    c.post("/profiles/create", data={"name": "Alice"})
+    _create_profile(c, "Alice")
     pid = _profiles(_patched_helpers)[0]["id"]
     c.post("/accounts", data={"name": "A1", "purpose": "spending"})
     assert (data_dir / "profiles" / pid).exists()
 
-    c.post(f"/profiles/{pid}/delete", data={"confirm_name": "Alice"})
+    c.post("/profiles/delete", data={"password": "alice-test-password"})
     assert not (data_dir / "profiles" / pid).exists()
 
 
 def test_create_profile_requires_a_name(client):
-    resp = client.post("/profiles/create", data={"name": "   "})
-    assert resp.status_code == 200
+    resp = client.post("/profiles/create", data={
+        "name": "   ", "password": "test-password", "password2": "test-password",
+    })
+    assert resp.status_code == 400
     assert "Enter a name" in resp.get_data(as_text=True)
 
 
@@ -148,11 +155,11 @@ def test_backup_only_covers_the_active_profile(app):
     import zipfile
 
     alice = app.test_client()
-    alice.post("/profiles/create", data={"name": "Alice"})
+    _create_profile(alice, "Alice")
     alice.post("/accounts", data={"name": "A1", "purpose": "spending"})
 
     bob = app.test_client()
-    bob.post("/profiles/create", data={"name": "Bob"})
+    _create_profile(bob, "Bob")
 
     alice_zip = zipfile.ZipFile(io.BytesIO(alice.get("/data/backup.zip").get_data()))
     accounts = json.loads(alice_zip.read("accounts.json"))

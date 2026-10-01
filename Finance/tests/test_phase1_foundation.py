@@ -2,11 +2,12 @@
 import io
 import json
 import zipfile
+from datetime import date
 
 
 def _add(client, category="Food", amount="12.50", item="Lunch", account="Wallet"):
     return client.post("/add", data={
-        "date": "2026-09-08", "type": "expense", "category": category,
+        "date": date.today().isoformat(), "type": "expense", "category": category,
         "new_account": account, "purpose": "spending", "item": item, "amount": amount,
     })
 

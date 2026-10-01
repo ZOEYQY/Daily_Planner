@@ -4,6 +4,7 @@ The Gemini call itself (``_advise_purchase``) is monkeypatched — these tests
 cover the route wiring, persistence, validation, and graceful degradation.
 """
 from conftest import shopping_items
+from datetime import date
 
 
 CANNED = {
@@ -63,7 +64,7 @@ def test_advise_context_is_built_from_real_data(client, load, monkeypatch):
 
     # an existing Food expense + a Food budget => context should reflect both
     client.post("/add", data={
-        "date": "2026-09-08", "type": "expense", "category": "Food",
+        "date": date.today().isoformat(), "type": "expense", "category": "Food",
         "new_account": "Wallet", "item": "Lunch", "amount": "30",
     })
     client.post("/budget", data={"category": "Food", "amount": "200", "period": "monthly"})

@@ -564,19 +564,43 @@ def _allowed_file(filename):
 def _save_receipt(file):
     ext = secure_filename(file.filename).rsplit(".", 1)[1].lower()
     filename = f"{uuid.uuid4().hex}.{ext}"
-    save_file(os.path.join(RECEIPTS_DIR, filename), file.read())
+    content = file.read()
+    if os.environ.get("RENDER") or os.environ.get("CLOUDINARY_URL"):
+        try:
+            from . import receipt_storage
+        except ImportError:
+            import receipt_storage
+        receipt_storage.upload(g.profile_id, filename, content)
+    else:
+        save_file(os.path.join(RECEIPTS_DIR, filename), content)
     return filename
 
 def _delete_receipt(filename):
     if filename:
-        delete_file(os.path.join(RECEIPTS_DIR, filename))
+        if os.environ.get("RENDER") or os.environ.get("CLOUDINARY_URL"):
+            try:
+                from . import receipt_storage
+            except ImportError:
+                import receipt_storage
+            receipt_storage.delete(g.profile_id, secure_filename(filename))
+        else:
+            delete_file(os.path.join(RECEIPTS_DIR, filename))
 
 @finance_bp.route("/receipts/<filename>")
 def receipt_image(filename):
-    data = load_file(os.path.join(RECEIPTS_DIR, secure_filename(filename)))
+    safe_filename = secure_filename(filename)
+    if os.environ.get("RENDER") or os.environ.get("CLOUDINARY_URL"):
+        try:
+            from . import receipt_storage
+        except ImportError:
+            import receipt_storage
+        data, stored_mimetype = receipt_storage.load(g.profile_id, safe_filename)
+        mimetype = stored_mimetype or mimetypes.guess_type(safe_filename)[0] or "application/octet-stream"
+    else:
+        data = load_file(os.path.join(RECEIPTS_DIR, safe_filename))
+        mimetype = mimetypes.guess_type(safe_filename)[0] or "application/octet-stream"
     if data is None:
         return "", 404
-    mimetype = mimetypes.guess_type(filename)[0] or "application/octet-stream"
     return Response(data, mimetype=mimetype)
 
 
@@ -1183,13 +1207,9 @@ def update_financial(rid):
             account = record.get("account", "Default")
 
         receipt_file = request.files.get("receipt")
+        old_receipt = None
         if receipt_file and receipt_file.filename and _allowed_file(receipt_file.filename):
-            # 换了新收据图片之前，先把旧的收据文件删掉，
-            # 避免磁盘上堆积一堆再也用不到的旧图片。
-            # Before saving a newly uploaded receipt image, delete the old
-            # one first, so unused old receipt files don't keep piling up
-            # on disk.
-            _delete_receipt(record.get("receipt"))
+            old_receipt = record.get("receipt")
             record["receipt"] = _save_receipt(receipt_file)
 
         record["date"] = date
@@ -1201,6 +1221,8 @@ def update_financial(rid):
         record["tags"] = tags
 
         save_records(records)
+        if old_receipt:
+            _delete_receipt(old_receipt)
         if source == "goal":
             return redirect(url_for("finance.plan", tab="goals"))
         return redirect(url_for("finance.view_financial"))

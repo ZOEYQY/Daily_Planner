@@ -1,4 +1,5 @@
 """The /plan page: three tabs — Summary, Budgets, Goals."""
+from datetime import date
 
 
 def _account(client, name="Wallet"):
@@ -47,7 +48,7 @@ def test_bad_tab_falls_back_to_summary(client):
 def test_summary_tab_totals(client):
     _account(client)
     client.post("/budget", data={"category": "Food", "amount": "300", "period": "monthly"})
-    client.post("/add", data={"date": "2026-09-05", "type": "expense", "category": "Food",
+    client.post("/add", data={"date": date.today().isoformat(), "type": "expense", "category": "Food",
                               "account": "Wallet", "item": "x", "amount": "120"})
     client.post("/goals", data={"action": "create", "name": "Trip", "target": "1000", "type": "short"})
     client.post("/goals", data={"action": "save", "goal_id": "1", "goal_name": "Trip",

@@ -62,6 +62,9 @@ def _database_store():
         from . import database
     except ImportError:
         import database
+    if os.environ.get("RENDER"):
+        database.require_postgres()
+        return database
     return database if database.configured() else None
 
 
@@ -939,6 +942,12 @@ def delete_profile(profile_id):
     save_profiles(profiles)
     database = _database_store()
     if database:
+        if os.environ.get("CLOUDINARY_URL"):
+            try:
+                from . import receipt_storage
+            except ImportError:
+                import receipt_storage
+            receipt_storage.delete_profile(profile_id)
         database.delete_documents(f"profiles/{profile_id}/")
     shutil.rmtree(profile_data_dir(profile_id), ignore_errors=True)
     shutil.rmtree(profile_receipts_dir(profile_id), ignore_errors=True)

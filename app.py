@@ -15,7 +15,6 @@ Tuition is a separate project and is intentionally not part of this app.
 """
 import json
 import os
-import secrets
 from datetime import timedelta
 
 from flask import Flask, redirect, url_for, send_from_directory, abort, request, session
@@ -23,6 +22,8 @@ from flask import Flask, redirect, url_for, send_from_directory, abort, request,
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CALENDAR_DIR = os.path.join(BASE_DIR, "Calendar")
 
+from Finance import database as finance_database
+from Finance import receipt_storage
 from Finance.finance_routes import finance_bp, authed_profile
 from Calendar import habits as calendar_habits
 
@@ -34,15 +35,20 @@ app = Flask(
 # Signs the login cookie. Set FLASK_SECRET_KEY for anything beyond local use;
 # on Render (which sets RENDER) a missing key falls back to a random one rather
 # than the public dev value, which would let anyone forge a login.
-app.secret_key = os.environ.get("FLASK_SECRET_KEY") or (
-    secrets.token_hex(32) if os.environ.get("RENDER") else "daily-planner-dev-secret-change-me")
+if os.environ.get("RENDER"):
+    finance_database.require_postgres()
+    receipt_storage.require_cloudinary()
+    app.secret_key = os.environ.get("FLASK_SECRET_KEY")
+    if not app.secret_key or len(app.secret_key) < 32 or app.secret_key == "replace-with-a-long-random-secret":
+        raise RuntimeError("Set FLASK_SECRET_KEY on Render to a stable random value of at least 32 characters.")
+else:
+    app.secret_key = os.environ.get("FLASK_SECRET_KEY") or "daily-planner-dev-secret-change-me"
 app.permanent_session_lifetime = timedelta(days=30)
 app.register_blueprint(finance_bp, url_prefix="/finance")
 
-# Habit check-in (打卡) — SQLite in .data/ (gitignored), shared by every device
-# that reaches this server, with each profile seeing only its own habits.
-# The calendar's events/tasks stay in the browser; only habits are
-# server-backed. Mounted where the calendar page can fetch it with "./api/...".
+# Habit check-in and Calendar state use the shared PostgreSQL database on
+# Render; local development without DATABASE_URL retains Habit SQLite. Mounted
+# where the calendar page can fetch it with "./api/...".
 calendar_habits.init(os.path.join(BASE_DIR, ".data", "habits.db"))
 app.register_blueprint(calendar_habits.bp, url_prefix="/calendar/api")
 
@@ -160,15 +166,10 @@ def _inject_finance(resp):
 
 
 # ── calendar (static files in Calendar/) ────────────────────────────
-# One-time data migration: the calendar keeps its account + events in the
-# browser's localStorage, which is scoped per address — so data created at
-# file:// or :5051 does not show up here at :5050/calendar/. Drop a backup
-# bundle (the JSON that Calendar/transfer.html exports) at Calendar/_migrate.json
-# and it gets merged into localStorage exactly once per browser (a marker key
-# guards re-runs): the account(s) in the bundle are added (union by email) and
-# it signs you straight into the bundle's active account; each data blob is
-# written only if that browser doesn't already have one. Delete the file once
-# everyone who needs it has loaded the page once.
+# Optional one-time bootstrap for legacy Calendar browser exports. New Calendar
+# reads and writes go to PostgreSQL; this script only seeds the old localStorage
+# key so the authenticated page can import it when that Profile has no row yet.
+# A marker prevents reruns. Prefer Calendar/transfer.html for per-Profile imports.
 _MIGRATE_PATH = os.path.join(CALENDAR_DIR, "_migrate.json")
 
 

@@ -115,7 +115,12 @@ function calendarUserIdForProfile(profileId) {
 }
 
 const externalCalendarUser = externalProfile
-  ? { ...externalProfile, id: calendarUserIdForProfile(externalProfile.id), external: true }
+  ? {
+      ...externalProfile,
+      id: externalProfile.id,
+      legacyCalendarUserId: calendarUserIdForProfile(externalProfile.id),
+      external: true,
+    }
   : null;
 
 if (externalCalendarUser && ["auth", "profile"].includes(store.state.modal?.type)) {
@@ -334,11 +339,6 @@ document.addEventListener("keydown", (e) => {
   }
 });
 
-// A returning logged-in user's data should load immediately, not start on guest
-// data — this must happen before the subscriptions below are wired up.
-if (externalCalendarUser) store.switchUser(externalCalendarUser.id);
-else if (authStore.state.currentUserId) store.switchUser(authStore.state.currentUserId);
-
 store.subscribe(render);
 authStore.subscribe((authState) => {
   if (!externalCalendarUser && authState.currentUserId !== store.userId) {
@@ -348,4 +348,55 @@ authStore.subscribe((authState) => {
     render(store.state); // same user — e.g. rename, resend code — nothing for `store` to react to
   }
 });
-render(store.state);
+
+window.addEventListener("calendar-storage-conflict", () => {
+  showToast("Calendar kept changing on another device. Reload to sync before continuing.", { variant: "danger" });
+});
+window.addEventListener("calendar-storage-error", () => {
+  showToast("Calendar could not be saved to the server. Check your connection and retry.", { variant: "danger" });
+});
+
+async function initializeExternalCalendar() {
+  els.calBody.innerHTML = `<div class="habits-wrap"><div class="habits-empty">Loading calendar…</div></div>`;
+  try {
+    const response = await fetch("./api/calendar-state");
+    if (!response.ok) throw new Error(`Calendar load failed (${response.status})`);
+    const remote = await response.json();
+    let calendarState = remote.state;
+    try {
+      const raw = localStorage.getItem(`monoCalendar.v1.user.${externalCalendarUser.legacyCalendarUserId}`)
+        || localStorage.getItem("monoCalendar.v1");
+      const markerKey = `monoCalendar.remoteImport.v1.${externalCalendarUser.id}`;
+      const sourceId = localStorage.getItem(markerKey)
+        || `legacy-${externalCalendarUser.id}-${externalCalendarUser.legacyCalendarUserId}`;
+      if (raw && !localStorage.getItem(markerKey)) {
+          const imported = await fetch("./api/calendar-state/import", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ profile_id: externalCalendarUser.id, source_id: sourceId, state: JSON.parse(raw) }),
+        });
+        if (!imported.ok) throw new Error(`Calendar import failed (${imported.status})`);
+        const result = await imported.json();
+        localStorage.setItem(markerKey, sourceId);
+        calendarState = result.state;
+        remote.version = result.version;
+      } else if (remote.state === null) {
+        calendarState = undefined;
+      }
+    } catch (error) {
+      throw error;
+    }
+    store.switchUser(externalCalendarUser.id, calendarState, remote.version, true);
+          const response = await fetch(`./api/calendar-state?profile_id=${encodeURIComponent(externalCalendarUser.id)}`);
+  } catch (error) {
+    console.error(error);
+    els.calBody.innerHTML = `<div class="habits-wrap"><div class="habits-notice"><p><strong>Calendar data could not be loaded.</strong></p><p>Nothing was saved locally. Check the connection and reload this page.</p></div></div>`;
+    renderTopbar(els.topbar, store.state, actions, externalCalendarUser);
+  }
+}
+
+if (externalCalendarUser) initializeExternalCalendar();
+else {
+  if (authStore.state.currentUserId) store.switchUser(authStore.state.currentUserId);
+  render(store.state);
+}
