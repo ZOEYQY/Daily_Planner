@@ -214,7 +214,10 @@ function maybeShowTodoNag(state) {
 // click-to-select-first-then-click-to-open and getHoverTarget. Held in memory
 // only, not the store: copying isn't itself an undoable action, only what you
 // go on to do with it (paste, delete) is.
-let clipboardItem = null; // { kind, data } | null
+// { kind, id, occurrenceDate, data } | null. `data` is a snapshot taken at copy
+// time, used only if the copied card has since been deleted — otherwise paste
+// re-reads the card, so edits made after Ctrl+C still show up in the copy.
+let clipboardItem = null;
 
 function selectedMaster() {
   const sel = store.state.selectedItem;
@@ -224,25 +227,39 @@ function selectedMaster() {
   return master ? { master, sel } : null;
 }
 
+function resolveCard(kind, id, occurrenceDate) {
+  const master = (kind === "task" ? store.state.tasks : store.state.events).find((x) => x.id === id);
+  if (!master) return null;
+  const dateField = kind === "task" ? "dueDate" : "date";
+  return occurrenceDate ? resolveOccurrence(master, occurrenceDate, dateField) : master;
+}
+
 function resolvedSelectedItem() {
-  const found = selectedMaster();
-  if (!found) return null;
-  const { master, sel } = found;
-  const dateField = sel.kind === "task" ? "dueDate" : "date";
-  return sel.occurrenceDate ? resolveOccurrence(master, sel.occurrenceDate, dateField) : master;
+  const sel = store.state.selectedItem;
+  if (!sel || (sel.kind !== "task" && sel.kind !== "event")) return null;
+  return resolveCard(sel.kind, sel.id, sel.occurrenceDate || null);
+}
+
+// Strip identity/series/completion-tracking fields — a paste is always a
+// fresh, non-repeating, not-yet-done copy, same rule the Duplicate button in
+// the Add/Edit modal follows.
+function pasteableFields(item) {
+  const { id, exceptions, repeat, occurrenceDate, isRecurring, done, doneDates, rescheduleCount, rescheduleHistory, overdueReschedule, ...rest } =
+    structuredClone(item);
+  return rest;
 }
 
 function copySelected() {
   const item = resolvedSelectedItem();
-  if (!item) return;
-  const kind = store.state.selectedItem.kind;
-  // Strip identity/series/completion-tracking fields — a paste is always a
-  // fresh, non-repeating, not-yet-done copy, same rule the Duplicate button in
-  // the Add/Edit modal follows.
-  const { id, exceptions, repeat, occurrenceDate, isRecurring, done, doneDates, rescheduleCount, rescheduleHistory, overdueReschedule, ...rest } =
-    structuredClone(item);
-  clipboardItem = { kind, data: rest };
-  showToast(`${kind === "task" ? "Task" : "Event"} copied`);
+  if (!item) {
+    // Nothing selected (e.g. right after saving an edit, which clears the
+    // selection) — say so instead of silently keeping an older copy.
+    showToast("Click the card once to select it, then press Ctrl+C", { variant: "danger" });
+    return;
+  }
+  const sel = store.state.selectedItem;
+  clipboardItem = { kind: sel.kind, id: sel.id, occurrenceDate: sel.occurrenceDate || null, data: pasteableFields(item) };
+  showToast(`${sel.kind === "task" ? "Task" : "Event"} copied`);
 }
 
 function pasteAtHover() {
@@ -252,7 +269,9 @@ function pasteAtHover() {
     showToast("Hover over the calendar to choose where to paste", { variant: "danger" });
     return;
   }
-  const { kind, data } = clipboardItem;
+  const { kind } = clipboardItem;
+  const latest = resolveCard(kind, clipboardItem.id, clipboardItem.occurrenceDate);
+  const data = latest ? pasteableFields(latest) : clipboardItem.data;
   const duration = Math.max(15, minutesFromMidnight(data.endTime || "10:00") - minutesFromMidnight(data.startTime || "09:00"));
   const startTime = minutesToHHMM(target.startMin);
   const endTime = minutesToHHMM(Math.min(24 * 60, target.startMin + duration));
@@ -324,7 +343,8 @@ document.addEventListener("keydown", (e) => {
   if (store.state.modal || isEditableFocus()) return;
 
   if (ctrlOrCmd && e.key.toLowerCase() === "c") {
-    if (store.state.selectedItem) {
+    // Leave a normal text copy alone (some text highlighted on the page).
+    if (store.state.selectedItem || !window.getSelection()?.toString()) {
       e.preventDefault();
       copySelected();
     }
