@@ -1496,14 +1496,15 @@ function dayTrayChip(item, todayISO, kind = "task", state) {
   `;
 }
 
-// Notes are deliberately left off the timeline card: they only show in the
-// Edit modal, so the card stays focused on time, place and other details.
+// Notes only show once the card is selected (clicked once, which also enlarges
+// it — see itemBlock). An unselected card leaves them off so its limited space
+// goes to time, place and the other details.
 // Shows whatever Extra Fields info an item actually has filled in, right on its
 // timeline block, instead of that info only ever being visible after opening the
 // Edit modal. The block's own height is fixed by its start/end time, so this
 // section scrolls independently (see .timegrid-event-info in calendar.css)
 // rather than being clipped when there's more info than fits.
-function extraInfoHTML(item, state) {
+function extraInfoHTML(item, state, { showNotes = false } = {}) {
   const labels = fieldLabels(state);
   const rows = [];
   FIXED_FIELD_DEFS.forEach((f) => {
@@ -1513,11 +1514,12 @@ function extraInfoHTML(item, state) {
     if (value) rows.push({ label: labels[key] || "Detail", value });
   });
   const todoItems = (item.todoList || []).filter((t) => t.text);
+  const notesHTML = showNotes ? notesBulletsHTML(item.notes) : "";
 
   // No panel is rendered when there's nothing to show — an event with no Extra
   // Fields filled in just gets its header panel and otherwise-empty card, rather
   // than an empty inset panel forced in to take up space.
-  if (rows.length === 0 && todoItems.length === 0) return "";
+  if (rows.length === 0 && todoItems.length === 0 && !notesHTML) return "";
 
   return `
     <div class="timegrid-event-info">
@@ -1527,6 +1529,7 @@ function extraInfoHTML(item, state) {
         <div class="timegrid-event-info-row"><span class="timegrid-event-info-label">${esc(r.label)}</span> ${esc(r.value)}</div>`
         )
         .join("")}
+      ${notesHTML ? `<div class="timegrid-event-info-row"><span class="timegrid-event-info-label">Notes</span>${notesHTML}</div>` : ""}
       ${
         todoItems.length
           ? `<div class="timegrid-event-info-todo">${todoItems
@@ -1618,7 +1621,7 @@ function itemBlock({ event: item, col, cols, startMin, endMin }, todayISO, state
         </div>
         ${!compact ? `<div class="timegrid-event-time">${formatTime(item.startTime)} – ${formatTime(item.endTime)}</div>` : ""}
         ${!compact ? rescheduleBadgeHTML(item, todayISO) : ""}
-        ${!compact ? extraInfoHTML(item, state) : ""}
+        ${!compact ? extraInfoHTML(item, state, { showNotes: selected }) : ""}
       </div>
     `;
   }
@@ -1644,7 +1647,7 @@ function itemBlock({ event: item, col, cols, startMin, endMin }, todayISO, state
   // justify-content). Selected cards get their guaranteed min-height counted
   // here too, since that's what actually determines their rendered height.
   const MIN_HEIGHT_FOR_EVENT_INFO = 90;
-  const info = !compact ? extraInfoHTML(item, state) : "";
+  const info = !compact ? extraInfoHTML(item, state, { showNotes: selected }) : "";
   const showInfo = info && displayHeight >= MIN_HEIGHT_FOR_EVENT_INFO;
 
   return `

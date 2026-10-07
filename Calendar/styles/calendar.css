@@ -1840,3 +1840,8 @@
 .notes-bullets li {
   overflow-wrap: break-word;
 }
+/* The card's info panel is centered, so keep each bullet next to its text. */
+.timegrid-event-info .notes-bullets {
+  padding-left: 0;
+  list-style-position: inside;
+}
