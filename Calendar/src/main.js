@@ -12,6 +12,7 @@ import { renderAddChooserModal } from "./render/addChooserModal.js";
 import { renderAuthModal } from "./render/authViews.js";
 import { renderProfileModal } from "./render/profileModal.js";
 import { showToast } from "./render/notify.js";
+import { trackModalBaseline } from "./render/unsavedGuard.js";
 import { resolveOccurrence, isRepeating, getDayTodos } from "./selectors.js";
 import { daysOverdue } from "./rescheduleTracking.js";
 import { minutesFromMidnight, minutesToHHMM, toISODate, today } from "./dateUtils.js";
@@ -155,6 +156,7 @@ function render(state) {
   } else {
     els.modalRoot.innerHTML = "";
   }
+  trackModalBaseline(state.modal);
 
   if (state.modal?.type !== "settings") {
     resetSettingsDraft();
@@ -291,7 +293,7 @@ function isEditableFocus() {
 
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
-    if (store.state.modal) closeAddOrEditModal(store.state, actions);
+    if (store.state.modal) closeAddOrEditModal(store.state, actions, { accidental: true });
     else if (store.state.pendingCreate) store.setPendingCreate(null);
     else if (store.state.selectedItem) store.setSelectedItem(null);
     return;

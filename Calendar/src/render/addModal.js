@@ -7,6 +7,7 @@ import { showConfirm, showChoice, showToast, openFormPopup } from "./notify.js";
 import { openAddCategoryPopup, openAddColorPopup } from "./categoryColorPopups.js";
 import { createRepeatRuleUI } from "./repeatRuleUI.js";
 import { notesFieldHTML, wireNotesField } from "./notesListUI.js";
+import { confirmDiscardIfUnsaved } from "./unsavedGuard.js";
 import { allFieldDefs, allFieldKeys, fieldLabels } from "../extraFields.js";
 import { uid } from "../seed.js";
 import { timeInputHTML, wireTimeInput, syncVisibleTimeDisplay } from "./timeInput.js";
@@ -71,7 +72,11 @@ function findEditingItem(state) {
 // a stray "New Task"/"New Event" behind. Both this modal's own close controls and
 // the app's global Escape handler (main.js) route through here so the behavior is
 // consistent everywhere the modal can be dismissed.
-export function closeAddOrEditModal(state, actions) {
+//
+// `accidental` marks the easy-to-trigger closes (clicking outside the form,
+// Escape): those first ask before throwing away unsaved edits. Cancel and the
+// × button are deliberate and close straight away.
+export function closeAddOrEditModal(state, actions, { accidental = false } = {}) {
   const modal = state.modal;
   if (modal?.type === "edit" && modal.isDraft) {
     const item = findEditingItem(state);
@@ -93,10 +98,19 @@ export function closeAddOrEditModal(state, actions) {
     });
     return;
   }
-  pendingCustomFieldKeys = [];
-  fieldsChecklistOpen = false;
-  activeAddModalTab = "basic";
-  actions.closeModal();
+  const close = () => {
+    pendingCustomFieldKeys = [];
+    fieldsChecklistOpen = false;
+    activeAddModalTab = "basic";
+    actions.closeModal();
+  };
+  if (!accidental) {
+    close();
+    return;
+  }
+  confirmDiscardIfUnsaved().then((ok) => {
+    if (ok) close();
+  });
 }
 
 export function categoryById(state, id) {
@@ -756,7 +770,7 @@ export function renderAddModal(root, state, actions) {
   });
 
   root.querySelector("#overlay").addEventListener("click", (e) => {
-    if (e.target.id === "overlay") closeAddOrEditModal(state, actions);
+    if (e.target.id === "overlay") closeAddOrEditModal(state, actions, { accidental: true });
   });
   root.querySelector("#close-btn").addEventListener("click", () => closeAddOrEditModal(state, actions));
   root.querySelector("#cancel-btn").addEventListener("click", () => closeAddOrEditModal(state, actions));

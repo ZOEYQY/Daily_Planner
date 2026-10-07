@@ -6,11 +6,18 @@ import { categoryById, colorSwatchesHTML } from "./addModal.js";
 import { openAddCategoryPopup, openAddColorPopup } from "./categoryColorPopups.js";
 import { createRepeatRuleUI } from "./repeatRuleUI.js";
 import { notesFieldHTML, wireNotesField } from "./notesListUI.js";
+import { confirmDiscardIfUnsaved } from "./unsavedGuard.js";
 import { showConfirm, showToast } from "./notify.js";
 
 function wireClose(root, actions) {
   root.querySelector("#overlay").addEventListener("click", (e) => {
-    if (e.target.id === "overlay") actions.closeModal();
+    // Clicking outside is easy to do by accident — ask first if anything was
+    // typed or picked (see unsavedGuard.js). The × button closes directly.
+    if (e.target.id === "overlay") {
+      confirmDiscardIfUnsaved().then((ok) => {
+        if (ok) actions.closeModal();
+      });
+    }
   });
   root.querySelector("#close-btn").addEventListener("click", () => actions.closeModal());
 }
