@@ -557,6 +557,7 @@ export function renderDayGridView(root, state, actions, currentUser) {
   scrollEl.scrollTop = prevScrollTop !== null && !startHourChanged ? prevScrollTop : 0;
   appliedDayStartHour = startHour;
 
+  hideClippedInfoPanels(root);
   fitEventHeaderTitles(root);
 
   // Returns the real clock-time minute under the pointer — contentY/HOUR_ROW_PX
@@ -1686,6 +1687,21 @@ function shrinkFontToFit(el, container, available, maxFont, minFont) {
 // gives a narrow-but-tall card plenty of room to show the full title wrapped,
 // even though the same card unselected did not. Needs a real DOM measurement
 // pass, so it runs after the innerHTML render rather than as a plain CSS rule.
+// An unselected card whose details panel (Place, Group, ...) can't show in
+// full drops that panel entirely and shows just its title/time panel — a
+// half-visible, scrolling strip of details looked messy. Selecting the card
+// enlarges it (see itemBlock), and a selected card always keeps its panel,
+// scrolling if it still doesn't fit, so the details stay reachable.
+function hideClippedInfoPanels(root) {
+  root.querySelectorAll(".timegrid-event:not(.is-selected), .timegrid-task-block:not(.is-selected)").forEach((card) => {
+    const info = card.querySelector(".timegrid-event-info");
+    if (!info) return;
+    const cardBottom = card.getBoundingClientRect().bottom;
+    const clipped = info.scrollHeight > info.clientHeight + 1 || info.getBoundingClientRect().bottom > cardBottom + 1;
+    if (clipped) info.remove();
+  });
+}
+
 const EVENT_TITLE_MAX_FONT = 14; // matches .timegrid-event-header-panel .timegrid-event-title
 const EVENT_TITLE_MIN_FONT = 10;
 function fitEventHeaderTitles(root) {

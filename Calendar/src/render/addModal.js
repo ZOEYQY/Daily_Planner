@@ -201,8 +201,27 @@ function targetListHTML(items) {
     </div>`;
 }
 
+// Current text of every Extra Details input on screen (Place, Group, ...),
+// keyed by field key.
+function readExtraFieldValues(root) {
+  const values = {};
+  root.querySelectorAll("#f-extra-fields-inputs [data-field-key]").forEach((input) => {
+    values[input.dataset.fieldKey] = input.value;
+  });
+  return values;
+}
+
+// Puts typed Extra Details text back after the inputs were rebuilt. Only
+// fields that are on screen and present in `values` are touched.
+function writeExtraFieldValues(root, values) {
+  root.querySelectorAll("#f-extra-fields-inputs [data-field-key]").forEach((input) => {
+    if (input.dataset.fieldKey in values) input.value = values[input.dataset.fieldKey];
+  });
+}
+
 function captureFormSnapshot(root) {
   return {
+    extraFields: readExtraFieldValues(root),
     title: root.querySelector("#f-title")?.value || "",
     notes: root.querySelector("#f-notes")?.value || "",
     date: root.querySelector("#f-date")?.value || "",
@@ -219,6 +238,7 @@ function captureFormSnapshot(root) {
 function restoreFormSnapshot(root, snap) {
   const titleEl = root.querySelector("#f-title");
   if (titleEl) titleEl.value = snap.title;
+  if (snap.extraFields) writeExtraFieldValues(root, snap.extraFields);
   const notesEl = root.querySelector("#f-notes");
   if (notesEl) {
     notesEl.value = snap.notes;
@@ -566,10 +586,16 @@ export function renderAddModal(root, state, actions) {
   // without clobbering the user's own in-progress toggle choices. To-Do List
   // lives in its own always-present tab now, not here, so there's nothing of
   // its to re-wire on this rebuild.
+  // Text typed into Extra Details inputs during this modal session, so
+  // toggling another field on (which rebuilds every input) — or toggling a
+  // field off and back on — never wipes what was already typed.
+  let typedExtraFieldValues = {};
   function renderExtraFieldInputs() {
     const wrap = root.querySelector("#f-extra-fields-inputs");
     if (!wrap) return;
+    typedExtraFieldValues = { ...typedExtraFieldValues, ...readExtraFieldValues(root) };
     wrap.innerHTML = extraFieldInputsHTML(state, currentCheckedFieldKeys(), editingItem);
+    writeExtraFieldValues(root, typedExtraFieldValues);
   }
 
   function wireAddFieldBtn() {
