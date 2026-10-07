@@ -5,6 +5,7 @@ import { resolveOccurrence } from "../selectors.js";
 import { categoryById, colorSwatchesHTML } from "./addModal.js";
 import { openAddCategoryPopup, openAddColorPopup } from "./categoryColorPopups.js";
 import { createRepeatRuleUI } from "./repeatRuleUI.js";
+import { notesFieldHTML, wireNotesField } from "./notesListUI.js";
 import { showConfirm, showToast } from "./notify.js";
 
 function wireClose(root, actions) {
@@ -249,8 +250,7 @@ function renderSpecialDayStep(root, state, actions) {
                 </div>`
           }
           <div class="field">
-            <label>Notes (optional)</label>
-            <textarea id="f-notes" placeholder="Add notes…">${esc(editingItem?.notes || "")}</textarea>
+            ${notesFieldHTML(editingItem?.notes)}
           </div>
         </div>
         <div class="modal-footer">
@@ -265,6 +265,8 @@ function renderSpecialDayStep(root, state, actions) {
   wireClose(root, actions);
   root.querySelector("#cancel-btn").addEventListener("click", () => actions.closeModal());
   root.querySelector("#back-btn")?.addEventListener("click", () => actions.openModal({ type: "add-chooser", step: "type" }));
+
+  wireNotesField(root);
 
   const dateInput = root.querySelector("#f-date");
   const repeatListEl = root.querySelector("#f-repeat-list");

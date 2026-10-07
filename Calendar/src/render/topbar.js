@@ -7,10 +7,16 @@ function initials(name) {
 }
 
 export function renderTopbar(root, state, actions, currentUser) {
+  // Search / Settings / Add sit at the right end of the calendar's own date row
+  // (see .cal-top-row in index.html) instead of a separate title bar. When the
+  // page runs inside Daily Planner (currentUser.external), the dark nav bar
+  // above already names the page and shows the profile, so neither the title
+  // nor the account button is repeated here.
+  const embedded = !!currentUser?.external;
   root.className = "topbar";
   root.innerHTML = `
     <div class="topbar-left">
-      <h1 class="topbar-title">Calendar</h1>
+      ${embedded ? "" : `<h1 class="topbar-title">Calendar</h1>`}
       <div class="topbar-search ${state.searchOpen ? "" : "is-collapsed"}">
         ${icons.search}
         <input type="text" id="search-input" placeholder="Search tasks &amp; events…" value="${esc(state.searchQuery)}" />
@@ -18,9 +24,13 @@ export function renderTopbar(root, state, actions, currentUser) {
     </div>
     <div class="topbar-right">
       <button class="icon-btn ${state.searchOpen ? "is-active" : ""}" id="btn-search-toggle" title="Search" aria-label="Search">${icons.search}</button>
-      <button class="icon-btn account-btn" id="btn-account" title="${currentUser ? esc(currentUser.name) : "Log In / Sign Up"}" aria-label="Account">
+      ${
+        embedded
+          ? ""
+          : `<button class="icon-btn account-btn" id="btn-account" title="${currentUser ? esc(currentUser.name) : "Log In / Sign Up"}" aria-label="Account">
         ${currentUser ? `<span class="account-avatar">${esc(initials(currentUser.name))}</span>` : icons.user}
-      </button>
+      </button>`
+      }
       <button class="icon-btn" id="btn-settings" title="Settings" aria-label="Settings">${icons.settings}</button>
       <button class="btn btn-primary" id="btn-add">${icons.plus}<span>Add</span></button>
     </div>
@@ -40,11 +50,7 @@ export function renderTopbar(root, state, actions, currentUser) {
     actions.setSearchQuery(e.target.value);
   });
 
-  root.querySelector("#btn-account").addEventListener("click", () => {
-    if (currentUser?.external) {
-      window.location.assign("/finance/profiles");
-      return;
-    }
+  root.querySelector("#btn-account")?.addEventListener("click", () => {
     actions.openModal(currentUser ? { type: "profile" } : { type: "auth", step: "login" });
   });
 

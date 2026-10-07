@@ -14,6 +14,7 @@ import { layoutDayEvents, HOUR_ROW_PX, minutesToTop } from "../timeLayout.js";
 import { startPointerInteraction, snapMinutes, createAutoScroller } from "../dragUtils.js";
 import { isOverdue, computeReschedulePatch, daysOverdue, overdueSeverity } from "../rescheduleTracking.js";
 import { handleOccurrenceClick } from "./recurrenceUI.js";
+import { notesBulletsHTML } from "./notesListUI.js";
 import { showToast, openFormPopup, showConfirm } from "./notify.js";
 import { timeInputHTML, wireTimeInput } from "./timeInput.js";
 
@@ -1462,7 +1463,7 @@ function weekTrayChip(item, todayISO, kind = "task", state) {
 function todoDetailHTML(item) {
   const rows = [];
   if (item.startTime) rows.push(`<div class="todo-chip-detail-row"><span class="todo-chip-detail-label">Deadline</span> ${esc(formatTime(item.startTime))}</div>`);
-  if (item.notes) rows.push(`<div class="todo-chip-detail-row"><span class="todo-chip-detail-label">Detail</span> ${esc(item.notes)}</div>`);
+  if (item.notes) rows.push(`<div class="todo-chip-detail-row"><span class="todo-chip-detail-label">Detail</span>${notesBulletsHTML(item.notes)}</div>`);
   if (rows.length === 0) return "";
   return `<div class="todo-chip-detail">${rows.join("")}</div>`;
 }
@@ -1495,6 +1496,8 @@ function dayTrayChip(item, todayISO, kind = "task", state) {
   `;
 }
 
+// Notes are deliberately left off the timeline card: they only show in the
+// Edit modal, so the card stays focused on time, place and other details.
 // Shows whatever Extra Fields info an item actually has filled in, right on its
 // timeline block, instead of that info only ever being visible after opening the
 // Edit modal. The block's own height is fixed by its start/end time, so this
@@ -1509,7 +1512,6 @@ function extraInfoHTML(item, state) {
   Object.entries(item.customFields || {}).forEach(([key, value]) => {
     if (value) rows.push({ label: labels[key] || "Detail", value });
   });
-  if (item.notes) rows.push({ label: "Notes", value: item.notes });
   const todoItems = (item.todoList || []).filter((t) => t.text);
 
   // No panel is rendered when there's nothing to show — an event with no Extra

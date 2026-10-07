@@ -15,6 +15,7 @@ Tuition is a separate project and is intentionally not part of this app.
 """
 import json
 import os
+from html import escape as html_escape
 from datetime import timedelta
 
 from flask import Flask, redirect, url_for, send_from_directory, abort, request, session
@@ -135,6 +136,9 @@ body{padding-top:40px !important}
 #dp-switch a{text-decoration:none;color:#cdd6e6;font-weight:700;padding:7px 13px;border-radius:8px}
 #dp-switch a:hover{background:#262b38;color:#fff}
 #dp-switch a.here{background:#3a6ea5;color:#fff}
+#dp-switch a.dp-profile{display:flex;align-items:center;gap:8px;padding:4px 10px 4px 4px}
+#dp-switch .dp-avatar{width:26px;height:26px;border-radius:50%;background:#fff;color:#151821;
+  display:flex;align-items:center;justify-content:center;font-weight:800;font-size:12px}
 @media print{#dp-switch{display:none}body{padding-top:0 !important}}
 </style>
 <div id="dp-switch">
@@ -142,15 +146,27 @@ body{padding-top:40px !important}
   <a href="/" title="Home">&#127968;</a>
   <a href="/finance/" class="__F__">$ Finance</a>
   <a href="/calendar/" class="__C__">&#128197; Calendar</a>
-  <a href="/finance/profiles" style="margin-left:auto" title="My profile">&#128100;</a>
+  <a href="/finance/profiles" class="dp-profile" style="margin-left:auto" title="My profile">__PROFILE__</a>
   <a href="/logout">Log out</a>
 </div>
 """
 
 
+def _profile_badge():
+    """The logged-in profile's initial in a round avatar plus its name, or a
+    plain person icon when nobody is logged in (e.g. the login page)."""
+    profile = authed_profile()
+    name = ((profile or {}).get("name") or "").strip()
+    if not name:
+        return "&#128100;"
+    return (f'<span class="dp-avatar">{html_escape(name[0].upper())}</span>'
+            f'<span>{html_escape(name)}</span>')
+
+
 def _with_switcher(html, current):
     snippet = SWITCHER.replace("__F__", "here" if current == "finance" else "") \
-                      .replace("__C__", "here" if current == "calendar" else "")
+                      .replace("__C__", "here" if current == "calendar" else "") \
+                      .replace("__PROFILE__", _profile_badge())
     if "</body>" in html and 'id="dp-switch"' not in html:
         return html.replace("</body>", snippet + "</body>", 1)
     return html + snippet

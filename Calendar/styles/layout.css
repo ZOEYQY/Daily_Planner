@@ -1,14 +1,32 @@
 /* ---------- Top bar ---------- */
+/* Search / Settings / Add — no longer a separate title bar: it sits at the
+   right end of the calendar's date row (.cal-top-row below). */
 .topbar {
-  height: var(--topbar-height);
   flex: 0 0 auto;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 0 28px;
-  border-bottom: 1px solid var(--color-border);
-  background: var(--color-surface);
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+/* One row: date navigation + category filter + view switch (#calendar-header)
+   and the Search / Settings / Add buttons (#topbar). The header's own wrappers
+   use display:contents so its three groups wrap as siblings of the buttons —
+   a narrow screen drops to two rows instead of three. */
+.cal-top-row {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  margin-bottom: 12px;
+}
+.cal-top-row #calendar-header,
+.cal-top-row .cal-header {
+  display: contents;
+}
+.cal-top-row .view-switch {
+  margin-left: auto;
 }
 
 .topbar-left {
@@ -78,7 +96,7 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-  padding: 16px 24px;
+  padding: 12px 24px;
   overflow: auto;
 }
 

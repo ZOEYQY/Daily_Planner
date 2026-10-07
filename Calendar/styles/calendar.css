@@ -4,7 +4,6 @@
    margin-bottom that used to live on .cal-header moved up here. */
 .cal-header-wrap {
   flex: 0 0 auto;
-  margin-bottom: 12px;
 }
 .cal-header {
   display: flex;
@@ -21,7 +20,6 @@
   align-items: center;
   gap: 6px;
   flex-wrap: wrap;
-  margin-top: 10px;
 }
 .cal-cat-pill {
   display: inline-flex;
@@ -47,10 +45,13 @@
   color: var(--color-on-dark);
 }
 
+/* Date navigation and the category filter pills share this one row. */
 .cal-header-left {
   display: flex;
   align-items: center;
-  gap: 14px;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  min-width: 0;
 }
 
 .cal-nav {
@@ -1827,4 +1828,15 @@
   border-radius: var(--radius-sm);
   background: none;
   cursor: pointer;
+}
+
+/* Notes shown as bullet points on a timeline card / selected to-do chip
+   (see notesBulletsHTML in notesListUI.js). */
+.notes-bullets {
+  margin: 2px 0 0;
+  padding-left: 16px;
+  list-style: disc;
+}
+.notes-bullets li {
+  overflow-wrap: break-word;
 }

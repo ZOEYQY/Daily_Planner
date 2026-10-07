@@ -95,6 +95,7 @@ export function renderCalendarHeader(root, state, actions) {
                 <button class="cal-today-btn" id="nav-today">Today</button>`
         }
         <div class="cal-period-label">${isHabits ? "打卡" : periodLabel(state)}</div>
+        ${isHabits ? "" : categoryFilterHTML(state)}
       </div>
       <div class="view-switch">
         ${VIEWS.map(
@@ -102,7 +103,6 @@ export function renderCalendarHeader(root, state, actions) {
         ).join("")}
       </div>
     </div>
-    ${isHabits ? "" : categoryFilterHTML(state)}
   `;
 
   if (isHabits) {

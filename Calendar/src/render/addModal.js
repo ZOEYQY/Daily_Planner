@@ -6,6 +6,7 @@ import { resolveOccurrence } from "../selectors.js";
 import { showConfirm, showChoice, showToast, openFormPopup } from "./notify.js";
 import { openAddCategoryPopup, openAddColorPopup } from "./categoryColorPopups.js";
 import { createRepeatRuleUI } from "./repeatRuleUI.js";
+import { notesFieldHTML, wireNotesField } from "./notesListUI.js";
 import { allFieldDefs, allFieldKeys, fieldLabels } from "../extraFields.js";
 import { uid } from "../seed.js";
 import { timeInputHTML, wireTimeInput, syncVisibleTimeDisplay } from "./timeInput.js";
@@ -219,7 +220,10 @@ function restoreFormSnapshot(root, snap) {
   const titleEl = root.querySelector("#f-title");
   if (titleEl) titleEl.value = snap.title;
   const notesEl = root.querySelector("#f-notes");
-  if (notesEl) notesEl.value = snap.notes;
+  if (notesEl) {
+    notesEl.value = snap.notes;
+    notesEl.dispatchEvent(new Event("input"));
+  }
   const dateEl = root.querySelector("#f-date");
   if (dateEl) {
     dateEl.value = snap.date;
@@ -384,8 +388,7 @@ export function renderAddModal(root, state, actions) {
 
           <div class="add-modal-tab-panel" id="tab-panel-details" data-tab="details" style="${activeAddModalTab === "details" ? "" : "display:none;"}">
             <div class="field">
-              <label>Notes (optional)</label>
-              <textarea id="f-notes" placeholder="Add notes…">${esc(editingItem?.notes || "")}</textarea>
+              ${notesFieldHTML(editingItem?.notes)}
             </div>
 
             <div class="field">
@@ -459,6 +462,8 @@ export function renderAddModal(root, state, actions) {
   };
   syncRepeatVisibility();
   dateInput.addEventListener("input", syncRepeatVisibility);
+
+  wireNotesField(root);
 
   const repeatListEl = root.querySelector("#f-repeat-list");
   const repeatRuleUI = repeatListEl

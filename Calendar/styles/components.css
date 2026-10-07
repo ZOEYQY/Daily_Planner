@@ -1592,3 +1592,34 @@
   letter-spacing: 0;
   text-transform: none;
 }
+
+/* ---------- Notes list (Add/Edit modal) — one bullet point per note, sharing
+   .todo-list/.todo-add-row's look (see notesListUI.js). Each point stays
+   editable in place. ---------- */
+.notes-list {
+  margin-top: 2px;
+}
+.note-bullet {
+  flex: 0 0 auto;
+  color: var(--color-muted);
+  font-size: 15px;
+  line-height: 1;
+}
+.note-item-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  padding: 4px 6px;
+  font-size: 13px;
+  background: transparent;
+  color: var(--color-ink);
+  outline: none;
+}
+.note-item-input:hover {
+  border-color: var(--color-border);
+}
+.note-item-input:focus {
+  border-color: var(--color-active);
+  background: var(--color-surface);
+}
