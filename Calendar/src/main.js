@@ -280,7 +280,11 @@ function pasteAtHover() {
     kind === "task"
       ? store.addTask({ ...patch, dueDate: target.date, scheduled: true })
       : store.addEvent({ ...patch, date: target.date });
-  store.setSelectedItem({ kind, id: created.id, occurrenceDate: null });
+  // Nothing stays selected after a paste. Selecting the new card here used to
+  // leave it selected without ever showing it (the screen had already been
+  // drawn), so a following Ctrl+C silently copied the pasted card instead of
+  // the one you then had in mind.
+  store.setSelectedItem(null);
   showToast(`${kind === "task" ? "Task" : "Event"} pasted`);
 }
 
