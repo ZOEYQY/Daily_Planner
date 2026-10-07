@@ -13,10 +13,11 @@ import os
 from flask import Flask, redirect, url_for
 try:
     from . import database, receipt_storage
+    from .finance_routes import finance_bp
 except ImportError:
     import database
     import receipt_storage
-from finance_routes import finance_bp
+    from finance_routes import finance_bp
 
 app = Flask(__name__)
 # Needed for the profile-switcher session cookie. Set FLASK_SECRET_KEY in

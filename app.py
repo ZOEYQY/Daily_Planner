@@ -228,12 +228,20 @@ def calendar_index():
     return _with_switcher(html, "calendar")
 
 
+# Only the Calendar's front-end files are served. Python sources, caches and
+# local data files such as _migrate.json (which can hold personal data) are not.
+_CALENDAR_ASSET_TYPES = {".html", ".js", ".css", ".svg", ".png", ".ico", ".webp", ".jpg", ".jpeg", ".woff", ".woff2"}
+
+
 @app.route("/calendar/<path:filename>")
 def calendar_asset(filename):
     full = os.path.normpath(os.path.join(CALENDAR_DIR, filename))
-    if not full.startswith(CALENDAR_DIR):
+    if os.path.commonpath([full, CALENDAR_DIR]) != CALENDAR_DIR:
         abort(404)
-    if not os.path.isfile(full):
+    parts = os.path.relpath(full, CALENDAR_DIR).split(os.sep)
+    if any(part.startswith((".", "_")) for part in parts):
+        abort(404)
+    if os.path.splitext(full)[1].lower() not in _CALENDAR_ASSET_TYPES or not os.path.isfile(full):
         abort(404)
     return send_from_directory(CALENDAR_DIR, filename)
 

@@ -33,13 +33,13 @@ def test_new_records_get_a_stable_id(client, load):
     assert [r["id"] for r in load("expenses.json")] == ids
 
 
-def test_legacy_records_without_id_are_backfilled(client, load, data_dir, profile_id):
+def test_legacy_records_without_id_are_backfilled(client, load, store):
     # simulate a record written before ids existed, directly in the active
     # profile's own store
-    (data_dir / "profiles" / profile_id / "expenses.json").write_text(json.dumps([
+    store("expenses.json", [
         {"date": "2026-01-01", "type": "expense", "category": "Food",
          "account": "Wallet", "item": "old", "amount": 5},
-    ]), encoding="utf-8")
+    ])
 
     client.get("/view")  # any read goes through load_records()
     rec = load("expenses.json")[0]

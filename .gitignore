@@ -21,3 +21,13 @@ Calendar/_migrate.json
 Finance/data/profiles/
 Finance/data/profiles.json
 Finance/static/receipts/*/
+
+# Local data backups (personal data, never commit) and SQLite/dump files
+backup/
+*.db
+*.sqlite
+*.dump
+restore-download/
+*.json.gz
+*.json.gz.enc
+*.json.gz.enc.sha256

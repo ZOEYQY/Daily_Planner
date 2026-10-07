@@ -1,6 +1,8 @@
 """Password-protected Profiles with isolated Finance data."""
 import json
 
+from conftest import USE_DATABASE
+
 
 def _profiles(patched_helpers):
     return patched_helpers.load_profiles()
@@ -136,9 +138,13 @@ def test_delete_profile_removes_its_data_directory(app, _patched_helpers, data_d
     _create_profile(c, "Alice")
     pid = _profiles(_patched_helpers)[0]["id"]
     c.post("/accounts", data={"name": "A1", "purpose": "spending"})
-    assert (data_dir / "profiles" / pid).exists()
+    accounts_path = str(data_dir / "profiles" / pid / "accounts.json")
+    assert _patched_helpers.load_data(accounts_path, None)
+    if not USE_DATABASE:  # JSON mode keeps each profile in its own folder
+        assert (data_dir / "profiles" / pid).exists()
 
     c.post("/profiles/delete", data={"password": "alice-test-password"})
+    assert _patched_helpers.load_data(accounts_path, None) is None
     assert not (data_dir / "profiles" / pid).exists()
 
 

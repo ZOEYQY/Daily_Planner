@@ -36,6 +36,7 @@ try:
         load_profiles, save_profiles, find_profile, ensure_default_profile,
         create_profile, rename_profile, delete_profile, apply_profile_paths,
         find_profile_by_name, check_profile_password, set_profile_password,
+        ProfileStorePath, ProfileNameTaken,
     )
 except ImportError:
     # Plain import: used when running Finance/app.py directly, where
@@ -60,6 +61,7 @@ except ImportError:
         load_profiles, save_profiles, find_profile, ensure_default_profile,
         create_profile, rename_profile, delete_profile, apply_profile_paths,
         find_profile_by_name, check_profile_password, set_profile_password,
+        ProfileStorePath, ProfileNameTaken,
     )
 
 # Load Finance/.env (if present) so GEMINI_API_KEY / GEMINI_MODEL can
@@ -73,13 +75,31 @@ except ImportError:
 
 finance_bp = Blueprint('finance', __name__, url_prefix='')
 
+try:
+    from . import database as _database
+except ImportError:
+    import database as _database
+
+
+# One database transaction per request (see database.finish_request): all of a
+# request's store writes are committed together after it succeeds, or none are.
+@finance_bp.record_once
+def _enable_unit_of_work(state):
+    _database.init_unit_of_work(state.app)
+
+
+finance_bp.after_app_request(_database.finish_request)
+finance_bp.teardown_app_request(_database.close_request)
+
 # ================= FILE PATHS =================
 # ================= 文件路径 =================
 
-f_expense = os.path.join(DATA_DIR, "expenses.json")
-f_budget = os.path.join(DATA_DIR, "budget.json")
-f_accounts = os.path.join(DATA_DIR, "accounts.json")
-f_goals = os.path.join(DATA_DIR, "goals.json")
+# Each resolves to the logged-in profile's file for the current request
+# (see ProfileStorePath in finance_helpers).
+f_expense = ProfileStorePath("expenses.json")
+f_budget = ProfileStorePath("budget.json")
+f_accounts = ProfileStorePath("accounts.json")
+f_goals = ProfileStorePath("goals.json")
 
 
 def _store_paths():
@@ -108,17 +128,14 @@ def _store_paths():
 
 # ================= PROFILES (simple multi-user) =================
 # ================= 用户档案（简单多用户） =================
-# 每个请求开始时，把本模块的 f_expense/f_budget/f_accounts/f_goals/
-# RECEIPTS_DIR（以及 finance_helpers 里对应的那一批）都指向当前会话
-# 选中的 profile —— 这样上面/下面几十个路由函数完全不用改一行，
-# 它们读到的还是同一个模块级变量名，只是现在这个变量在每个请求前
-# 被重新赋值成"这个 profile 的文件"。还没选 profile 就先送去 /profiles。
-# At the start of every request, this module's f_expense/f_budget/
-# f_accounts/f_goals/RECEIPTS_DIR (and finance_helpers' matching set) get
-# repointed at whichever profile is active in the session — so the dozens of
-# route functions above and below never change at all; they still read the
-# same module-level names, those names just get reassigned per request.
-# No profile chosen yet → sent to /profiles first.
+# 每个请求开始时，把当前登录的 profile 记到 g.profile_id；f_expense 等
+# 路径对象在使用时读取它，所以只会指向"这个请求的 profile"的数据。
+# 还没登录就先送去 /profiles。
+# At the start of every request the logged-in profile is recorded in
+# g.profile_id. The f_expense/... path objects read it on every use, so the
+# dozens of route functions never change and each request only ever reaches
+# its own profile's data — even when requests run concurrently.
+# Not logged in yet → sent to /profiles first.
 
 _PROFILE_EXEMPT_ENDPOINTS = {
     "finance.profiles_page",
@@ -160,13 +177,7 @@ def _activate_profile():
             return None
         return redirect(url_for("finance.profiles_page", next=request.path))
 
-    paths = apply_profile_paths(active["id"])
-    global f_expense, f_budget, f_accounts, f_goals, RECEIPTS_DIR
-    f_expense = paths["f_expense"]
-    f_budget = paths["f_budget"]
-    f_accounts = paths["f_accounts"]
-    f_goals = paths["f_goals"]
-    RECEIPTS_DIR = paths["RECEIPTS_DIR"]
+    apply_profile_paths(active["id"])
     g.profile = active
     g.profile_id = active["id"]
     return None
@@ -212,9 +223,11 @@ def login_route():
             return _render_profiles(
                 error=f'"{profile["name"]}" has no password yet — choose one '
                       f'(at least {MIN_PASSWORD_LEN} characters) to claim it.', status=400)
-        set_profile_password(profile["id"], password)
-        _log_in(profile["id"])
-        return _after_login()
+        if set_profile_password(profile["id"], password, only_if_unset=True):
+            _log_in(profile["id"])
+            return _after_login()
+        time.sleep(1)  # someone else claimed it first
+        return _render_profiles(error="Wrong profile name or password.", status=401)
     if profile and check_profile_password(profile, password):
         _log_in(profile["id"])
         return _after_login()
@@ -234,7 +247,11 @@ def create_profile_route():
         return _render_profiles(error=f"Password needs at least {MIN_PASSWORD_LEN} characters.", status=400)
     if password != (request.form.get("password2") or ""):
         return _render_profiles(error="The two passwords don't match.", status=400)
-    _log_in(create_profile(name, password))
+    try:
+        profile_id = create_profile(name, password)
+    except ProfileNameTaken:
+        return _render_profiles(error="That name is taken — pick another.", status=400)
+    _log_in(profile_id)
     return _after_login()
 
 
@@ -252,7 +269,10 @@ def rename_profile_route():
     other = find_profile_by_name(load_profiles(), name)
     if other and other["id"] != g.profile_id:
         return _render_profiles(error="That name is taken — pick another.", status=400)
-    rename_profile(g.profile_id, name)
+    try:
+        rename_profile(g.profile_id, name)
+    except ProfileNameTaken:
+        return _render_profiles(error="That name is taken — pick another.", status=400)
     return redirect(url_for("finance.profiles_page"))
 
 
@@ -369,7 +389,7 @@ def _transfer_pair(records, record):
                 if r.get("transfer_id") == transfer_id and r.get("id") != record.get("id")), None)
 
 
-RECEIPTS_DIR = os.path.join(BASE_DIR, "static", "receipts")
+RECEIPTS_DIR = ProfileStorePath(receipts=True)  # current request's profile
 ALLOWED_EXTENSIONS = {"jpg", "jpeg", "png", "gif", "webp"}
 # AI receipt extraction reads the Gemini (Google) credentials from the
 # environment:

@@ -367,17 +367,14 @@ def test_paused_goal_stays_paused_even_when_fully_funded(client, load, make_acco
 
 # ================= LEGACY TRANSFER BACKFILL =================
 
-def test_legacy_transfer_pair_gets_linked_on_load(client, load, make_account, data_dir, profile_id):
+def test_legacy_transfer_pair_gets_linked_on_load(client, load, make_account, store):
     """A transfer pair written directly to disk without a transfer_id (as
     every transfer created before this fix would be) gets linked the next
     time records are loaded, so the edit-block/paired-delete protections
     start covering it too."""
-    import json
-
     make_account("Wallet")
     make_account("Bank", "savings")
 
-    path = data_dir / "profiles" / profile_id / "expenses.json"
     legacy = [
         {"id": "leg-out", "date": "2026-01-01", "type": "expense",
          "category": "Transfer Out", "account": "Wallet",
@@ -386,7 +383,7 @@ def test_legacy_transfer_pair_gets_linked_on_load(client, load, make_account, da
          "category": "Transfer In", "account": "Bank",
          "item": "Transfer from Wallet", "amount": 75.0},
     ]
-    path.write_text(json.dumps(legacy), encoding="utf-8")
+    store("expenses.json", legacy)
 
     # Any GET that loads records triggers the backfill.
     client.get("/view")
@@ -404,16 +401,13 @@ def test_legacy_transfer_pair_gets_linked_on_load(client, load, make_account, da
     assert "one side of a transfer" in resp.get_data(as_text=True)
 
 
-def test_ambiguous_legacy_transfers_are_left_unlinked(client, load, make_account, data_dir, profile_id):
+def test_ambiguous_legacy_transfers_are_left_unlinked(client, load, make_account, store):
     """Two same-day, same-amount transfer pairs can't be told apart — leave
     them unlinked rather than risk pairing the wrong two records."""
-    import json
-
     make_account("Wallet")
     make_account("Bank", "savings")
     make_account("Cash")
 
-    path = data_dir / "profiles" / profile_id / "expenses.json"
     legacy = [
         {"id": "out-1", "date": "2026-01-01", "type": "expense",
          "category": "Transfer Out", "account": "Wallet", "item": "x", "amount": 50.0},
@@ -424,7 +418,7 @@ def test_ambiguous_legacy_transfers_are_left_unlinked(client, load, make_account
         {"id": "in-2", "date": "2026-01-01", "type": "income",
          "category": "Transfer In", "account": "Bank", "item": "x", "amount": 50.0},
     ]
-    path.write_text(json.dumps(legacy), encoding="utf-8")
+    store("expenses.json", legacy)
 
     client.get("/view")
 

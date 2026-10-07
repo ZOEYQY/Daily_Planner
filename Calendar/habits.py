@@ -82,6 +82,10 @@ def _postgres_session():
     return Session(finance_database._engine(finance_database.database_url()))
 
 
+def _calendar_tables():
+    return finance_database.calendar_tables()
+
+
 @bp.get("/calendar-state")
 def get_calendar_state():
     if not _owner() or not finance_database or not finance_database.configured():
@@ -92,7 +96,7 @@ def get_calendar_state():
 
     with _postgres_session() as db:
         row = db.get(CalendarState, _owner())
-        return jsonify({"state": row.payload if row else None, "version": row.version if row else 0})
+        return jsonify({"state": _calendar_tables().load_state(db, row), "version": row.version if row else 0})
 
 
 @bp.put("/calendar-state")
@@ -110,17 +114,18 @@ def put_calendar_state():
 
     with _postgres_session() as db:
         row = db.scalar(select(CalendarState).where(CalendarState.profile_id == _owner()).with_for_update())
-        if row:
-            if row.version != expected_version:
-                return jsonify({"error": "calendar state changed on another device", "version": row.version}), 409
-            row.payload = state
-            row.version += 1
-        else:
-            if expected_version != 0:
-                return jsonify({"error": "calendar state changed on another device", "version": 0}), 409
-            row = CalendarState(profile_id=_owner(), payload=state, version=1)
-            db.add(row)
+        if row and row.version != expected_version:
+            return jsonify({"error": "calendar state changed on another device", "version": row.version}), 409
+        if not row and expected_version != 0:
+            return jsonify({"error": "calendar state changed on another device", "version": 0}), 409
         try:
+            if row:
+                row.version += 1
+            else:
+                row = CalendarState(profile_id=_owner(), payload={}, version=1)
+                db.add(row)
+                db.flush()
+            _calendar_tables().store_state(db, row, state)
             db.commit()
         except IntegrityError:
             db.rollback()
@@ -159,25 +164,29 @@ def import_calendar_state():
     from Finance.database import CalendarImport, CalendarState
 
     with _postgres_session() as db:
+        tables = _calendar_tables()
         existing_import = db.get(CalendarImport, (_owner(), source_id))
         if existing_import:
             row = db.get(CalendarState, _owner())
-            return jsonify({"state": row.payload if row else None, "version": row.version if row else 0, "imported": False})
+            return jsonify({"state": tables.load_state(db, row), "version": row.version if row else 0, "imported": False})
         row = db.scalar(select(CalendarState).where(CalendarState.profile_id == _owner()).with_for_update())
-        if row:
-            row.payload = _merge_calendar_import(row.payload, state)
-            row.version += 1
-        else:
-            row = CalendarState(profile_id=_owner(), payload=state, version=1)
-            db.add(row)
-        db.add(CalendarImport(profile_id=_owner(), source_id=source_id))
         try:
+            if row:
+                merged = _merge_calendar_import(tables.load_state(db, row), state)
+                row.version += 1
+            else:
+                merged = state
+                row = CalendarState(profile_id=_owner(), payload={}, version=1)
+                db.add(row)
+                db.flush()
+            tables.store_state(db, row, merged)
+            db.add(CalendarImport(profile_id=_owner(), source_id=source_id))
             db.commit()
         except IntegrityError:
             db.rollback()
             row = db.get(CalendarState, _owner())
-            return jsonify({"state": row.payload if row else None, "version": row.version if row else 0, "imported": False})
-        return jsonify({"state": row.payload, "version": row.version, "imported": True})
+            return jsonify({"state": tables.load_state(db, row), "version": row.version if row else 0, "imported": False})
+        return jsonify({"state": merged, "version": row.version, "imported": True})
 
 
 def _owner():
@@ -279,9 +288,21 @@ def create_habit():
 def update_habit(hid):
     d = request.get_json(silent=True) or {}
     fields = {}
+    limits = {"name": 60, "emoji": 12, "color": 9}
     for k in ("name", "emoji", "color", "sort", "archived"):
-        if k in d:
-            fields[k] = d[k]
+        if k not in d:
+            continue
+        value = d[k]
+        if k in limits:
+            if not isinstance(value, str) or (k == "name" and not value.strip()):
+                return jsonify({"error": f"invalid {k}"}), 400
+            value = value.strip()[:limits[k]] if k == "name" else value[:limits[k]]
+        elif k == "sort":
+            if not isinstance(value, int) or isinstance(value, bool):
+                return jsonify({"error": "invalid sort"}), 400
+        elif not isinstance(value, bool):
+            return jsonify({"error": "invalid archived"}), 400
+        fields[k] = value
     if not fields:
         return jsonify({"ok": True})
     if _DB_PATH is None:

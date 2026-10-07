@@ -2,6 +2,11 @@
 
 Preview with ``python Finance/migrate_json_to_postgres.py`` and apply with
 ``python Finance/migrate_json_to_postgres.py --apply``.
+
+For a full migration (Finance + Habits + legacy-blob conversion, with
+validation, idempotent merging of Profiles and a summary) use
+``python scripts/migrate_json_to_postgres.py`` instead; it builds on
+``collect_documents`` below.
 """
 import argparse
 import json
@@ -9,7 +14,10 @@ import os
 import uuid
 from datetime import date
 
-import database
+try:
+    from . import database
+except ImportError:
+    import database
 
 
 FINANCE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -27,7 +35,10 @@ def _read_json(path):
 
 
 def _legacy_profile_id(data_dir):
-    return uuid.uuid5(uuid.NAMESPACE_URL, os.path.abspath(data_dir)).hex
+    # Constant (not derived from the folder path) so re-running the import
+    # from another checkout maps the same flat data onto the same Profile
+    # instead of creating a duplicate one.
+    return uuid.uuid5(uuid.NAMESPACE_URL, "daily-planner:legacy-flat-finance-data").hex
 
 
 def collect_documents(data_dir=DATA_DIR):

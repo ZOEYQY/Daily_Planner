@@ -1,0 +1,91 @@
+# Daily, encrypted, independent backup of the production PostgreSQL database.
+#
+# Runs on GitHub's servers, so it does not depend on Render being up, and it
+# stores the backup outside Render (as a workflow artifact).
+#
+# One-time setup (Settings > Secrets and variables > Actions > New repository secret):
+#   BACKUP_DATABASE_URL  Render PostgreSQL "External Database URL"
+#   BACKUP_PASSPHRASE    long random passphrase (>= 20 chars). Also keep it in your
+#                        password manager: without it no backup can be restored.
+#   CLOUDINARY_URL       optional; when set, receipt images are included too.
+#
+# This repository is PUBLIC: artifacts of public repositories can be downloaded
+# by other GitHub users and logs are public. That is why every backup is
+# encrypted before upload and the script prints only totals (--quiet).
+#
+# Retention: daily backups are kept 7 days, Sunday backups 28 days (4 weekly),
+# backups from the 1st of a month 90 days (3 monthly).
+name: Database backup
+
+on:
+  schedule:
+    - cron: "30 18 * * *"  # 18:30 UTC = 02:30 Malaysia time, every day
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: database-backup
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    # Never run on forks (they have no secrets and must not try).
+    if: github.repository == 'ZOEYQY/Daily_Planner'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      DATABASE_URL: ${{ secrets.BACKUP_DATABASE_URL }}
+      BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+      CLOUDINARY_URL: ${{ secrets.CLOUDINARY_URL }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Check secrets
+        run: |
+          if [ -z "$DATABASE_URL" ] || [ -z "$BACKUP_PASSPHRASE" ]; then
+            echo "::error::Add the repository secrets BACKUP_DATABASE_URL and BACKUP_PASSPHRASE (see DATABASE.md)."
+            exit 1
+          fi
+          if [ "${#BACKUP_PASSPHRASE}" -lt 20 ]; then
+            echo "::error::BACKUP_PASSPHRASE must be at least 20 characters."
+            exit 1
+          fi
+
+      - name: Back up, encrypt and verify
+        run: |
+          mkdir -p out
+          file="out/daily-planner-$(date -u +%Y%m%d-%H%M%S).json.gz.enc"
+          extra=""
+          if [ -n "$CLOUDINARY_URL" ]; then extra="--include-receipts"; fi
+          python scripts/backup_database.py backup --encrypt --quiet --out "$file" $extra
+          python scripts/backup_database.py verify "$file" --quiet
+
+      - name: Pick retention tier
+        id: tier
+        run: |
+          if [ "$(date -u +%d)" = "01" ]; then
+            echo "tier=monthly" >> "$GITHUB_OUTPUT"; echo "days=90" >> "$GITHUB_OUTPUT"
+          elif [ "$(date -u +%u)" = "7" ]; then
+            echo "tier=weekly" >> "$GITHUB_OUTPUT"; echo "days=28" >> "$GITHUB_OUTPUT"
+          else
+            echo "tier=daily" >> "$GITHUB_OUTPUT"; echo "days=7" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Store encrypted backup
+        uses: actions/upload-artifact@v4
+        with:
+          name: db-backup-${{ steps.tier.outputs.tier }}-${{ github.run_number }}
+          path: out/
+          retention-days: ${{ steps.tier.outputs.days }}
+          if-no-files-found: error
+          compression-level: 0

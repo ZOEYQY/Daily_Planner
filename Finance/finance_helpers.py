@@ -4,9 +4,11 @@ import os
 import re
 import shutil
 import tempfile
+import threading
 import uuid
 from datetime import date, datetime, timedelta
 
+from flask import g, has_app_context
 from werkzeug.security import generate_password_hash, check_password_hash
 
 # ================= BASE =================
@@ -17,6 +19,49 @@ from werkzeug.security import generate_password_hash, check_password_hash
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(BASE_DIR, "data")
+
+
+# ================= PER-REQUEST PROFILE PATHS =================
+# 每个 store 的路径（f_expense、f_categories……）不再是"每个请求前被改写的
+# 模块全局变量"，而是一个在使用时才解析的对象：它读取 *当前请求* 的
+# g.profile_id。这样多线程 / 并发请求时，A 的请求永远不会读写 B 的数据。
+# Store paths (f_expense, f_categories, ...) used to be module globals that
+# finance_routes' before_request rewrote for whichever profile was logged in.
+# Two concurrent requests in one process (a threaded server) could then read
+# or write each other's data. They are now path objects resolved on every use
+# from the *current request's* g.profile_id, so isolation no longer depends on
+# the server handling one request at a time.
+
+
+def current_profile_id():
+    """The logged-in profile of the current request, or None outside one."""
+    return getattr(g, "profile_id", None) if has_app_context() else None
+
+
+class ProfileStorePath(os.PathLike):
+    """``os.PathLike`` for one per-profile store file (or, with ``filename``
+    None, the profile's receipts folder). Resolves at use time, so it always
+    points at the current request's profile; outside a request (scripts) it
+    falls back to the old flat Finance/data/<name> location."""
+
+    __slots__ = ("filename", "receipts")
+
+    def __init__(self, filename=None, receipts=False):
+        self.filename = filename
+        self.receipts = receipts
+
+    def __fspath__(self):
+        profile_id = current_profile_id()
+        if self.receipts:
+            return os.path.join(RECEIPTS_ROOT, profile_id) if profile_id else RECEIPTS_ROOT
+        if profile_id:
+            return os.path.join(PROFILES_ROOT, profile_id, self.filename)
+        return os.path.join(DATA_DIR, self.filename)
+
+    __str__ = __fspath__
+
+    def __repr__(self):
+        return f"ProfileStorePath({self.filename or 'receipts'!r})"
 
 # ================= CATEGORY MAP =================
 # ================= 分类清单 =================
@@ -86,6 +131,25 @@ def load_data(path, default):
             return json.load(f)
         except json.JSONDecodeError:
             return default
+
+
+_LOCAL_UPDATE_LOCK = threading.RLock()
+
+
+def update_data(path, default, mutate):
+    """Read-modify-write one store atomically. ``mutate(current)`` returns
+    ``(new_payload, result)``; ``new_payload`` None means "no change". In the
+    database the whole step holds a lock on the store's key, so two requests
+    (even on different workers) can't overwrite each other's change — needed
+    for the shared profiles index, where a lost update would erase an account."""
+    database = _database_store()
+    if database:
+        return database.update_document(_database_key(path), default, mutate)
+    with _LOCAL_UPDATE_LOCK:
+        new_payload, result = mutate(load_data(path, default))
+        if new_payload is not None:
+            save_data(path, new_payload)
+        return result
 
 
 def save_data(path, data):
@@ -254,7 +318,7 @@ def advance_date(iso_str, frequency, interval=1):
 # ================= CATEGORY STORE =================
 # ================= 分类存储 =================
 
-f_categories = os.path.join(DATA_DIR, "categories.json")
+f_categories = ProfileStorePath("categories.json")
 
 CATEGORIES_SCHEMA_VERSION = 1
 
@@ -374,7 +438,7 @@ def expense_category_names():
 # ================= SHOPPING LIST STORE =================
 # ================= 购物清单存储 =================
 
-f_shopping = os.path.join(DATA_DIR, "shopping.json")
+f_shopping = ProfileStorePath("shopping.json")
 
 SHOPPING_SCHEMA_VERSION = 1
 
@@ -473,7 +537,7 @@ def find_shopping_item(items, item_id):
 # it comes due it *generates* a real expenses.json record (tagged with
 # recurring_id / source=recurring) and its next_due is advanced.
 
-f_recurring = os.path.join(DATA_DIR, "recurring.json")
+f_recurring = ProfileStorePath("recurring.json")
 
 RECURRING_SCHEMA_VERSION = 1
 RECURRING_FREQUENCIES = ("weekly", "monthly", "yearly")
@@ -546,7 +610,7 @@ def find_recurring(rules, rule_id):
 # ledger — it does not touch expenses.json unless the user opts in when
 # recording a payment.
 
-f_debts = os.path.join(DATA_DIR, "debts.json")
+f_debts = ProfileStorePath("debts.json")
 
 DEBTS_SCHEMA_VERSION = 1
 DEBT_DIRECTIONS = ("owe", "owed")
@@ -616,7 +680,7 @@ def debt_outstanding(debt):
 # auto-computed from the app's data (account balances + money owed to you -
 # money you owe) or entered by hand (to include property, a car, etc.).
 
-f_networth = os.path.join(DATA_DIR, "networth.json")
+f_networth = ProfileStorePath("networth.json")
 
 NETWORTH_SCHEMA_VERSION = 1
 
@@ -658,7 +722,7 @@ def find_snapshot(snapshots, snap_id):
 # Caches the AI monthly-review text keyed by "YYYY-MM" so opening the
 # Summary page doesn't re-call the AI every time (even the free tier is rate-limited).
 
-f_insights = os.path.join(DATA_DIR, "insights.json")
+f_insights = ProfileStorePath("insights.json")
 
 INSIGHTS_SCHEMA_VERSION = 1
 
@@ -685,7 +749,7 @@ def save_insights(reviews):
 # base; every other currency stores a rate_to_myr (1 unit of it = how many
 # RM), maintained/updated by the user.
 
-f_rates = os.path.join(DATA_DIR, "rates.json")
+f_rates = ProfileStorePath("rates.json")
 
 RATES_SCHEMA_VERSION = 1
 BASE_CURRENCY = "MYR"
@@ -783,11 +847,28 @@ def load_profiles():
     return raw["profiles"]
 
 
+def _profiles_document(profiles):
+    return {"schema_version": PROFILES_SCHEMA_VERSION, "profiles": profiles}
+
+
 def save_profiles(profiles):
-    save_data(PROFILES_INDEX_FILE, {
-        "schema_version": PROFILES_SCHEMA_VERSION,
-        "profiles": profiles,
-    })
+    save_data(PROFILES_INDEX_FILE, _profiles_document(profiles))
+
+
+def update_profiles(mutate):
+    """Atomically change the shared profiles index. ``mutate(profiles)``
+    edits the list in place and returns ``(changed, result)``. Every account
+    shares this one index, so a plain load + save could let two concurrent
+    sign-ups overwrite each other and silently erase an account."""
+    def _apply(raw):
+        profiles = list(raw["profiles"]) if isinstance(raw, dict) and isinstance(raw.get("profiles"), list) else []
+        changed, result = mutate(profiles)
+        return (_profiles_document(profiles) if changed else None), result
+    return update_data(PROFILES_INDEX_FILE, None, _apply)
+
+
+class ProfileNameTaken(ValueError):
+    """Another profile already uses this name (names are case-insensitive)."""
 
 
 def find_profile(profiles, profile_id):
@@ -827,25 +908,11 @@ def profile_store_paths(profile_id):
 
 
 def apply_profile_paths(profile_id):
-    """Point every per-profile store at ``profile_id``'s data by reassigning
-    this module's own f_* globals (finance_routes reassigns its own f_expense/
-    f_budget/f_accounts/f_goals/RECEIPTS_DIR the same way in its
-    before_request hook). Mutating module globals instead of threading a
-    profile id through every one of the ~40 routes keeps this a small,
-    localized change — safe here because the app has no concurrent-request
-    handling (single dev-server process), same as every other global this
-    codebase already relies on. Returns the full path dict for the caller."""
-    paths = profile_store_paths(profile_id)
-    globals().update({
-        "f_categories": paths["f_categories"],
-        "f_shopping": paths["f_shopping"],
-        "f_recurring": paths["f_recurring"],
-        "f_debts": paths["f_debts"],
-        "f_networth": paths["f_networth"],
-        "f_insights": paths["f_insights"],
-        "f_rates": paths["f_rates"],
-    })
-    return paths
+    """Make ``profile_id`` the current request's profile. Every f_* store
+    path (a ProfileStorePath) then resolves to this profile's files for this
+    request only — nothing module-wide is reassigned, so concurrent requests
+    for different profiles stay isolated."""
+    g.profile_id = profile_id
 
 
 def _migrate_legacy_flat_data(target_profile_id):
@@ -880,15 +947,22 @@ def ensure_default_profile():
     profiles = load_profiles()
     if profiles:
         return profiles
-    profile_id = new_id()
-    moved = _migrate_legacy_flat_data(profile_id)
-    profiles = [{
-        "id": profile_id,
-        "name": "My Finance" if moved else "Profile 1",
-        "created_at": today_iso(),
-    }]
-    save_profiles(profiles)
-    return profiles
+
+    def _create(current):
+        if current:
+            return False, current
+        profile_id = new_id()
+        # JSON mode only. With a database the flat files are imported by
+        # scripts/migrate_json_to_postgres.py; moving them around the (on
+        # Render, ephemeral) disk here would not put them in the database.
+        moved = False if _database_store() else _migrate_legacy_flat_data(profile_id)
+        current.append({
+            "id": profile_id,
+            "name": "My Finance" if moved else "Profile 1",
+            "created_at": today_iso(),
+        })
+        return True, current
+    return update_profiles(_create)
 
 
 def find_profile_by_name(profiles, name):
@@ -901,17 +975,25 @@ def check_profile_password(profile, password):
     return bool(h) and check_password_hash(h, password or "")
 
 
-def set_profile_password(profile_id, password):
-    profiles = load_profiles()
-    profile = find_profile(profiles, profile_id)
-    if profile:
-        profile["password_hash"] = generate_password_hash(password)
-        save_profiles(profiles)
-    return profile
+def set_profile_password(profile_id, password, only_if_unset=False):
+    """Store a salted Werkzeug hash (never the password itself). With
+    ``only_if_unset`` it only claims a profile that still has no password,
+    and returns None if someone else set one first."""
+    password_hash = generate_password_hash(password)
+
+    def _set(profiles):
+        profile = find_profile(profiles, profile_id)
+        if not profile or (only_if_unset and profile.get("password_hash")):
+            return False, None
+        profile["password_hash"] = password_hash
+        return True, profile
+    return update_profiles(_set)
 
 
 def create_profile(name, password=None):
-    profiles = load_profiles()
+    """Create a profile and return its id. Raises ProfileNameTaken if the
+    name is already used — checked under the same lock as the insert, so two
+    simultaneous sign-ups can't both take one name."""
     profile_id = new_id()
     entry = {
         "id": profile_id,
@@ -920,26 +1002,42 @@ def create_profile(name, password=None):
     }
     if password:
         entry["password_hash"] = generate_password_hash(password)
-    profiles.append(entry)
-    save_profiles(profiles)
-    profile_data_dir(profile_id)  # create its folder eagerly
+
+    def _add(profiles):
+        if find_profile_by_name(profiles, entry["name"]):
+            raise ProfileNameTaken(entry["name"])
+        profiles.append(entry)
+        return True, profile_id
+    update_profiles(_add)
+    if not _database_store():
+        profile_data_dir(profile_id)  # JSON mode: create its folder eagerly
     return profile_id
 
 
 def rename_profile(profile_id, name):
-    profiles = load_profiles()
-    profile = find_profile(profiles, profile_id)
-    if profile and (name or "").strip():
-        profile["name"] = name.strip()[:60]
-        save_profiles(profiles)
-    return profile
+    """Rename a profile; raises ProfileNameTaken if another profile has it."""
+    new_name = (name or "").strip()[:60]
+
+    def _rename(profiles):
+        profile = find_profile(profiles, profile_id)
+        if not profile or not new_name:
+            return False, profile
+        other = find_profile_by_name(profiles, new_name)
+        if other and other.get("id") != profile_id:
+            raise ProfileNameTaken(new_name)
+        profile["name"] = new_name
+        return True, profile
+    return update_profiles(_rename)
 
 
 def delete_profile(profile_id):
     """Removes the profile entry and permanently deletes all of its data."""
-    profiles = load_profiles()
-    profiles = [p for p in profiles if p.get("id") != profile_id]
-    save_profiles(profiles)
+    def _remove(profiles):
+        kept = [p for p in profiles if p.get("id") != profile_id]
+        changed = len(kept) != len(profiles)
+        profiles[:] = kept
+        return changed, None
+    update_profiles(_remove)
     database = _database_store()
     if database:
         if os.environ.get("CLOUDINARY_URL"):
@@ -949,5 +1047,6 @@ def delete_profile(profile_id):
                 import receipt_storage
             receipt_storage.delete_profile(profile_id)
         database.delete_documents(f"profiles/{profile_id}/")
-    shutil.rmtree(profile_data_dir(profile_id), ignore_errors=True)
-    shutil.rmtree(profile_receipts_dir(profile_id), ignore_errors=True)
+        database.delete_profile_rows(profile_id)
+    shutil.rmtree(os.path.join(PROFILES_ROOT, profile_id), ignore_errors=True)
+    shutil.rmtree(os.path.join(RECEIPTS_ROOT, profile_id), ignore_errors=True)

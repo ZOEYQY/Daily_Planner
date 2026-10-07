@@ -6,6 +6,13 @@ pre-activated as a single profile ("Test User") — created via a real POST to
 carries an active profile_id and every existing test (written before
 profiles existed) keeps working unchanged. Tests that specifically exercise
 multi-profile behavior create additional profiles/clients of their own.
+
+Set FINANCE_TEST_DB=1 to run the suite against the SQL store tables (a
+throwaway SQLite database per test) instead of JSON files.
+
+Set FINANCE_TEST_POSTGRES_URL to a disposable PostgreSQL database to run the
+suite against real PostgreSQL. Every table is dropped and recreated before each
+test, so the database name must contain "test".
 """
 import json
 import os
@@ -16,6 +23,23 @@ import pytest
 FIN_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if FIN_DIR not in sys.path:
     sys.path.insert(0, FIN_DIR)
+
+POSTGRES_TEST_URL = os.environ.get("FINANCE_TEST_POSTGRES_URL", "").strip()
+USE_DATABASE = bool(os.environ.get("FINANCE_TEST_DB") or POSTGRES_TEST_URL)
+
+
+def _reset_postgres(database):
+    from sqlalchemy import create_engine
+    from sqlalchemy.engine import make_url
+
+    url = make_url(database.database_url())
+    if "test" not in (url.database or ""):
+        raise RuntimeError("FINANCE_TEST_POSTGRES_URL must name a disposable *test* database.")
+    database._tables()
+    database.calendar_tables()
+    engine = create_engine(url)
+    database.Base.metadata.drop_all(engine)
+    engine.dispose()
 
 
 @pytest.fixture
@@ -48,6 +72,19 @@ def _patched_helpers(data_dir, tmp_path, monkeypatch):
     # AI call doesn't just get a deterministic 503; it can silently fire a
     # real network request against a real API key.
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+
+    import database
+    if POSTGRES_TEST_URL:
+        monkeypatch.setenv("DATABASE_URL", POSTGRES_TEST_URL)
+        database._engine.cache_clear()
+        _reset_postgres(database)
+    elif USE_DATABASE:
+        from sqlalchemy.engine import URL
+        monkeypatch.setenv("DATABASE_URL", URL.create(
+            "sqlite", database=str(tmp_path / "finance.sqlite")).render_as_string(hide_password=False))
+    else:
+        monkeypatch.delenv("DATABASE_URL", raising=False)
+    database._engine.cache_clear()
 
     return finance_helpers
 
@@ -89,15 +126,26 @@ def profile_id(_patched_helpers, client):
 
 
 @pytest.fixture
-def load(data_dir, profile_id):
+def load(data_dir, profile_id, _patched_helpers):
     """Read one of the active profile's JSON stores back, or ``None`` if it
     was never written."""
     def _load(name):
         path = data_dir / "profiles" / profile_id / name
+        if USE_DATABASE:
+            return _patched_helpers.load_data(str(path), None)
         if not path.exists():
             return None
         return json.loads(path.read_text(encoding="utf-8"))
     return _load
+
+
+@pytest.fixture
+def store(data_dir, profile_id, _patched_helpers):
+    """Write one of the active profile's stores directly (JSON file or database
+    rows, whichever the suite runs against), bypassing the routes."""
+    def _store(name, payload):
+        _patched_helpers.save_data(str(data_dir / "profiles" / profile_id / name), payload)
+    return _store
 
 
 @pytest.fixture
