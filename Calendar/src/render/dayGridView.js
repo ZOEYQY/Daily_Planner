@@ -862,6 +862,8 @@ export function renderDayGridView(root, state, actions, currentUser) {
             item,
             duration,
             origRect: card.getBoundingClientRect(),
+            pointerX: e.clientX,
+            pointerY: e.clientY,
             columns: columnsSnapshot(),
             dayTrayCols: dayTrayColsSnapshot(),
             weekTrayRect: weekTrayEl ? weekTrayEl.getBoundingClientRect() : null,
@@ -874,6 +876,22 @@ export function renderDayGridView(root, state, actions, currentUser) {
           if (!ctx) return;
           if (!ctx.picked) {
             ctx.picked = true;
+            // A selected card is drawn enlarged (see itemBlock). Dragging it shrinks
+            // it straight back to its real time-slot size, keeping the same spot of
+            // the card under the pointer, so the drop time is read from the card's
+            // true top edge and not the enlarged one.
+            if (card.classList.contains("is-selected")) {
+              const colRect = card.parentElement.getBoundingClientRect();
+              const r = ctx.origRect;
+              const width = Math.max((colRect.width * Number(card.dataset.naturalWidthPct)) / 100 - 4, 20);
+              const height = Number(card.dataset.naturalHeight) || r.height;
+              const fx = r.width ? (ctx.pointerX - r.left) / r.width : 0.5;
+              const fy = r.height ? Math.min((ctx.pointerY - r.top) / r.height, 1) : 0.5;
+              ctx.origRect = { left: ctx.pointerX - fx * width, top: ctx.pointerY - fy * height, width, height };
+              card.classList.remove("is-selected");
+              if (height < 40) card.classList.add("is-compact");
+              ctx.wasSelected = true;
+            }
             card.classList.add("is-dragging");
             card.style.position = "fixed";
             card.style.left = `${ctx.origRect.left}px`;
@@ -890,6 +908,8 @@ export function renderDayGridView(root, state, actions, currentUser) {
         onEnd: (ev, { ctx }) => {
           ctx?.autoScroll.stop();
           if (!ctx || !ctx.picked) return;
+          // Once moved, the card stays at its normal size instead of re-growing.
+          if (ctx.wasSelected) actions.setSelectedItem(null);
           try {
           const finalRect = card.getBoundingClientRect();
           const cx = finalRect.left + finalRect.width / 2;
@@ -1588,7 +1608,7 @@ function itemBlock({ event: item, col, cols, startMin, endMin }, todayISO, state
     return `
       <div class="timegrid-task-block ${item.done ? "is-done" : ""} ${compact ? "is-compact" : ""} ${severity} ${selected ? "is-selected" : ""}"
            style="top:${displayTop}px; height:${displayHeight}px; left:calc(${displayLeftPct}% + 2px); width:calc(${displayWidthPct}% - 4px); --chip-color:${item.color};"
-           data-id="${item.id}" data-kind="task" data-occurrence="${item.occurrenceDate || ""}" title="${esc(item.title)}">
+           data-id="${item.id}" data-kind="task" data-occurrence="${item.occurrenceDate || ""}" title="${esc(item.title)}" data-natural-height="${height}" data-natural-width-pct="${widthPct}">
         ${resizeHandles}
         <div class="timegrid-task-block-row">
           <button type="button" class="timegrid-task-checkbox" data-id="${item.id}" data-occurrence="${item.occurrenceDate || ""}" aria-label="Toggle done"></button>
@@ -1628,7 +1648,7 @@ function itemBlock({ event: item, col, cols, startMin, endMin }, todayISO, state
   return `
     <div class="timegrid-event ${compact ? "is-compact" : ""} ${selected ? "is-selected" : ""}"
       style="top:${displayTop}px; height:${displayHeight}px; left:calc(${displayLeftPct}% + 2px); width:calc(${displayWidthPct}% - 4px); background-color:${item.color}; --event-color:${item.color}; --event-ink:${inkOn(item.color)};"
-         data-id="${item.id}" data-kind="event" data-occurrence="${item.occurrenceDate || ""}" title="${esc(item.title)}">
+         data-id="${item.id}" data-kind="event" data-occurrence="${item.occurrenceDate || ""}" title="${esc(item.title)}" data-natural-height="${height}" data-natural-width-pct="${widthPct}">
       ${resizeHandles}
       ${header}
       ${showInfo ? info : ""}
