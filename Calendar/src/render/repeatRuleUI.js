@@ -11,7 +11,24 @@ const ORDINALS = ["", "first", "second", "third", "fourth", "fifth"];
 // A rule's weekdays/ordinal/interval are fixed at the moment it's added (see the
 // "+ Add rule" popup) — not derived live from the form's date field, since an item
 // can carry several rules, each covering several weekdays at once.
+function shortDate(iso) {
+  return parseISODate(iso).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+}
+
+// "from Nov 1, 2026 until Dec 20, 2026" suffix for a rule with its own date range;
+// empty when the rule starts with the item and never ends.
+function rangeLabel(rule) {
+  const parts = [];
+  if (rule.startDate) parts.push(`from ${shortDate(rule.startDate)}`);
+  if (rule.endDate) parts.push(`until ${shortDate(rule.endDate)}`);
+  return parts.length ? `, ${parts.join(" ")}` : "";
+}
+
 export function ruleLabel(rule) {
+  return patternLabel(rule) + rangeLabel(rule);
+}
+
+function patternLabel(rule) {
   const interval = rule.interval || 1;
   const every = interval > 1 ? `Every ${interval} ` : "";
   if (rule.freq === "yearly") {
@@ -98,6 +115,14 @@ export function createRepeatRuleUI({ container, getRules, setRules, getAnchorDat
               .join("")}
           </select>
         </div>
+        <div class="field">
+          <label>Starts <span class="field-hint">(optional — blank starts right away)</span></label>
+          <input type="date" id="rule-start" />
+        </div>
+        <div class="field">
+          <label>Ends <span class="field-hint">(optional — blank never ends)</span></label>
+          <input type="date" id="rule-end" />
+        </div>
       `,
       onMount: (panel) => {
         const freqSel = panel.querySelector("#rule-freq");
@@ -121,7 +146,19 @@ export function createRepeatRuleUI({ container, getRules, setRules, getAnchorDat
         const interval = Math.max(1, Number(panel.querySelector("#rule-interval").value) || 1);
         const weekdays = Array.from(panel.querySelectorAll(".weekday-pill.selected")).map((p) => Number(p.dataset.day));
         if (freq !== "yearly" && weekdays.length === 0) return;
+        const startDate = panel.querySelector("#rule-start").value;
+        const endDate = panel.querySelector("#rule-end").value;
+        if (startDate && endDate && endDate < startDate) {
+          showToast("End date must be on or after the start date", { variant: "danger" });
+          return;
+        }
+        if (endDate && anchor && !startDate && endDate < anchor) {
+          showToast("End date is before the item's date — nothing would repeat", { variant: "danger" });
+          return;
+        }
         const newRule = { id: uid("rule"), freq, weekdays, interval };
+        if (startDate) newRule.startDate = startDate;
+        if (endDate) newRule.endDate = endDate;
         if (freq === "monthly") newRule.ordinal = Number(panel.querySelector("#rule-ordinal").value);
 
         const rules = getRules();

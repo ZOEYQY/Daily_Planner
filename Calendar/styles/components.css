@@ -1585,3 +1585,10 @@
 .toast-danger .toast-icon {
   color: #ff8a8a;
 }
+
+/* Optional-field note inside an uppercase field label (e.g. repeat rule Starts/Ends). */
+.field label .field-hint {
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+}

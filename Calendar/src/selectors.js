@@ -70,16 +70,32 @@ export function isRepeating(item) {
   return Array.isArray(item.repeat) && item.repeat.length > 0;
 }
 
-function ruleMatches(rule, date, anchor) {
+// A rule may carry its own optional date range: startDate (first day it can
+// produce an occurrence) and endDate (last day, inclusive), both ISO strings.
+// No startDate means the rule starts right away from the item's own date; no
+// endDate means it never ends. When startDate is set, the "every N" interval is
+// counted from it instead of from the item's date.
+function ruleInRange(rule, iso, anchorISO) {
+  const start = rule.startDate || anchorISO;
+  if (iso < start) return false;
+  if (rule.endDate && iso > rule.endDate) return false;
+  return true;
+}
+
+function ruleMatches(rule, iso, anchorISO) {
+  if (!ruleInRange(rule, iso, anchorISO)) return false;
+  const date = parseISODate(iso);
+  const anchor = parseISODate(anchorISO);
+  const phase = rule.startDate ? parseISODate(rule.startDate) : anchor;
   const interval = rule.interval || 1;
   if (rule.freq === "weekly") {
-    return rule.weekdays.includes(date.getDay()) && weeksBetween(anchor, date) % interval === 0;
+    return rule.weekdays.includes(date.getDay()) && weeksBetween(phase, date) % interval === 0;
   }
   if (rule.freq === "monthly") {
     return (
       rule.weekdays.includes(date.getDay()) &&
       nthWeekdayOfMonth(date) === rule.ordinal &&
-      monthsBetween(anchor, date) % interval === 0
+      monthsBetween(phase, date) % interval === 0
     );
   }
   if (rule.freq === "yearly") {
@@ -95,10 +111,7 @@ function ruleMatches(rule, date, anchor) {
 export function matchesPattern(item, iso, dateField) {
   const anchor = item[dateField];
   if (!anchor || !isRepeating(item)) return false;
-  if (iso < anchor) return false;
-  const t = parseISODate(iso);
-  const a = parseISODate(anchor);
-  return item.repeat.some((rule) => ruleMatches(rule, t, a));
+  return item.repeat.some((rule) => ruleMatches(rule, iso, anchor));
 }
 
 // Whether two repeat rules would ever produce the same occurrence date. Each rule
@@ -107,13 +120,19 @@ export function matchesPattern(item, iso, dateField) {
 // single whole-rule choice regardless of whether the overlap is full or partial,
 // not a per-day split (confirmed with the user: simplicity over precision here).
 export function ruleOverlap(a, b) {
+  // Rules whose date ranges never meet can't collide, whatever their pattern.
+  // A missing start is treated as "the beginning", a missing end as "forever".
+  const aStart = a.startDate || "", bStart = b.startDate || "";
+  const aEnd = a.endDate || "9999-12-31", bEnd = b.endDate || "9999-12-31";
+  if (aEnd < bStart || bEnd < aStart) return { relation: "none", sharedWeekdays: [] };
+  const sameRange = aStart === bStart && aEnd === bEnd;
   // Yearly rules have no weekdays — both rules on one item always share the same
   // anchor date, so they only ever collide (and only ever fully coincide) when
   // their interval matches too.
   if (a.freq === "yearly" || b.freq === "yearly") {
     if (a.freq !== b.freq) return { relation: "none", sharedWeekdays: [] };
     const sameInterval = (a.interval || 1) === (b.interval || 1);
-    return sameInterval ? { relation: "equal", sharedWeekdays: [] } : { relation: "overlap", sharedWeekdays: [] };
+    return sameInterval && sameRange ? { relation: "equal", sharedWeekdays: [] } : { relation: "overlap", sharedWeekdays: [] };
   }
   if (a.freq === "monthly" && b.freq === "monthly" && a.ordinal !== b.ordinal) {
     return { relation: "none", sharedWeekdays: [] };
@@ -122,7 +141,7 @@ export function ruleOverlap(a, b) {
   if (shared.length === 0) return { relation: "none", sharedWeekdays: [] };
   const sameFreq =
     a.freq === b.freq && (a.freq !== "monthly" || a.ordinal === b.ordinal) && (a.interval || 1) === (b.interval || 1);
-  const sameSet = sameFreq && a.weekdays.length === b.weekdays.length && shared.length === a.weekdays.length;
+  const sameSet = sameFreq && sameRange && a.weekdays.length === b.weekdays.length && shared.length === a.weekdays.length;
   return { relation: sameSet ? "equal" : "overlap", sharedWeekdays: shared };
 }
 
