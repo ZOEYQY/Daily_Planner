@@ -359,7 +359,7 @@ window.addEventListener("calendar-storage-error", () => {
 async function initializeExternalCalendar() {
   els.calBody.innerHTML = `<div class="habits-wrap"><div class="habits-empty">Loading calendar…</div></div>`;
   try {
-    const response = await fetch("./api/calendar-state");
+    const response = await fetch(`./api/calendar-state?profile_id=${encodeURIComponent(externalCalendarUser.id)}`);
     if (!response.ok) throw new Error(`Calendar load failed (${response.status})`);
     const remote = await response.json();
     let calendarState = remote.state;
@@ -387,7 +387,6 @@ async function initializeExternalCalendar() {
       throw error;
     }
     store.switchUser(externalCalendarUser.id, calendarState, remote.version, true);
-          const response = await fetch(`./api/calendar-state?profile_id=${encodeURIComponent(externalCalendarUser.id)}`);
   } catch (error) {
     console.error(error);
     els.calBody.innerHTML = `<div class="habits-wrap"><div class="habits-notice"><p><strong>Calendar data could not be loaded.</strong></p><p>Nothing was saved locally. Check the connection and reload this page.</p></div></div>`;

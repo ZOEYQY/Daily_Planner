@@ -353,3 +353,17 @@ def test_receipt_images_are_backed_up_and_restored(db, tmp_path, monkeypatch):
     assert counts["receipt_assets"] == 1 and restored == 1
     assert uploads[0][0] == b"\x89PNG-bytes"
     assert uploads[0][1]["public_id"] == "daily-planner/pa/r1" and uploads[0][1]["type"] == "private"
+
+
+def test_calendar_client_always_sends_its_profile_id():
+    """The server rejects calendar-state requests without the session's
+    profile_id (403), which left the Calendar page blank. Every client call
+    must send it."""
+    import re
+
+    for name in ("main.js", "state.js"):
+        source = open(os.path.join(ROOT, "Calendar", "src", name), encoding="utf-8").read()
+        for call in re.findall(r"fetch\(([^)]*calendar-state[^)]*)\)", source):
+            if "/import" in call:
+                continue  # sends profile_id in its JSON body
+            assert "profile_id=" in call, f"{name}: {call}"
