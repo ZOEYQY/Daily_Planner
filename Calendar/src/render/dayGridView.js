@@ -118,6 +118,24 @@ function commitOccurrencePatch(actions, kind, item, dateField, changes) {
   else actions.updateEventOccurrence(item.id, item.occurrenceDate, exception);
 }
 
+// Length to give a tray item dropped on the timeline: its own start-to-end
+// span when it still carries one (a cancelled occurrence parked in the Week
+// tray keeps its times), otherwise the default 1 hour.
+function durationFor(item) {
+  if (item.isTodo || !item.startTime || !item.endTime) return 60;
+  const span = minutesFromMidnight(item.endTime) - minutesFromMidnight(item.startTime);
+  return span >= MIN_DURATION ? span : 60;
+}
+
+// Dropping one occurrence of a repeating task/event on the Week tray: that
+// date is cancelled in the series and a standalone copy waits in the tray to
+// be rescheduled (see detachOccurrenceToWeekTray in state.js).
+function moveOccurrenceToWeekTray(actions, kind, item) {
+  const created = actions.detachOccurrenceToWeekTray(kind, item.id, item.occurrenceDate);
+  if (!created) return;
+  showToast("Moved to the Week tray — drag it back onto the calendar to reschedule");
+}
+
 function rescheduleSeverityClass(count) {
   if (count >= 3) return "is-resched-3";
   if (count === 2) return "is-resched-2";
@@ -651,7 +669,7 @@ export function renderDayGridView(root, state, actions, currentUser) {
 
     if (target.zone === "week") {
       if (repeating) {
-        showToast("Recurring tasks can't be fully unscheduled — delete this occurrence instead", { variant: "danger" });
+        moveOccurrenceToWeekTray(actions, "task", task);
         return;
       }
       actions.updateTask(task.id, { dueDate: "", startTime: "", endTime: "", scheduled: false });
@@ -665,7 +683,7 @@ export function renderDayGridView(root, state, actions, currentUser) {
     }
 
     const startTime = minutesToHHMM(target.startMin);
-    const endTime = minutesToHHMM(target.startMin + 60);
+    const endTime = minutesToHHMM(Math.min(DAY_MINUTES, target.startMin + durationFor(task)));
     if (repeating) commitOccurrencePatch(actions, "task", task, "dueDate", { dueDate: target.date, startTime, endTime, scheduled: true });
     else actions.updateTask(task.id, computeReschedulePatch(task, target.date, startTime, endTime, { scheduled: true }));
   }
@@ -680,7 +698,7 @@ export function renderDayGridView(root, state, actions, currentUser) {
 
     if (target.zone === "week") {
       if (repeating) {
-        showToast("Recurring events can't be fully unscheduled — delete this occurrence instead", { variant: "danger" });
+        moveOccurrenceToWeekTray(actions, "event", event);
         return;
       }
       actions.updateEvent(event.id, { date: "", startTime: "", endTime: "" });
@@ -694,7 +712,7 @@ export function renderDayGridView(root, state, actions, currentUser) {
     }
 
     const startTime = minutesToHHMM(target.startMin);
-    const endTime = minutesToHHMM(target.startMin + 60);
+    const endTime = minutesToHHMM(Math.min(DAY_MINUTES, target.startMin + durationFor(event)));
     if (repeating) commitOccurrencePatch(actions, "event", event, "date", { date: target.date, startTime, endTime });
     else actions.updateEvent(event.id, { date: target.date, startTime, endTime });
   }
@@ -921,11 +939,12 @@ export function renderDayGridView(root, state, actions, currentUser) {
           // AND time (fully unscheduled). Dragged onto the Day tray instead, it keeps
           // that day's date but loses its time — events have no rescheduleCount/
           // overdue tracking the way tasks do, so they skip computeReschedulePatch
-          // and just set the fields directly. Only the Week zone rejects a recurring
-          // occurrence (isRepeating(), not occurrenceKey — occurrenceKey is set for
-          // every timeline item regardless of whether it actually repeats): it would
-          // have no date left to be found by again. The Day zone allows one, same as
-          // any other date move, via commitOccurrencePatch.
+          // and just set the fields directly. A recurring occurrence (isRepeating(),
+          // not occurrenceKey — occurrenceKey is set for every timeline item
+          // regardless of whether it actually repeats) can't lose its date inside
+          // the series, so on the Week zone that date is cancelled and a standalone
+          // copy goes to the tray instead (moveOccurrenceToWeekTray). The Day zone
+          // moves it like any other date change, via commitOccurrencePatch.
           if (kind === "task" || kind === "event") {
             const wt = ctx.weekTrayRect;
             const onWeekTray = wt && cy >= wt.top && cy <= wt.bottom && cx >= wt.left && cx <= wt.right;
@@ -934,7 +953,7 @@ export function renderDayGridView(root, state, actions, currentUser) {
             if (onWeekTray) {
               card.remove();
               if (isRepeating(ctx.item)) {
-                showToast(`Recurring ${kind === "task" ? "tasks" : "events"} can't be fully unscheduled — delete this occurrence instead`, { variant: "danger" });
+                moveOccurrenceToWeekTray(actions, kind, ctx.item);
               } else if (kind === "task") {
                 actions.updateTask(id, { dueDate: "", startTime: "", endTime: "", scheduled: false });
               } else {

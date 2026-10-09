@@ -48,6 +48,7 @@ const actions = {
   updateEvent: (id, patch) => store.updateEvent(id, patch),
   updateEventOccurrence: (id, canonicalKey, exception) => store.updateEventOccurrence(id, canonicalKey, exception),
   deleteEventOccurrence: (id, canonicalKey) => store.deleteEventOccurrence(id, canonicalKey),
+  detachOccurrenceToWeekTray: (kind, id, canonicalKey) => store.detachOccurrenceToWeekTray(kind, id, canonicalKey),
   addSpecialDay: (patch) => store.addSpecialDay(patch),
   removeSpecialDay: (id) => store.removeSpecialDay(id),
   updateSpecialDay: (id, patch) => store.updateSpecialDay(id, patch),

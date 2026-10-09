@@ -1,7 +1,7 @@
 import { buildSeedData, uid } from "./seed.js";
 import { toISODate, addDays, today, parseISODate, nthWeekdayOfMonth } from "./dateUtils.js";
 import { makeColor, pickUnusedColor } from "./categoryColor.js";
-import { matchesPattern, isRepeating } from "./selectors.js";
+import { matchesPattern, isRepeating, resolveOccurrence } from "./selectors.js";
 
 // Ctrl+Z/Ctrl+Y (see main.js) undo/redo across everything a user actually
 // creates or configures — tasks, events, categories, custom fields, the
@@ -587,6 +587,46 @@ class Store {
 
   deleteEventOccurrence(id, canonicalKey) {
     this.updateEventOccurrence(id, canonicalKey, { deleted: true });
+  }
+
+  // A cancelled class / meeting that still needs a new time: takes one
+  // occurrence out of its repeating series and parks a standalone copy of it
+  // (same title, category, details — no date, no time, no repeat) in the Week
+  // tray, ready to be dragged back onto the calendar once it's rearranged.
+  // Both changes happen in one update, so a single Ctrl+Z restores the series.
+  // The copy keeps its start/end time (the Week tray only looks at the date),
+  // so dropping it back on the calendar keeps the original length — see
+  // durationFor in dayGridView.js. A to-do is the exception: its startTime is
+  // a deadline, so that's cleared like its date.
+  // Returns the new item, or null if the series can't be found.
+  detachOccurrenceToWeekTray(kind, id, canonicalKey) {
+    const listKey = kind === "task" ? "tasks" : "events";
+    const dateField = kind === "task" ? "dueDate" : "date";
+    const master = this.state[listKey].find((x) => x.id === id);
+    if (!master || !canonicalKey) return null;
+    const resolved = resolveOccurrence(master, canonicalKey, dateField);
+    const { id: _id, exceptions, repeat, occurrenceDate, isRecurring, movedTo, deleted, doneDates, ...fields } =
+      structuredClone(resolved);
+    const copy = {
+      ...fields,
+      id: uid(kind === "task" ? "tsk" : "evt"),
+      repeat: [],
+      exceptions: {},
+      [dateField]: "",
+    };
+    if (copy.isTodo) Object.assign(copy, { startTime: "", endTime: "" });
+    if (kind === "task") {
+      Object.assign(copy, { scheduled: false, done: false, doneDates: [], rescheduleCount: 0, rescheduleHistory: [], overdueReschedule: false });
+    }
+    this.set((s) => ({
+      [listKey]: [
+        ...s[listKey].map((x) =>
+          x.id === id ? { ...x, exceptions: { ...x.exceptions, [canonicalKey]: { deleted: true } } } : x
+        ),
+        copy,
+      ],
+    }));
+    return copy;
   }
 
   // ---- special days ----
