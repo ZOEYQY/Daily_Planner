@@ -1524,11 +1524,23 @@ function dayTrayChip(item, todayISO, kind = "task", state) {
 // Edit modal. The block's own height is fixed by its start/end time, so this
 // section scrolls independently (see .timegrid-event-info in calendar.css)
 // rather than being clipped when there's more info than fits.
+// The Link detail as a real link that opens in a new tab (e.g. straight into a
+// Google Meet). A link typed without "https://" gets it added. Anything that
+// isn't an http(s) address stays plain text, so a stray "javascript:" value
+// can never run. Clicking it doesn't select or drag the card: the card's
+// pointerdown handler ignores everything inside .timegrid-event-info.
+function linkHTML(value) {
+  const text = String(value).trim();
+  const href = /^[a-z][a-z0-9+.-]*:/i.test(text) ? text : `https://${text}`;
+  if (!/^https?:\/\//i.test(href)) return esc(text);
+  return `<a class="timegrid-event-link" href="${esc(href)}" target="_blank" rel="noopener noreferrer">${esc(text)}</a>`;
+}
+
 function extraInfoHTML(item, state, { showNotes = false } = {}) {
   const labels = fieldLabels(state);
   const rows = [];
   FIXED_FIELD_DEFS.forEach((f) => {
-    if (item[f.key]) rows.push({ label: f.label, value: item[f.key] });
+    if (item[f.key]) rows.push({ label: f.label, value: item[f.key], isLink: f.key === "link" });
   });
   Object.entries(item.customFields || {}).forEach(([key, value]) => {
     if (value) rows.push({ label: labels[key] || "Detail", value });
@@ -1546,7 +1558,7 @@ function extraInfoHTML(item, state, { showNotes = false } = {}) {
       ${rows
         .map(
           (r) => `
-        <div class="timegrid-event-info-row"><span class="timegrid-event-info-label">${esc(r.label)}</span> ${esc(r.value)}</div>`
+        <div class="timegrid-event-info-row"><span class="timegrid-event-info-label">${esc(r.label)}</span> ${r.isLink ? linkHTML(r.value) : esc(r.value)}</div>`
         )
         .join("")}
       ${notesHTML ? `<div class="timegrid-event-info-row"><span class="timegrid-event-info-label">Notes</span>${notesHTML}</div>` : ""}

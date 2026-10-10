@@ -1845,3 +1845,14 @@
   padding-left: 0;
   list-style-position: inside;
 }
+
+/* Link detail on a card — opens in a new tab (see linkHTML in dayGridView.js). */
+.timegrid-event-link {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.timegrid-event-link:hover {
+  opacity: 0.8;
+}
