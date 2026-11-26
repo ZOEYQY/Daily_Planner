@@ -387,6 +387,22 @@ window.addEventListener("calendar-storage-error", () => {
   showToast("Calendar could not be saved to the server. Check your connection and retry.", { variant: "danger" });
 });
 
+// Links from the home-screen widget: ?date=YYYY-MM-DD opens that day in the
+// Day view, &add=1 also opens the Add screen. The query is then removed so a
+// reload doesn't repeat it.
+function openFromLink() {
+  const params = new URLSearchParams(location.search);
+  const date = params.get("date");
+  const add = params.get("add") === "1";
+  if (!date && !add) return;
+  if (date && /^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    actions.setView("day");
+    actions.setCursorDate(date);
+  }
+  if (add) actions.openModal({ type: "add-chooser" });
+  history.replaceState(null, "", location.pathname);
+}
+
 async function initializeExternalCalendar() {
   els.calBody.innerHTML = `<div class="habits-wrap"><div class="habits-empty">Loading calendar…</div></div>`;
   try {
@@ -418,6 +434,7 @@ async function initializeExternalCalendar() {
       throw error;
     }
     store.switchUser(externalCalendarUser.id, calendarState, remote.version, true);
+    openFromLink();
   } catch (error) {
     console.error(error);
     els.calBody.innerHTML = `<div class="habits-wrap"><div class="habits-notice"><p><strong>Calendar data could not be loaded.</strong></p><p>Nothing was saved locally. Check the connection and reload this page.</p></div></div>`;

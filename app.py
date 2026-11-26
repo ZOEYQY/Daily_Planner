@@ -14,6 +14,7 @@ Each module can also be run on its own:
 Tuition is a separate project and is intentionally not part of this app.
 """
 import json
+from urllib.parse import quote
 import os
 from html import escape as html_escape
 from datetime import timedelta
@@ -429,13 +430,18 @@ def _inject_pwa(resp):
     return resp
 
 
-# ── iPhone home-screen widget (via the free Scriptable app) ─────────
-# Apple doesn't let a web app put a widget on the home screen, so a small
-# Scriptable script (scripts/daily_planner_widget.js) draws it. The script
-# can't log in: it reads /calendar/widget/<profile>/<token>.json, where the
-# token is tied to the profile and the server's secret key. /calendar/widget
-# (logged in) hands the owner a copy of the script with that link filled in.
-WIDGET_SCRIPT_PATH = os.path.join(BASE_DIR, "scripts", "daily_planner_widget.js")
+# ── iPhone home-screen widget (via the "Scripting" app) ────────────
+# Apple doesn't let a web app put a widget on the home screen, so the
+# Scripting app runs one (scripting/DailyPlanner in this repo, installed
+# straight from GitHub). The widget can't log in: it reads
+# /calendar/widget/<profile>/<token>.json, where the token is tied to the
+# profile and the server's secret key. /calendar/widget (logged in) shows the
+# owner that link to paste into the app once — it is never stored in the repo.
+SCRIPTING_INSTALL_URL = (
+    "https://scripting.fun/import_scripts?urls="
+    + quote(json.dumps(["https://github.com/ZOEYQY/Daily_Planner/tree/main/scripting/DailyPlanner"],
+                       separators=(",", ":")), safe="")
+)
 
 
 def _site_base():
@@ -451,7 +457,8 @@ def calendar_widget_data(profile_id, token):
     if not profile:
         abort(404)
     state = calendar_habits.load_calendar_state(profile_id)
-    data = schedule_feed.build_widget_data(state, name=profile.get("name") or "")
+    # A week back and a month ahead, so the widget's ◀ ▶ buttons have days to show.
+    data = schedule_feed.build_widget_data(state, name=profile.get("name") or "", days_before=7, days_after=30)
     resp = app.response_class(json.dumps(data, ensure_ascii=False), mimetype="application/json")
     resp.headers["Cache-Control"] = "no-store"
     return resp
@@ -472,50 +479,70 @@ WIDGET_PAGE_HTML = """<!doctype html>
     text-decoration:none; font:inherit; font-weight:700; padding:14px; border:0; border-radius:12px; margin-top:8px; }
   .btn.light { background:#fff; color:#151821; border:1px solid #151821; }
   ol { margin:6px 0 0; padding-left:22px; } li { margin:4px 0; }
-  textarea { width:100%; box-sizing:border-box; height:90px; margin-top:10px; font:11px monospace;
+  input.link { width:100%; box-sizing:border-box; margin-top:10px; font:12px monospace;
     border:1px solid #d6d9e0; border-radius:10px; padding:8px; background:#f9fafb; color:#555; }
+  .keys { display:grid; grid-template-columns:auto 1fr; gap:4px 12px; margin:6px 0 0; }
+  .keys b { text-align:center; }
   .note { font-size:.88rem; color:#6b7180; }
 </style></head><body><main>
   <h1>&#128242; 主屏幕小组件</h1>
-  <p class="lead">不用打开 app，在 iPhone 主屏幕直接看到今天的 Day 视图——跟 Calendar 里的一样：小时格子、分类颜色的活动方块。点小组件就打开 Daily Planner。</p>
+  <p class="lead">在 iPhone 主屏幕直接看你的 Day 视图——跟 Calendar 里的一样。一个<b>大号</b>放上面、一个<b>中号</b>接在下面，整页就是你的时间表。</p>
 
   <div class="card">
-    <h2>1. 安装 Scriptable（免费）</h2>
-    <a class="btn light" href="https://apps.apple.com/app/scriptable/id1405459188">在 App Store 打开 Scriptable</a>
+    <h2>1. 安装 Scripting（免费）</h2>
+    <a class="btn light" href="https://apps.apple.com/app/id6479691128">在 App Store 打开 Scripting</a>
   </div>
 
   <div class="card">
-    <h2>2. 复制小组件代码</h2>
-    <button class="btn" id="copy">复制代码</button>
-    <textarea id="code" readonly>__SCRIPT__</textarea>
+    <h2>2. 把 Daily Planner 加进 Scripting</h2>
+    <a class="btn" href="__INSTALL__">一键加入 Scripting</a>
+    <p class="note">会打开 Scripting，按「Import / 导入」。</p>
+  </div>
+
+  <div class="card">
+    <h2>3. 复制你的链接，在 Scripting 里运行一次</h2>
+    <button class="btn" id="copy">复制我的链接</button>
+    <input class="link" id="link" readonly value="__FEED_URL__">
     <ol>
-      <li>打开 Scriptable，点右上角 <b>＋</b></li>
-      <li>在空白处长按 → <b>粘贴</b></li>
-      <li>点最上面的标题，改名 <b>Daily Planner</b> → 点 <b>完成</b>（Done）</li>
-      <li>可以点右下角 ▶ 先预览</li>
+      <li>打开 Scripting，点 <b>Daily Planner</b> 运行</li>
+      <li>它会问「剪贴板里有你的小组件链接，要用它吗？」→ <b>用这个</b></li>
+      <li>看到「好了 ✓」就完成</li>
     </ol>
   </div>
 
   <div class="card">
-    <h2>3. 放到主屏幕</h2>
+    <h2>4. 放到主屏幕</h2>
     <ol>
-      <li>主屏幕空白处 <b>长按</b> → 左上角 <b>编辑</b> →「添加小组件」</li>
-      <li>找 <b>Scriptable</b> → 选 <b>大号</b>（最像 Day 视图，中号只看得到几个小时）→ 添加小组件</li>
-      <li>长按刚加的小组件 →「编辑小组件」→ Script 选 <b>Daily Planner</b></li>
+      <li>主屏幕空白处 <b>长按</b> → 左上角 <b>编辑</b> →「添加小组件」→ 找 <b>Scripting</b></li>
+      <li>选 <b>大号</b> → 添加；再加一个 <b>中号</b>，放在大号的<b>正下方</b></li>
+      <li>长按每个小组件 →「编辑小组件」→ Script 选 <b>Daily Planner</b></li>
     </ol>
-    <p class="note">锁屏也可以：长按锁屏 →「自定」→ 锁定屏幕 → 加 Scriptable 小组件，同样选 Daily Planner。</p>
+    <p class="note">建议把这一页主屏幕只放这两个小组件，看起来就是一整页 Day 视图。</p>
   </div>
 
-  <p class="note">&#8226; 小组件大约每 15 分钟自己更新一次（iPhone 决定准确时间）。<br>
-  &#8226; 代码里有你专属的链接，等于看你时间表的钥匙，不要发给别人。</p>
+  <div class="card">
+    <h2>小组件上的按钮</h2>
+    <div class="keys">
+      <b>▲ ▼</b><span>看更早 / 更晚的时间（大号和中号一起动）</span>
+      <b>◀ ▶</b><span>前一天 / 后一天</span>
+      <b>日期</b><span>点一下回到今天、现在的时间</span>
+      <b>＋</b><span>打开网站的 Add（新增活动）</span>
+      <b>活动</b><span>点活动方块，在网站打开那一天</span>
+    </div>
+    <p class="note">30 分钟没按，它会自己回到今天、现在的时间。</p>
+  </div>
+
+  <p class="note">&#8226; 小组件大约每 15 分钟自己更新一次（iPhone 决定准确时间），按按钮会马上更新。<br>
+  &#8226; 这个链接等于看你时间表的钥匙，不要发给别人。</p>
 </main>
 <script>
 document.getElementById("copy").addEventListener("click", function () {
-  var ta = document.getElementById("code"), btn = this;
-  function done() { btn.textContent = "已复制 ✓  现在去 Scriptable 粘贴"; }
+  var inp = document.getElementById("link"), btn = this;
+  function done() { btn.textContent = "已复制 ✓  现在去 Scripting 运行 Daily Planner"; }
+  function fallback() { inp.select(); inp.setSelectionRange(0, 9999); document.execCommand("copy"); done(); }
   if (navigator.clipboard && navigator.clipboard.writeText) {
-    navigator.clipboard.writeText(ta.value).then(done, function () { ta.select(); document.execCommand("copy"); done(); });
-  } else { ta.select(); document.execCommand("copy"); done(); }
+    navigator.clipboard.writeText(inp.value).then(done, fallback);
+  } else { fallback(); }
 });
 </script></body></html>"""
 
@@ -524,12 +551,10 @@ document.getElementById("copy").addEventListener("click", function () {
 def calendar_widget_page():
     profile = authed_profile()
     token = schedule_feed.feed_token(app.secret_key, profile["id"])
-    base = _site_base()
-    with open(WIDGET_SCRIPT_PATH, "r", encoding="utf-8") as fh:
-        script = fh.read()
-    script = (script.replace("__FEED_URL__", f"{base}/calendar/widget/{profile['id']}/{token}.json")
-                    .replace("__OPEN_URL__", f"{base}/calendar/"))
-    return _with_switcher(WIDGET_PAGE_HTML.replace("__SCRIPT__", html_escape(script)), "calendar")
+    feed_url = f"{_site_base()}/calendar/widget/{profile['id']}/{token}.json"
+    html = (WIDGET_PAGE_HTML.replace("__FEED_URL__", html_escape(feed_url))
+                            .replace("__INSTALL__", html_escape(SCRIPTING_INSTALL_URL)))
+    return _with_switcher(html, "calendar")
 
 
 # ── calendar (static files in Calendar/) ────────────────────────────

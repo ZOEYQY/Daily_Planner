@@ -1,6 +1,6 @@
 """Home-screen widget data for a profile's Calendar.
 
-The iPhone widget (a Scriptable script — see scripts/daily_planner_widget.js
+The iPhone widget (runs in the Scripting app — see scripting/DailyPlanner
 and the /calendar/widget page) can't log in, so it fetches
 /calendar/widget/<profile>/<token>.json, where the token is an HMAC of the
 profile id with the server's secret key. Anyone with that URL can read the

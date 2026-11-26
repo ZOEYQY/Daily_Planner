@@ -1,0 +1,7 @@
+{
+  "name": "Daily Planner",
+  "icon": "calendar",
+  "color": "black",
+  "version": "1.0.0",
+  "description": "Daily Planner Day view on the home screen: large widget plus a medium one underneath, with buttons for hours, days and adding."
+}
