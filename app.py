@@ -516,7 +516,8 @@ WIDGET_PAGE_HTML = """<!doctype html>
   <div class="card">
     <h2>2. 把 Daily Planner 加进 Scripting</h2>
     <a class="btn" href="__INSTALL__">一键加入 Scripting</a>
-    <p class="note">会打开 Scripting，按「Import / 导入」。要先装好 Scripting 并打开过一次。</p>
+    <a class="btn light" href="__INSTALL2__">没反应？按这个（方法二）</a>
+    <p class="note">要用 <b>Safari</b> 打开这一页（不是主屏幕上的 Daily Planner 图标），先装好 Scripting 并打开过一次。按了会问「在 Scripting 中打开？」→ 打开 → 在 Scripting 里确认导入。</p>
     <p class="note">按了没反应？复制下面的链接，在 Scripting 里用「从链接导入 / Import from URL」贴上：</p>
     <button class="btn light" id="copyzip">复制安装链接</button>
     <input class="link" id="zip" readonly value="__ZIP_URL__">
@@ -581,6 +582,7 @@ def calendar_widget_page():
     base = _site_base()
     feed_url = f"{base}/calendar/widget/{profile['id']}/{token}.json"
     html = (WIDGET_PAGE_HTML.replace("__FEED_URL__", html_escape(feed_url))
+                            .replace("__INSTALL2__", html_escape(f"scripting://import_scripts?urls={base}/calendar/widget/DailyPlanner.zip"))
                             .replace("__INSTALL__", html_escape(_scripting_install_url(base)))
                             .replace("__ZIP_URL__", html_escape(f"{base}/calendar/widget/DailyPlanner.zip")))
     return _with_switcher(html, "calendar")
