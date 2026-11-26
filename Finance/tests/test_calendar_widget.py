@@ -1,5 +1,5 @@
-"""Calendar subscription feed (Calendar/ics_feed.py): recurrence expansion must
-match the client's selectors.js, and the output must be valid iCalendar."""
+"""Home-screen widget data (Calendar/schedule_feed.py): recurrence expansion
+must match the client's selectors.js, and each day lists its items in order."""
 import datetime as dt
 import os
 import sys
@@ -8,14 +8,13 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from Calendar import ics_feed  # noqa: E402
+from Calendar import schedule_feed  # noqa: E402
 
 TODAY = dt.date(2026, 11, 26)  # a Thursday
-NOW = dt.datetime(2026, 11, 26, 1, 0, tzinfo=dt.timezone.utc)
 
 
 def dates(item, field="date", first="2026-11-01", last="2026-12-31"):
-    return sorted(d for d, _, _ in ics_feed.occurrences(item, field, first, last))
+    return sorted(d for d, _, _ in schedule_feed.occurrences(item, field, first, last))
 
 
 def test_single_event():
@@ -52,55 +51,57 @@ def test_exceptions_deleted_and_moved():
           "repeat": [{"freq": "weekly", "weekdays": [1], "interval": 1}],
           "exceptions": {"2026-11-09": {"deleted": True},
                          "2026-11-16": {"movedTo": "2026-11-18", "title": "Class (moved)"}}}
-    occ = ics_feed.occurrences(ev, "date", "2026-11-01", "2026-11-30")
+    occ = schedule_feed.occurrences(ev, "date", "2026-11-01", "2026-11-30")
     shown = sorted((d, o["title"]) for d, _, o in occ)
     assert shown == [("2026-11-02", "Class"), ("2026-11-18", "Class (moved)"),
                      ("2026-11-23", "Class"), ("2026-11-30", "Class")]
 
 
-def test_build_ics_contents():
+def test_widget_data():
     state = {
-        "categories": [{"id": "c1", "name": "MMU", "colors": []}],
+        "categories": [{"id": "c1", "name": "MMU", "colors": [{"id": "k1", "value": "#2a78d6"}]}],
         "events": [
-            {"id": "e1", "title": "Calculus, Lecture", "date": "2026-11-27", "startTime": "08:30",
-             "endTime": "10:30", "categoryId": "c1", "repeat": [], "place": "FCI"},
-            {"id": "e2", "title": "All day thing", "date": "2026-11-28", "startTime": "", "repeat": []},
+            {"id": "e1", "title": "Calculus", "date": "2026-11-26", "startTime": "08:30", "endTime": "10:30",
+             "categoryId": "c1", "colorId": "k1", "repeat": [], "place": "FCI"},
+            {"id": "e0", "title": "Early", "date": "2026-11-26", "startTime": "07:00", "endTime": "08:00", "repeat": []},
+            {"id": "e2", "title": "All day thing", "date": "2026-11-26", "startTime": "", "repeat": []},
         ],
         "tasks": [
             {"id": "t1", "title": "Homework", "dueDate": "2026-11-27", "scheduled": True,
              "startTime": "20:00", "endTime": "21:00", "done": True, "repeat": []},
-            {"id": "t2", "title": "Buy book", "dueDate": "2026-11-29", "scheduled": False, "repeat": []},
+            {"id": "t2", "title": "Buy book", "dueDate": "2026-11-27", "scheduled": False, "repeat": []},
         ],
-        "specialDays": [{"id": "s1", "title": "Mum birthday", "date": "2026-12-05", "repeat": []}],
+        "specialDays": [{"id": "s1", "title": "Mum birthday", "date": "2026-11-28", "repeat": []}],
     }
-    ics = ics_feed.build_ics(state, "Daily Planner · Test", today=TODAY, now=NOW)
-    assert ics.startswith("BEGIN:VCALENDAR\r\n") and ics.endswith("END:VCALENDAR\r\n")
-    assert ics.count("BEGIN:VEVENT") == ics.count("END:VEVENT") == 5
-    assert "SUMMARY:Calculus\\, Lecture" in ics
-    assert "DTSTART:20261127T083000" in ics and "DTEND:20261127T103000" in ics
-    assert "CATEGORIES:MMU" in ics and "LOCATION:FCI" in ics
-    assert "DTSTART;VALUE=DATE:20261128" in ics  # untimed event -> all day
-    assert "SUMMARY:✅ Homework" in ics and "SUMMARY:☐ Buy book" in ics
-    assert "SUMMARY:🎉 Mum birthday" in ics
-    for line in ics.split("\r\n"):
-        assert len(line.encode("utf-8")) <= 75
+    data = schedule_feed.build_widget_data(state, name="Test", today=TODAY)
+    days = {d["date"]: d["items"] for d in data["days"]}
+    assert min(days) == "2026-11-25" and max(days) == "2026-12-03"
+    today = days["2026-11-26"]
+    assert [i["title"] for i in today] == ["All day thing", "Early", "Calculus"]
+    calc = today[2]
+    assert calc == {"kind": "event", "title": "Calculus", "start": "08:30", "end": "10:30", "allDay": False,
+                    "done": False, "color": "#2a78d6", "category": "MMU", "place": "FCI"}
+    assert today[1]["color"] == "#898781"  # no category -> the app's grey
+    tomorrow = days["2026-11-27"]
+    assert [(i["title"], i["allDay"], i["done"]) for i in tomorrow] == [("Buy book", True, False), ("Homework", False, True)]
+    assert days["2026-11-28"][0]["kind"] == "special"
 
 
 def test_repeating_task_done_per_occurrence():
     task = {"id": "t", "title": "Gym", "dueDate": "2026-11-02", "scheduled": True, "startTime": "07:00",
             "repeat": [{"freq": "weekly", "weekdays": [1], "interval": 1}], "doneDates": ["2026-11-09"]}
-    occ = {d: o["done"] for d, _, o in ics_feed.occurrences(task, "dueDate", "2026-11-01", "2026-11-17")}
+    occ = {d: o["done"] for d, _, o in schedule_feed.occurrences(task, "dueDate", "2026-11-01", "2026-11-17")}
     assert occ == {"2026-11-02": False, "2026-11-09": True, "2026-11-16": False}
 
 
-def test_empty_state_is_valid():
-    ics = ics_feed.build_ics(None, today=TODAY, now=NOW)
-    assert "BEGIN:VEVENT" not in ics and ics.endswith("END:VCALENDAR\r\n")
+def test_empty_state():
+    data = schedule_feed.build_widget_data(None, today=TODAY)
+    assert len(data["days"]) == 9 and all(d["items"] == [] for d in data["days"])
 
 
 def test_token():
-    tok = ics_feed.feed_token("secret", "p1")
-    assert ics_feed.token_ok("secret", "p1", tok)
-    assert not ics_feed.token_ok("secret", "p2", tok)
-    assert not ics_feed.token_ok("other", "p1", tok)
-    assert not ics_feed.token_ok("secret", "p1", "")
+    tok = schedule_feed.feed_token("secret", "p1")
+    assert schedule_feed.token_ok("secret", "p1", tok)
+    assert not schedule_feed.token_ok("secret", "p2", tok)
+    assert not schedule_feed.token_ok("other", "p1", tok)
+    assert not schedule_feed.token_ok("secret", "p1", "")

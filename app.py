@@ -27,7 +27,7 @@ from Finance import database as finance_database
 from Finance import receipt_storage
 from Finance.finance_routes import finance_bp, authed_profile
 from Calendar import habits as calendar_habits
-from Calendar import ics_feed
+from Calendar import schedule_feed
 from Finance.finance_helpers import load_profiles, find_profile
 
 app = Flask(
@@ -120,7 +120,7 @@ HOME_HTML = """<!doctype html>
     <a class="card" href="/calendar/"><span class="ico">&#128197;</span>Calendar</a>
     <a class="card" href="/finance/"><span class="ico">$</span>Finance</a>
     <a class="card" href="/finance/add"><span class="ico">&#10133;</span>Add expense / income</a>
-    <a class="card" href="/calendar/subscribe"><span class="ico">&#128242;</span>Schedule on phone home screen</a>
+    <a class="card" href="/calendar/widget"><span class="ico">&#128242;</span>Home-screen widget</a>
   </div>
   <a class="out" href="/logout">Log out</a>
 </body></html>"""
@@ -394,8 +394,8 @@ def pwa_apple_icon():
 
 
 _PWA_PUBLIC_ENDPOINTS = {"pwa_manifest", "pwa_service_worker", "pwa_offline", "pwa_icon", "pwa_apple_icon",
-                         # a phone's calendar app can't log in — the URL's secret token is the key
-                         "calendar_feed"}
+                         # the home-screen widget can't log in — the URL's secret token is the key
+                         "calendar_widget_data"}
 
 
 def _with_pwa_head(html):
@@ -429,93 +429,107 @@ def _inject_pwa(resp):
     return resp
 
 
-# ── calendar subscription (schedule in the phone's own calendar + widgets) ──
-# The phone's Calendar app subscribes to /calendar/feed/<profile>/<token>.ics
-# and refreshes it by itself; its widgets then show the schedule on the home
-# screen and lock screen. See Calendar/ics_feed.py.
-def _feed_urls(profile_id):
-    token = ics_feed.feed_token(app.secret_key, profile_id)
-    path = f"/calendar/feed/{profile_id}/{token}.ics"
+# ── iPhone home-screen widget (via the free Scriptable app) ─────────
+# Apple doesn't let a web app put a widget on the home screen, so a small
+# Scriptable script (scripts/daily_planner_widget.js) draws it. The script
+# can't log in: it reads /calendar/widget/<profile>/<token>.json, where the
+# token is tied to the profile and the server's secret key. /calendar/widget
+# (logged in) hands the owner a copy of the script with that link filled in.
+WIDGET_SCRIPT_PATH = os.path.join(BASE_DIR, "scripts", "daily_planner_widget.js")
+
+
+def _site_base():
     https = os.environ.get("RENDER") or request.headers.get("X-Forwarded-Proto") == "https" or request.is_secure
-    return (f"{'https' if https else 'http'}://{request.host}{path}", f"webcal://{request.host}{path}")
+    return f"{'https' if https else 'http'}://{request.host}"
 
 
-@app.route("/calendar/feed/<profile_id>/<token>.ics")
-def calendar_feed(profile_id, token):
-    if not ics_feed.token_ok(app.secret_key, profile_id, token):
+@app.route("/calendar/widget/<profile_id>/<token>.json")
+def calendar_widget_data(profile_id, token):
+    if not schedule_feed.token_ok(app.secret_key, profile_id, token):
         abort(404)
     profile = find_profile(load_profiles(), profile_id)
     if not profile:
         abort(404)
     state = calendar_habits.load_calendar_state(profile_id)
-    body = ics_feed.build_ics(state, calendar_name=f"Daily Planner · {profile.get('name') or 'Me'}")
-    resp = app.response_class(body, mimetype="text/calendar")
-    resp.headers["Content-Disposition"] = 'inline; filename="daily-planner.ics"'
-    resp.headers["Cache-Control"] = "no-cache, private"
+    data = schedule_feed.build_widget_data(state, name=profile.get("name") or "")
+    resp = app.response_class(json.dumps(data, ensure_ascii=False), mimetype="application/json")
+    resp.headers["Cache-Control"] = "no-store"
     return resp
 
 
-SUBSCRIBE_HTML = """<!doctype html>
+WIDGET_PAGE_HTML = """<!doctype html>
 <html lang="zh"><head><meta charset="utf-8">
-<title>Schedule on phone · Daily Planner</title>
+<title>Home-screen widget · Daily Planner</title>
 <style>
   body { margin:0; background:#f6f7f9; color:#232733;
     font:16px/1.6 -apple-system,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif; }
   main { max-width:560px; margin:0 auto; padding:28px 18px 40px; }
   h1 { font-size:1.35rem; margin:0 0 6px; }
   p.lead { margin:0 0 20px; color:#5b6170; }
-  .card { background:#fff; border:1px solid #e7e9ee; border-radius:16px; padding:18px; margin-bottom:16px; }
-  .card h2 { font-size:1.05rem; margin:0 0 10px; }
-  a.big { display:block; text-align:center; background:#151821; color:#fff; text-decoration:none;
-    font-weight:700; padding:15px; border-radius:12px; font-size:1.05rem; }
-  ol { margin:10px 0 0; padding-left:22px; } li { margin:4px 0; }
-  .url { display:flex; gap:8px; margin-top:10px; }
-  .url input { flex:1; min-width:0; font:13px monospace; padding:10px; border:1px solid #d6d9e0;
-    border-radius:10px; background:#f9fafb; }
-  .url button { padding:0 14px; font-weight:700; border:1px solid #151821; background:#fff;
-    border-radius:10px; font-size:14px; }
+  .card { background:#fff; border:1px solid #e7e9ee; border-radius:16px; padding:18px; margin-bottom:14px; }
+  .card h2 { font-size:1.05rem; margin:0 0 8px; }
+  .btn { display:block; width:100%; box-sizing:border-box; text-align:center; background:#151821; color:#fff;
+    text-decoration:none; font:inherit; font-weight:700; padding:14px; border:0; border-radius:12px; margin-top:8px; }
+  .btn.light { background:#fff; color:#151821; border:1px solid #151821; }
+  ol { margin:6px 0 0; padding-left:22px; } li { margin:4px 0; }
+  textarea { width:100%; box-sizing:border-box; height:90px; margin-top:10px; font:11px monospace;
+    border:1px solid #d6d9e0; border-radius:10px; padding:8px; background:#f9fafb; color:#555; }
   .note { font-size:.88rem; color:#6b7180; }
 </style></head><body><main>
-  <h1>&#128242; 主屏幕看时间表</h1>
-  <p class="lead">让手机自带的「日历」订阅你的 Daily Planner，之后就能用日历小组件，在主屏幕和锁屏直接看到今天的安排。</p>
+  <h1>&#128242; 主屏幕小组件</h1>
+  <p class="lead">不用打开 app，在 iPhone 主屏幕（和锁屏）直接看到今天还剩下的安排，用你自己的分类颜色。点小组件就打开 Daily Planner。</p>
 
   <div class="card">
-    <h2>1. iPhone：订阅（只要一次）</h2>
-    <a class="big" href="__WEBCAL__">&#128197; 订阅到 iPhone 日历</a>
+    <h2>1. 安装 Scriptable（免费）</h2>
+    <a class="btn light" href="https://apps.apple.com/app/scriptable/id1405459188">在 App Store 打开 Scriptable</a>
+  </div>
+
+  <div class="card">
+    <h2>2. 复制小组件代码</h2>
+    <button class="btn" id="copy">复制代码</button>
+    <textarea id="code" readonly>__SCRIPT__</textarea>
     <ol>
-      <li>用 <b>Safari</b> 打开这页，点上面的按钮</li>
-      <li>弹出「订阅日历？」→ 点 <b>订阅</b></li>
-      <li>（可选）颜色、提醒设好 → 点 <b>完成</b></li>
+      <li>打开 Scriptable，点右上角 <b>＋</b></li>
+      <li>在空白处长按 → <b>粘贴</b></li>
+      <li>点最上面的标题，改名 <b>Daily Planner</b> → 点 <b>完成</b>（Done）</li>
+      <li>可以点右下角 ▶ 先预览</li>
     </ol>
   </div>
 
   <div class="card">
-    <h2>2. 放到主屏幕</h2>
+    <h2>3. 放到主屏幕</h2>
     <ol>
-      <li>在主屏幕空白处 <b>长按</b>，直到图标开始抖</li>
-      <li>点左上角 <b>编辑</b> 或 <b>＋</b> →「添加小组件」</li>
-      <li>搜 <b>日历</b>（Calendar），选「即将开始」或「列表」样式 → <b>添加小组件</b></li>
+      <li>主屏幕空白处 <b>长按</b> → 左上角 <b>编辑</b> →「添加小组件」</li>
+      <li>找 <b>Scriptable</b> → 选大小（中号最好看）→ 添加小组件</li>
+      <li>长按刚加的小组件 →「编辑小组件」→ Script 选 <b>Daily Planner</b></li>
     </ol>
-    <p class="note">锁屏也可以：长按锁屏 →「自定」→ 锁定屏幕 → 加「日历」小组件。</p>
+    <p class="note">锁屏也可以：长按锁屏 →「自定」→ 锁定屏幕 → 加 Scriptable 小组件，同样选 Daily Planner。</p>
   </div>
 
-  <div class="card">
-    <h2>其他手机 / Google 日历</h2>
-    <p class="note" style="margin:0">复制这个链接，在 Google 日历（电脑网页版）→ 其他日历 ＋ →「通过网址添加」贴上。Android 手机的 Google 日历就会同步，再加日历小组件。</p>
-    <div class="url"><input id="u" readonly value="__HTTPS__"><button onclick="var i=document.getElementById('u');i.select();navigator.clipboard&&navigator.clipboard.writeText(i.value);this.textContent='已复制'">复制</button></div>
-  </div>
+  <p class="note">&#8226; 小组件大约每 15 分钟自己更新一次（iPhone 决定准确时间）。<br>
+  &#8226; 代码里有你专属的链接，等于看你时间表的钥匙，不要发给别人。</p>
+</main>
+<script>
+document.getElementById("copy").addEventListener("click", function () {
+  var ta = document.getElementById("code"), btn = this;
+  function done() { btn.textContent = "已复制 ✓  现在去 Scriptable 粘贴"; }
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(ta.value).then(done, function () { ta.select(); document.execCommand("copy"); done(); });
+  } else { ta.select(); document.execCommand("copy"); done(); }
+});
+</script></body></html>"""
 
-  <p class="note">&#8226; 这是只读的：要新增或修改，还是在 Daily Planner 里做，手机日历会自己更新（iPhone 大约每 15 分钟到 1 小时一次）。<br>
-  &#8226; 这个链接等于你时间表的钥匙，不要发给别人。</p>
-</main></body></html>"""
 
-
-@app.route("/calendar/subscribe")
-def calendar_subscribe():
+@app.route("/calendar/widget")
+def calendar_widget_page():
     profile = authed_profile()
-    https_url, webcal_url = _feed_urls(profile["id"])
-    html = SUBSCRIBE_HTML.replace("__WEBCAL__", html_escape(webcal_url)).replace("__HTTPS__", html_escape(https_url))
-    return _with_switcher(html, "calendar")
+    token = schedule_feed.feed_token(app.secret_key, profile["id"])
+    base = _site_base()
+    with open(WIDGET_SCRIPT_PATH, "r", encoding="utf-8") as fh:
+        script = fh.read()
+    script = (script.replace("__FEED_URL__", f"{base}/calendar/widget/{profile['id']}/{token}.json")
+                    .replace("__OPEN_URL__", f"{base}/calendar/"))
+    return _with_switcher(WIDGET_PAGE_HTML.replace("__SCRIPT__", html_escape(script)), "calendar")
 
 
 # ── calendar (static files in Calendar/) ────────────────────────────
