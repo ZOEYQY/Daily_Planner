@@ -61,6 +61,10 @@ app.register_blueprint(calendar_habits.bp, url_prefix="/calendar/api")
 def _require_profile():
     if request.blueprint == "finance":
         return None
+    # The phone browser fetches the manifest, icons and service worker without
+    # the login cookie, and the offline page must show when nothing else can.
+    if request.endpoint in _PWA_PUBLIC_ENDPOINTS:
+        return None
     if request.endpoint == "static":
         # Receipt images are served per-profile by /finance/receipts/ —
         # never straight out of the static folder.
@@ -100,18 +104,28 @@ HOME_HTML = """<!doctype html>
   a.card:hover { border-color:#2f4b7c; transform:translateY(-2px);
     box-shadow:0 2px 6px rgba(20,25,40,.06),0 14px 34px rgba(20,25,40,.08); }
   a.card .ico { font-size:2.4rem; }
+  a.out { color:#8a8f9c; font-size:.9rem; }
+  @media (max-width:700px){
+    body { justify-content:flex-start; padding:48px 20px 0; gap:22px; box-sizing:border-box; }
+    .grid { width:100%; flex-direction:column; gap:14px; }
+    a.card { width:auto; height:auto; flex-direction:row; justify-content:flex-start;
+      padding:22px; gap:16px; font-size:1.15rem; }
+    a.card .ico { font-size:1.9rem; width:40px; text-align:center; }
+  }
 </style></head><body>
   <h1>Daily Planner</h1>
   <div class="grid">
-    <a class="card" href="/finance/"><span class="ico">$</span>Finance</a>
     <a class="card" href="/calendar/"><span class="ico">&#128197;</span>Calendar</a>
+    <a class="card" href="/finance/"><span class="ico">$</span>Finance</a>
+    <a class="card" href="/finance/add"><span class="ico">&#10133;</span>Add expense / income</a>
   </div>
+  <a class="out" href="/logout">Log out</a>
 </body></html>"""
 
 
 @app.route("/")
 def home():
-    return HOME_HTML
+    return _with_switcher(HOME_HTML, "home")
 
 
 @app.route("/finance/")
@@ -139,15 +153,40 @@ body{padding-top:40px !important}
 #dp-switch a.dp-profile{display:flex;align-items:center;gap:8px;padding:4px 10px 4px 4px}
 #dp-switch .dp-avatar{width:26px;height:26px;border-radius:50%;background:#fff;color:#151821;
   display:flex;align-items:center;justify-content:center;font-weight:800;font-size:12px}
+#dp-switch .ti{margin-right:5px}
+#dp-switch .dp-profile .ti{margin:0}
+@media (min-width:701px){#dp-switch .dp-mobile{display:none}}
 @media print{#dp-switch{display:none}body{padding-top:0 !important}}
+/* Phone: the bar moves to the bottom as big thumb-sized tabs, like an app. */
+@media (max-width:700px){
+  html{scroll-padding-top:0}
+  :root{--dp-tabbar:60px}
+  body{padding-top:env(safe-area-inset-top) !important;
+    padding-bottom:calc(60px + env(safe-area-inset-bottom)) !important}
+  .modal-overlay,.popup-overlay{top:env(safe-area-inset-top) !important}
+  #dp-switch{top:auto;bottom:0;height:auto;padding:0 0 env(safe-area-inset-bottom);gap:0;
+    background:rgba(21,24,33,.97);box-shadow:0 -2px 12px rgba(0,0,0,.18);
+    -webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px)}
+  #dp-switch .brand,#dp-switch .dp-out{display:none}
+  #dp-switch a,#dp-switch a.dp-profile{flex:1 1 0;min-width:0;height:60px;margin:0 !important;padding:0;
+    border-radius:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    gap:3px;font-size:11px;font-weight:700;color:#9aa3b5;-webkit-tap-highlight-color:transparent}
+  #dp-switch a:hover{background:none;color:#9aa3b5}
+  #dp-switch a.here{background:none;color:#fff}
+  #dp-switch a.here .ti{background:#3a6ea5}
+  #dp-switch .ti{margin:0;min-width:44px;height:28px;padding:0 10px;border-radius:14px;box-sizing:border-box;
+    display:flex;align-items:center;justify-content:center;font-size:17px;line-height:1}
+  #dp-switch .dp-avatar{width:22px;height:22px;font-size:11px}
+  #dp-switch .dp-name{max-width:72px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+}
 </style>
 <div id="dp-switch">
   <span class="brand">Daily Planner</span>
-  <a href="/" title="Home">&#127968;</a>
-  <a href="/finance/" class="__F__">$ Finance</a>
-  <a href="/calendar/" class="__C__">&#128197; Calendar</a>
+  <a href="/" class="__H__" title="Home"><span class="ti">&#127968;</span><span class="dp-mobile">Home</span></a>
+  <a href="/calendar/" class="__C__"><span class="ti">&#128197;</span><span>Calendar</span></a>
+  <a href="/finance/" class="__F__"><span class="ti">$</span><span>Finance</span></a>
   <a href="/finance/profiles" class="dp-profile" style="margin-left:auto" title="My profile">__PROFILE__</a>
-  <a href="/logout">Log out</a>
+  <a href="/logout" class="dp-out">Log out</a>
 </div>
 """
 
@@ -158,14 +197,15 @@ def _profile_badge():
     profile = authed_profile()
     name = ((profile or {}).get("name") or "").strip()
     if not name:
-        return "&#128100;"
-    return (f'<span class="dp-avatar">{html_escape(name[0].upper())}</span>'
-            f'<span>{html_escape(name)}</span>')
+        return '<span class="ti">&#128100;</span><span class="dp-name dp-mobile">Me</span>'
+    return (f'<span class="ti"><span class="dp-avatar">{html_escape(name[0].upper())}</span></span>'
+            f'<span class="dp-name">{html_escape(name)}</span>')
 
 
 def _with_switcher(html, current):
     snippet = SWITCHER.replace("__F__", "here" if current == "finance" else "") \
                       .replace("__C__", "here" if current == "calendar" else "") \
+                      .replace("__H__", "here" if current == "home" else "") \
                       .replace("__PROFILE__", _profile_badge())
     if "</body>" in html and 'id="dp-switch"' not in html:
         return html.replace("</body>", snippet + "</body>", 1)
@@ -178,6 +218,209 @@ def _inject_finance(resp):
             and resp.mimetype == "text/html" and resp.status_code == 200):
         resp.direct_passthrough = False
         resp.set_data(_with_switcher(resp.get_data(as_text=True), "finance"))
+    return resp
+
+
+# ── phone app (installable web app / PWA) ───────────────────────────
+# Open the site on a phone and choose "Add to Home Screen" (iPhone: Safari's
+# Share button; Android: Chrome's ⋮ menu or the install prompt). It then opens
+# full-screen from its own icon like a normal app. The pieces:
+#   * /manifest.webmanifest  name, icon, colours, start page, shortcuts
+#   * /sw.js                 service worker — needed for "install"; it only
+#                            keeps the offline page and app files (scripts,
+#                            styles, icons), never your pages or data
+#   * /offline               shown when the phone has no connection
+#   * pwa/*.png              icons (made by scripts/make_pwa_icons.py)
+PWA_DIR = os.path.join(BASE_DIR, "pwa")
+PWA_THEME = "#151821"
+PWA_VERSION = "1"  # bump to make phones drop their saved app files
+
+PWA_MANIFEST = {
+    "name": "Daily Planner",
+    "short_name": "Planner",
+    "id": "/",
+    "start_url": "/calendar/",
+    "scope": "/",
+    "display": "standalone",
+    "orientation": "portrait",
+    "background_color": "#f9f9f7",
+    "theme_color": PWA_THEME,
+    "icons": [
+        {"src": "/pwa/icon-192.png", "sizes": "192x192", "type": "image/png"},
+        {"src": "/pwa/icon-512.png", "sizes": "512x512", "type": "image/png"},
+        {"src": "/pwa/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"},
+    ],
+    # Long-press the home-screen icon (Android) for these.
+    "shortcuts": [
+        {"name": "Calendar", "url": "/calendar/", "icons": [{"src": "/pwa/icon-192.png", "sizes": "192x192"}]},
+        {"name": "Add expense / income", "short_name": "Add expense", "url": "/finance/add",
+         "icons": [{"src": "/pwa/icon-192.png", "sizes": "192x192"}]},
+        {"name": "Finance", "url": "/finance/", "icons": [{"src": "/pwa/icon-192.png", "sizes": "192x192"}]},
+    ],
+}
+
+PWA_HEAD = f"""
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="{PWA_THEME}">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Planner">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="apple-touch-icon" href="/pwa/apple-touch-icon.png">
+<script>if("serviceWorker" in navigator)addEventListener("load",function(){{navigator.serviceWorker.register("/sw.js").catch(function(){{}})}});</script>
+"""
+PWA_VIEWPORT = '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">'
+
+SERVICE_WORKER_JS = """
+const CACHE = "daily-planner-v__VERSION__";
+const OFFLINE_URL = "/offline";
+const PRECACHE = [OFFLINE_URL, "/pwa/icon-192.png"];
+
+self.addEventListener("install", (e) => {
+  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(PRECACHE)).then(() => self.skipWaiting()));
+});
+
+self.addEventListener("activate", (e) => {
+  e.waitUntil(
+    caches.keys()
+      .then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
+      .then(() => self.clients.claim())
+  );
+});
+
+// App files (scripts, styles, icons): always try the network first so a new
+// version shows up straight away; the saved copy is only used when offline.
+function isAppFile(url) {
+  return url.origin === self.location.origin &&
+    /\\.(js|css|png|svg|ico|webp|woff2?)$/.test(url.pathname) &&
+    !url.pathname.startsWith("/finance/receipts/") &&
+    !url.pathname.startsWith("/static/receipts/");
+}
+
+self.addEventListener("fetch", (e) => {
+  const req = e.request;
+  if (req.method !== "GET") return;
+  const url = new URL(req.url);
+
+  // Pages always come live from the server (your data is never saved here).
+  // With no connection, show the offline page instead of the browser's error.
+  if (req.mode === "navigate") {
+    e.respondWith(fetch(req).catch(() => caches.match(OFFLINE_URL)));
+    return;
+  }
+
+  if (isAppFile(url)) {
+    e.respondWith(
+      fetch(req)
+        .then((res) => {
+          if (res.ok) {
+            const copy = res.clone();
+            caches.open(CACHE).then((c) => c.put(req, copy));
+          }
+          return res;
+        })
+        .catch(() => caches.match(req))
+    );
+  }
+});
+"""
+
+OFFLINE_HTML = """<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#151821">
+<title>Offline · Daily Planner</title>
+<style>
+  body { margin:0; min-height:100vh; display:flex; flex-direction:column; align-items:center;
+    justify-content:center; gap:14px; padding:24px; box-sizing:border-box; text-align:center;
+    background:#f6f7f9; color:#232733;
+    font:16px/1.5 -apple-system,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif; }
+  img { width:72px; height:72px; border-radius:16px; }
+  h1 { margin:0; font-size:1.3rem; }
+  p { margin:0; color:#667; max-width:320px; }
+  button { margin-top:8px; padding:12px 28px; font:inherit; font-weight:700; color:#fff;
+    background:#151821; border:0; border-radius:12px; }
+</style></head><body>
+  <img src="/pwa/icon-192.png" alt="">
+  <h1>No internet connection</h1>
+  <p>Daily Planner needs the internet to load your calendar and money. Check Wi-Fi or mobile data, then try again.</p>
+  <button onclick="location.reload()">Try again</button>
+  <script>addEventListener("online", function () { location.reload(); });</script>
+</body></html>"""
+
+
+@app.route("/manifest.webmanifest")
+def pwa_manifest():
+    resp = app.response_class(json.dumps(PWA_MANIFEST, ensure_ascii=False),
+                              mimetype="application/manifest+json")
+    resp.headers["Cache-Control"] = "no-cache"
+    return resp
+
+
+@app.route("/sw.js")
+def pwa_service_worker():
+    resp = app.response_class(SERVICE_WORKER_JS.replace("__VERSION__", PWA_VERSION),
+                              mimetype="application/javascript")
+    # Browsers must re-check the worker itself, or app updates would stall.
+    resp.headers["Cache-Control"] = "no-cache"
+    return resp
+
+
+@app.route("/offline")
+def pwa_offline():
+    return OFFLINE_HTML
+
+
+_PWA_ICONS = {"icon-192.png", "icon-512.png", "icon-maskable-512.png", "apple-touch-icon.png"}
+
+
+@app.route("/pwa/<name>")
+def pwa_icon(name):
+    if name not in _PWA_ICONS:
+        abort(404)
+    resp = send_from_directory(PWA_DIR, name)
+    resp.headers["Cache-Control"] = "public, max-age=604800"
+    return resp
+
+
+# iOS asks for this at the site root whatever the <link> tag says.
+@app.route("/apple-touch-icon.png")
+@app.route("/apple-touch-icon-precomposed.png")
+def pwa_apple_icon():
+    return pwa_icon("apple-touch-icon.png")
+
+
+_PWA_PUBLIC_ENDPOINTS = {"pwa_manifest", "pwa_service_worker", "pwa_offline", "pwa_icon", "pwa_apple_icon"}
+
+
+def _with_pwa_head(html):
+    """Adds the phone-app tags to a page's <head>, plus a viewport tag if the
+    page has none (most Finance templates don't, so phones drew them as a
+    shrunken desktop page)."""
+    if 'rel="manifest"' in html:
+        return html
+    tags = PWA_HEAD
+    if 'name="viewport"' not in html:
+        tags = PWA_VIEWPORT + tags
+    else:
+        # Let pages use the whole screen around the notch / home bar.
+        for old in ('content="width=device-width, initial-scale=1.0"',
+                    'content="width=device-width, initial-scale=1"'):
+            if old in html:
+                html = html.replace(old, 'content="width=device-width, initial-scale=1, viewport-fit=cover"', 1)
+                break
+    i = html.lower().find("</head>")
+    if i != -1:
+        return html[:i] + tags + html[i:]
+    return tags + html
+
+
+@app.after_request
+def _inject_pwa(resp):
+    if (resp.mimetype == "text/html" and resp.status_code == 200
+            and request.endpoint != "pwa_offline"):
+        resp.direct_passthrough = False
+        resp.set_data(_with_pwa_head(resp.get_data(as_text=True)))
     return resp
 
 

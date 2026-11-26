@@ -1,0 +1,2 @@
+# Only for the Windows desktop launcher (desktop.py), not for Render.
+pywebview>=6.0,<7.0

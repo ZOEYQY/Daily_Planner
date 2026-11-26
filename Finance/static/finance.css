@@ -849,3 +849,43 @@ button:hover,
     .finance-hero{ flex-direction: column; align-items: flex-start; }
     .hero-balance{ text-align: left; }
 }
+
+/* ================= PHONE ================= */
+/* The page links become one sideways-scrolling strip (swipe it) instead of a
+   tall block of wrapped links; wide tables scroll inside their own box. */
+@media (max-width: 700px){
+    body{ font-size: 15px; -webkit-text-size-adjust: 100%; }
+    .topbar{
+        position: sticky; top: 0; z-index: 20;
+        flex-wrap: nowrap; flex-direction: column; align-items: stretch;
+        gap: 8px; padding: 12px 0 10px;
+    }
+    .topbar-title{ padding: 0 16px; font-size: 16px; }
+    .topbar-links{
+        flex-wrap: nowrap; overflow-x: auto; gap: 6px;
+        padding: 0 16px; scrollbar-width: none;
+        -webkit-overflow-scrolling: touch;
+    }
+    .topbar-links::-webkit-scrollbar{ display: none; }
+    .topbar-links a{
+        flex: 0 0 auto; white-space: nowrap;
+        padding: 8px 14px; border-color: var(--border); border-radius: 999px;
+    }
+    .summary-wrapper{ padding: 16px 12px 32px; }
+    .summary-card{ padding: 16px; border-radius: 12px; }
+    table{
+        display: block; max-width: 100%; overflow-x: auto;
+        -webkit-overflow-scrolling: touch; white-space: nowrap;
+    }
+    th, td{ padding: 10px 8px; }
+    img{ max-width: 100%; height: auto; }
+    pre, code{ white-space: pre-wrap; word-break: break-word; }
+}
+
+/* Touch screens: bigger targets, and 16px fields so iPhone doesn't zoom in. */
+@media (pointer: coarse){
+    input, select, textarea{ font-size: 16px !important; min-height: 44px; }
+    input[type="checkbox"], input[type="radio"]{ min-height: 0; width: 20px; height: 20px; }
+    button, .btn, .primary-btn, input[type="submit"]{ min-height: 44px; }
+    a, button{ -webkit-tap-highlight-color: transparent; }
+}

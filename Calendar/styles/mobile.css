@@ -1,0 +1,251 @@
+/* ==========================================================================
+   Phone layout. Loaded last so it only overrides what a small screen needs.
+   --dp-tabbar is the height of Daily Planner's bottom tab bar (app.py) —
+   0 when the calendar runs on its own.
+   ========================================================================== */
+
+/* ---- any touch screen (phone or tablet) -------------------------------- */
+@media (pointer: coarse) {
+  /* Let a finger scroll the timeline and chips; a drag needs press-and-hold
+     instead (see startPointerInteraction in dragUtils.js). */
+  .timegrid-hourcell,
+  .timegrid-event,
+  .timegrid-task-block,
+  .unscheduled-chip,
+  .day-tray-chip {
+    touch-action: manipulation;
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  .timegrid-hourcell:hover,
+  .month-cell:hover {
+    background: transparent;
+  }
+  /* Held long enough — "picked up", ready to drag. */
+  .is-touch-armed {
+    filter: brightness(0.92);
+    box-shadow: 0 0 0 2px var(--color-active), var(--shadow-md) !important;
+    z-index: 5;
+  }
+  /* iOS zooms the page into any field under 16px — keep fields at 16px. */
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+  button,
+  a {
+    -webkit-tap-highlight-color: transparent;
+  }
+}
+
+/* ---- phone-sized screens ---------------------------------------------- */
+@media (max-width: 700px) {
+  /* No pull-to-refresh bounce or browser "swipe back" here: a sideways
+     swipe on the calendar pages the view instead (mobile.js). */
+  html,
+  body {
+    overscroll-behavior: none;
+  }
+
+  .calendar-panel {
+    padding: 8px 10px 10px;
+  }
+
+  /* Header: ‹ › · date · Today · 🔍 ⚙ on one row, view switch on the next,
+     category pills as a sideways-scrolling strip under that. */
+  .cal-top-row {
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+  .cal-top-row .cal-header-left,
+  .cal-top-row .topbar {
+    display: contents;
+  }
+  .cal-nav { order: 1; }
+  .cal-period-label {
+    order: 2;
+    flex: 1 1 0;
+    min-width: 0;
+    font-size: 16px;
+    font-weight: 700;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .cal-today-btn { order: 3; padding: 0 12px; height: 36px; }
+  .topbar-right { order: 4; gap: 6px; }
+  .cal-top-row .view-switch {
+    order: 5;
+    flex: 1 1 100%;
+    margin-left: 0;
+    display: flex;
+  }
+  .view-switch-btn {
+    flex: 1 1 0;
+    padding: 8px 4px;
+  }
+  .cal-category-filter {
+    order: 6;
+    flex: 1 1 100%;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+    margin: 0 -10px;
+    padding: 0 10px;
+  }
+  .cal-category-filter::-webkit-scrollbar { display: none; }
+  .cal-cat-pill { flex: 0 0 auto; padding: 6px 12px; }
+  .topbar-left {
+    order: 7;
+    flex: 1 1 100%;
+  }
+  .topbar-left:not(:has(.topbar-search[style*="flex"])):not(:has(.topbar-title)) {
+    display: none;
+  }
+  .topbar-search,
+  .topbar-search:focus-within {
+    width: 100%;
+  }
+
+  .cal-nav-btn,
+  .icon-btn {
+    width: 36px;
+    height: 36px;
+  }
+
+  /* "Add" becomes a round floating button above the tab bar. */
+  #btn-add {
+    position: fixed;
+    right: 16px;
+    bottom: calc(var(--dp-tabbar, 0px) + 16px + env(safe-area-inset-bottom));
+    z-index: 40;
+    width: 58px;
+    height: 58px;
+    padding: 0;
+    border-radius: 50%;
+    justify-content: center;
+    box-shadow: 0 6px 20px rgba(11, 11, 11, 0.28);
+  }
+  #btn-add span { display: none; }
+  #btn-add svg { width: 24px; height: 24px; }
+
+  /* ---- Month ---- */
+  .month-grid,
+  .timegrid {
+    border-radius: var(--radius-md);
+  }
+  .month-weekdays > div {
+    padding: 6px 0;
+    font-size: 10px;
+    letter-spacing: 0.02em;
+  }
+  .month-cell {
+    min-height: 0;
+    padding: 3px 2px;
+    gap: 2px;
+  }
+  .cell-daynum {
+    font-size: 12px;
+    width: 22px;
+    height: 22px;
+    align-self: center;
+  }
+  .cell-events { gap: 2px; }
+  .event-chip {
+    padding: 1px 3px;
+    gap: 3px;
+    font-size: 9.5px;
+    border-radius: 3px;
+  }
+  .task-chip-checkbox { display: none; }
+  .cell-more { font-size: 9.5px; text-align: center; }
+
+  /* ---- Week / Day timeline ---- */
+  .timegrid-gutter,
+  .timegrid-gutter-spacer {
+    flex-basis: 38px;
+    width: 38px;
+  }
+  .timegrid-hour-label { font-size: 9.5px; }
+  .timegrid-head-col { padding-left: 0; padding-right: 0; }
+  .daygrid-head-weekday { font-size: 10px; letter-spacing: 0.02em; }
+  .timegrid-event,
+  .timegrid-task-block {
+    padding: 3px 4px;
+  }
+  .timegrid-with-panel {
+    flex-direction: column;
+  }
+  .todo-side-panel {
+    flex: 0 0 auto;
+    max-height: 38%;
+  }
+
+  /* ---- 打卡 ---- */
+  .habit-list { grid-template-columns: 1fr; }
+  .habit-card { padding: 16px; }
+  .habit-mn-label { min-width: 0; }
+
+  /* ---- Pop-ups become bottom sheets ---- */
+  .modal-overlay {
+    padding: 0;
+    align-items: flex-end;
+    bottom: var(--dp-tabbar, 0px);
+  }
+  .modal-panel {
+    max-width: 100% !important;
+    max-height: calc(100% - 24px);
+    border-radius: 20px 20px 0 0;
+    border-bottom: none;
+    padding-bottom: env(safe-area-inset-bottom);
+    animation: sheet-up 0.22s ease;
+  }
+  .modal-overlay.no-animate .modal-panel { animation: none; }
+  .modal-header { padding: 14px 16px; }
+  .modal-close { width: 38px; height: 38px; }
+  /* Footer buttons wrap instead of running off the left edge. */
+  .modal-footer {
+    flex-wrap: wrap;
+    padding: 12px 14px 14px;
+    gap: 8px;
+  }
+  .modal-footer .btn { padding-left: 12px; padding-right: 12px; }
+  .modal-footer-spacer { flex: 1 1 0; min-width: 0; }
+  .popup-overlay { padding: 16px; bottom: var(--dp-tabbar, 0px); }
+  .popup-panel { max-width: 100%; }
+
+  .placement-banner,
+  #toast-root {
+    bottom: calc(var(--dp-tabbar, 0px) + 88px + env(safe-area-inset-bottom));
+  }
+  .placement-banner {
+    width: calc(100% - 24px);
+    justify-content: space-between;
+  }
+
+  /* Little slide when a swipe pages the view (mobile.js). */
+  #calendar-body.swipe-in-left { animation: swipe-in-left 0.2s ease; }
+  #calendar-body.swipe-in-right { animation: swipe-in-right 0.2s ease; }
+}
+
+@keyframes sheet-up {
+  from { transform: translateY(40px); opacity: 0.4; }
+  to { transform: none; opacity: 1; }
+}
+@keyframes swipe-in-left {
+  from { transform: translateX(28px); opacity: 0.5; }
+  to { transform: none; opacity: 1; }
+}
+@keyframes swipe-in-right {
+  from { transform: translateX(-28px); opacity: 0.5; }
+  to { transform: none; opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .modal-panel,
+  #calendar-body.swipe-in-left,
+  #calendar-body.swipe-in-right {
+    animation: none !important;
+  }
+}

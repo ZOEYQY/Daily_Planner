@@ -17,6 +17,7 @@ import { resolveOccurrence, isRepeating, getDayTodos } from "./selectors.js";
 import { daysOverdue } from "./rescheduleTracking.js";
 import { minutesFromMidnight, minutesToHHMM, toISODate, today } from "./dateUtils.js";
 import { esc } from "./utils.js";
+import { enableSwipeNavigation } from "./mobile.js";
 
 const els = {
   topbar: document.getElementById("topbar"),
@@ -25,6 +26,9 @@ const els = {
   modalRoot: document.getElementById("modal-root"),
   placementBanner: document.getElementById("placement-banner"),
 };
+
+// Phone: swipe left/right on the calendar to page days/weeks/months.
+enableSwipeNavigation(els.calBody);
 
 const actions = {
   setSearchOpen: (v) => store.setSearchOpen(v),
