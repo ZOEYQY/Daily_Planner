@@ -116,3 +116,13 @@ def test_widget_zip_is_public_and_has_the_script():
     assert resp.status_code == 200
     names = zipfile.ZipFile(io.BytesIO(resp.data)).namelist()
     assert {"script.json", "index.tsx", "widget.tsx", "app_intents.tsx"} <= set(names)
+
+
+def test_widget_code_files_are_public_and_limited():
+    import app as webapp
+
+    client = webapp.app.test_client()
+    resp = client.get("/calendar/widget/code/widget.tsx")
+    assert resp.status_code == 200 and b"Widget.present" in resp.data
+    assert client.get("/calendar/widget/code/installer.tsx").status_code == 404
+    assert client.get("/calendar/widget/code/..%2Fapp.py").status_code != 200

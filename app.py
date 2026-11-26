@@ -398,7 +398,7 @@ def pwa_apple_icon():
 
 _PWA_PUBLIC_ENDPOINTS = {"pwa_manifest", "pwa_service_worker", "pwa_offline", "pwa_icon", "pwa_apple_icon",
                          # the home-screen widget can't log in — the URL's secret token is the key
-                         "calendar_widget_data", "calendar_widget_zip"}
+                         "calendar_widget_data", "calendar_widget_zip", "calendar_widget_code"}
 
 
 def _with_pwa_head(html):
@@ -442,11 +442,19 @@ def _inject_pwa(resp):
 SCRIPTING_DIR = os.path.join(BASE_DIR, "scripting", "DailyPlanner")
 
 
-def _scripting_install_url(base):
-    # Scripting's own import link (Script.createImportScriptsURLScheme):
-    # scripting://import_scripts?urls=<JSON list>, pointing at the zip below.
-    urls = json.dumps([f"{base}/calendar/widget/DailyPlanner.zip"], separators=(",", ":"))
-    return "scripting://import_scripts?urls=" + quote(urls, safe="")
+INSTALLER_PATH = os.path.join(BASE_DIR, "scripting", "installer.tsx")
+WIDGET_CODE_FILES = ("widget.tsx", "app_intents.tsx", "index.tsx", "script.json")
+
+
+@app.route("/calendar/widget/code/<name>")
+def calendar_widget_code(name):
+    # The widget's files (no personal data in them), downloaded by the installer.
+    if name not in WIDGET_CODE_FILES:
+        abort(404)
+    with open(os.path.join(SCRIPTING_DIR, name), "r", encoding="utf-8") as fh:
+        resp = app.response_class(fh.read(), mimetype="text/plain; charset=utf-8")
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
 
 
 @app.route("/calendar/widget/DailyPlanner.zip")
@@ -501,6 +509,8 @@ WIDGET_PAGE_HTML = """<!doctype html>
   ol { margin:6px 0 0; padding-left:22px; } li { margin:4px 0; }
   input.link { width:100%; box-sizing:border-box; margin-top:10px; font:12px monospace;
     border:1px solid #d6d9e0; border-radius:10px; padding:8px; background:#f9fafb; color:#555; }
+  textarea { width:100%; box-sizing:border-box; height:90px; margin-top:10px; font:11px monospace;
+    border:1px solid #d6d9e0; border-radius:10px; padding:8px; background:#f9fafb; color:#555; }
   .keys { display:grid; grid-template-columns:auto 1fr; gap:4px 12px; margin:6px 0 0; }
   .keys b { text-align:center; }
   .note { font-size:.88rem; color:#6b7180; }
@@ -514,24 +524,19 @@ WIDGET_PAGE_HTML = """<!doctype html>
   </div>
 
   <div class="card">
-    <h2>2. 把 Daily Planner 加进 Scripting</h2>
-    <a class="btn" href="__INSTALL__">一键加入 Scripting</a>
-    <a class="btn light" href="__INSTALL2__">没反应？按这个（方法二）</a>
-    <p class="note">要用 <b>Safari</b> 打开这一页（不是主屏幕上的 Daily Planner 图标），先装好 Scripting 并打开过一次。按了会问「在 Scripting 中打开？」→ 打开 → 在 Scripting 里确认导入。</p>
-    <p class="note">按了没反应？复制下面的链接，在 Scripting 里用「从链接导入 / Import from URL」贴上：</p>
-    <button class="btn light" id="copyzip">复制安装链接</button>
-    <input class="link" id="zip" readonly value="__ZIP_URL__">
+    <h2>2. 复制安装代码</h2>
+    <button class="btn" id="copy">复制安装代码</button>
+    <textarea id="code" readonly>__INSTALLER__</textarea>
   </div>
 
   <div class="card">
-    <h2>3. 复制你的链接，在 Scripting 里运行一次</h2>
-    <button class="btn" id="copy">复制我的链接</button>
-    <input class="link" id="link" readonly value="__FEED_URL__">
+    <h2>3. 在 Scripting 里贴上、运行一次</h2>
     <ol>
-      <li>打开 Scripting，点 <b>Daily Planner</b> 运行</li>
-      <li>它会问「剪贴板里有你的小组件链接，要用它吗？」→ <b>用这个</b></li>
-      <li>看到「好了 ✓」就完成</li>
+      <li>打开 Scripting，点右上角 <b>＋</b> 新建脚本，名字打 <b>Daily Planner</b></li>
+      <li>打开它，把里面原本的字<b>全部删掉</b>，长按 → <b>粘贴</b></li>
+      <li>按 <b>▶</b> 运行，看到「装好了 ✓」就完成</li>
     </ol>
+    <p class="note">只要贴这段代码，不用另外贴链接。</p>
   </div>
 
   <div class="card">
@@ -557,7 +562,7 @@ WIDGET_PAGE_HTML = """<!doctype html>
   </div>
 
   <p class="note">&#8226; 小组件大约每 15 分钟自己更新一次（iPhone 决定准确时间），按按钮会马上更新。<br>
-  &#8226; 这个链接等于看你时间表的钥匙，不要发给别人。</p>
+  &#8226; 安装代码里有你专属的链接，等于看你时间表的钥匙，不要发给别人。</p>
 </main>
 <script>
 function copyButton(btnId, inputId, doneText) {
@@ -570,8 +575,7 @@ function copyButton(btnId, inputId, doneText) {
     } else { fallback(); }
   });
 }
-copyButton("copy", "link", "已复制 ✓  现在去 Scripting 运行 Daily Planner");
-copyButton("copyzip", "zip", "已复制 ✓  去 Scripting 贴上");
+copyButton("copy", "code", "已复制 ✓  现在去 Scripting 贴上");
 </script></body></html>"""
 
 
@@ -581,10 +585,9 @@ def calendar_widget_page():
     token = schedule_feed.feed_token(app.secret_key, profile["id"])
     base = _site_base()
     feed_url = f"{base}/calendar/widget/{profile['id']}/{token}.json"
-    html = (WIDGET_PAGE_HTML.replace("__FEED_URL__", html_escape(feed_url))
-                            .replace("__INSTALL2__", html_escape(f"scripting://import_scripts?urls={base}/calendar/widget/DailyPlanner.zip"))
-                            .replace("__INSTALL__", html_escape(_scripting_install_url(base)))
-                            .replace("__ZIP_URL__", html_escape(f"{base}/calendar/widget/DailyPlanner.zip")))
+    with open(INSTALLER_PATH, "r", encoding="utf-8") as fh:
+        installer = fh.read().replace("__SITE__", base).replace("__FEED_URL__", feed_url)
+    html = WIDGET_PAGE_HTML.replace("__INSTALLER__", html_escape(installer))
     return _with_switcher(html, "calendar")
 
 
