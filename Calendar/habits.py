@@ -86,6 +86,18 @@ def _calendar_tables():
     return finance_database.calendar_tables()
 
 
+def load_calendar_state(profile_id):
+    """A profile's saved Calendar state (or None) — for the subscription feed,
+    which is fetched by a phone's calendar app without a login session."""
+    if not finance_database or not finance_database.configured():
+        return None
+    from Finance.database import CalendarState
+
+    with _postgres_session() as db:
+        row = db.get(CalendarState, profile_id)
+        return _calendar_tables().load_state(db, row)
+
+
 @bp.get("/calendar-state")
 def get_calendar_state():
     if not _owner() or not finance_database or not finance_database.configured():

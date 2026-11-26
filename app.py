@@ -27,6 +27,8 @@ from Finance import database as finance_database
 from Finance import receipt_storage
 from Finance.finance_routes import finance_bp, authed_profile
 from Calendar import habits as calendar_habits
+from Calendar import ics_feed
+from Finance.finance_helpers import load_profiles, find_profile
 
 app = Flask(
     __name__,
@@ -118,6 +120,7 @@ HOME_HTML = """<!doctype html>
     <a class="card" href="/calendar/"><span class="ico">&#128197;</span>Calendar</a>
     <a class="card" href="/finance/"><span class="ico">$</span>Finance</a>
     <a class="card" href="/finance/add"><span class="ico">&#10133;</span>Add expense / income</a>
+    <a class="card" href="/calendar/subscribe"><span class="ico">&#128242;</span>Schedule on phone home screen</a>
   </div>
   <a class="out" href="/logout">Log out</a>
 </body></html>"""
@@ -390,7 +393,9 @@ def pwa_apple_icon():
     return pwa_icon("apple-touch-icon.png")
 
 
-_PWA_PUBLIC_ENDPOINTS = {"pwa_manifest", "pwa_service_worker", "pwa_offline", "pwa_icon", "pwa_apple_icon"}
+_PWA_PUBLIC_ENDPOINTS = {"pwa_manifest", "pwa_service_worker", "pwa_offline", "pwa_icon", "pwa_apple_icon",
+                         # a phone's calendar app can't log in — the URL's secret token is the key
+                         "calendar_feed"}
 
 
 def _with_pwa_head(html):
@@ -422,6 +427,95 @@ def _inject_pwa(resp):
         resp.direct_passthrough = False
         resp.set_data(_with_pwa_head(resp.get_data(as_text=True)))
     return resp
+
+
+# ── calendar subscription (schedule in the phone's own calendar + widgets) ──
+# The phone's Calendar app subscribes to /calendar/feed/<profile>/<token>.ics
+# and refreshes it by itself; its widgets then show the schedule on the home
+# screen and lock screen. See Calendar/ics_feed.py.
+def _feed_urls(profile_id):
+    token = ics_feed.feed_token(app.secret_key, profile_id)
+    path = f"/calendar/feed/{profile_id}/{token}.ics"
+    https = os.environ.get("RENDER") or request.headers.get("X-Forwarded-Proto") == "https" or request.is_secure
+    return (f"{'https' if https else 'http'}://{request.host}{path}", f"webcal://{request.host}{path}")
+
+
+@app.route("/calendar/feed/<profile_id>/<token>.ics")
+def calendar_feed(profile_id, token):
+    if not ics_feed.token_ok(app.secret_key, profile_id, token):
+        abort(404)
+    profile = find_profile(load_profiles(), profile_id)
+    if not profile:
+        abort(404)
+    state = calendar_habits.load_calendar_state(profile_id)
+    body = ics_feed.build_ics(state, calendar_name=f"Daily Planner · {profile.get('name') or 'Me'}")
+    resp = app.response_class(body, mimetype="text/calendar")
+    resp.headers["Content-Disposition"] = 'inline; filename="daily-planner.ics"'
+    resp.headers["Cache-Control"] = "no-cache, private"
+    return resp
+
+
+SUBSCRIBE_HTML = """<!doctype html>
+<html lang="zh"><head><meta charset="utf-8">
+<title>Schedule on phone · Daily Planner</title>
+<style>
+  body { margin:0; background:#f6f7f9; color:#232733;
+    font:16px/1.6 -apple-system,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif; }
+  main { max-width:560px; margin:0 auto; padding:28px 18px 40px; }
+  h1 { font-size:1.35rem; margin:0 0 6px; }
+  p.lead { margin:0 0 20px; color:#5b6170; }
+  .card { background:#fff; border:1px solid #e7e9ee; border-radius:16px; padding:18px; margin-bottom:16px; }
+  .card h2 { font-size:1.05rem; margin:0 0 10px; }
+  a.big { display:block; text-align:center; background:#151821; color:#fff; text-decoration:none;
+    font-weight:700; padding:15px; border-radius:12px; font-size:1.05rem; }
+  ol { margin:10px 0 0; padding-left:22px; } li { margin:4px 0; }
+  .url { display:flex; gap:8px; margin-top:10px; }
+  .url input { flex:1; min-width:0; font:13px monospace; padding:10px; border:1px solid #d6d9e0;
+    border-radius:10px; background:#f9fafb; }
+  .url button { padding:0 14px; font-weight:700; border:1px solid #151821; background:#fff;
+    border-radius:10px; font-size:14px; }
+  .note { font-size:.88rem; color:#6b7180; }
+</style></head><body><main>
+  <h1>&#128242; 主屏幕看时间表</h1>
+  <p class="lead">让手机自带的「日历」订阅你的 Daily Planner，之后就能用日历小组件，在主屏幕和锁屏直接看到今天的安排。</p>
+
+  <div class="card">
+    <h2>1. iPhone：订阅（只要一次）</h2>
+    <a class="big" href="__WEBCAL__">&#128197; 订阅到 iPhone 日历</a>
+    <ol>
+      <li>用 <b>Safari</b> 打开这页，点上面的按钮</li>
+      <li>弹出「订阅日历？」→ 点 <b>订阅</b></li>
+      <li>（可选）颜色、提醒设好 → 点 <b>完成</b></li>
+    </ol>
+  </div>
+
+  <div class="card">
+    <h2>2. 放到主屏幕</h2>
+    <ol>
+      <li>在主屏幕空白处 <b>长按</b>，直到图标开始抖</li>
+      <li>点左上角 <b>编辑</b> 或 <b>＋</b> →「添加小组件」</li>
+      <li>搜 <b>日历</b>（Calendar），选「即将开始」或「列表」样式 → <b>添加小组件</b></li>
+    </ol>
+    <p class="note">锁屏也可以：长按锁屏 →「自定」→ 锁定屏幕 → 加「日历」小组件。</p>
+  </div>
+
+  <div class="card">
+    <h2>其他手机 / Google 日历</h2>
+    <p class="note" style="margin:0">复制这个链接，在 Google 日历（电脑网页版）→ 其他日历 ＋ →「通过网址添加」贴上。Android 手机的 Google 日历就会同步，再加日历小组件。</p>
+    <div class="url"><input id="u" readonly value="__HTTPS__"><button onclick="var i=document.getElementById('u');i.select();navigator.clipboard&&navigator.clipboard.writeText(i.value);this.textContent='已复制'">复制</button></div>
+  </div>
+
+  <p class="note">&#8226; 这是只读的：要新增或修改，还是在 Daily Planner 里做，手机日历会自己更新（iPhone 大约每 15 分钟到 1 小时一次）。<br>
+  &#8226; 这个链接等于你时间表的钥匙，不要发给别人。</p>
+</main></body></html>"""
+
+
+@app.route("/calendar/subscribe")
+def calendar_subscribe():
+    profile = authed_profile()
+    https_url, webcal_url = _feed_urls(profile["id"])
+    html = SUBSCRIBE_HTML.replace("__WEBCAL__", html_escape(webcal_url)).replace("__HTTPS__", html_escape(https_url))
+    return _with_switcher(html, "calendar")
 
 
 # ── calendar (static files in Calendar/) ────────────────────────────
