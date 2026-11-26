@@ -1,22 +1,33 @@
-// Daily Planner 小组件安装器
+// Daily Planner 小组件安装器 —— 要贴在「Scripting」app 里（不是 Scriptable）。
 // 用法：在 Scripting 新建一个脚本，名字叫 Daily Planner，把这整段贴进去
 // （取代原本的全部内容），按 ▶ 运行一次。它会下载小组件的程式并存好你的链接。
 // 这段里有你专属的链接，不要发给别人。
-import { Script, Widget } from "scripting"
+// (Plain JavaScript on purpose: no import line, so pasting it anywhere parses.)
 
-const SITE = "__SITE__"
-const FEED_URL = "__FEED_URL__"
-const FILES = ["widget.tsx", "app_intents.tsx", "index.tsx"]
+var SITE = "__SITE__"
+var FEED_URL = "__FEED_URL__"
+var FILES = ["widget.tsx", "app_intents.tsx", "index.tsx"]
 
 async function install() {
-  for (const name of FILES) {
-    const res = await fetch(SITE + "/calendar/widget/code/" + name)
+  // Opened in Scriptable by mistake? It has no Script.directory.
+  if (typeof Script === "undefined" || typeof Script.directory !== "string" || typeof Dialog === "undefined") {
+    if (typeof Alert !== "undefined") {
+      var a = new Alert()
+      a.title = "这是 Scriptable，不是 Scripting"
+      a.message = "这段代码要贴在另一个 app「Scripting」里（App Store 搜 Scripting，图标是紫色的）。"
+      a.addAction("知道了")
+      await a.present()
+    }
+    return
+  }
+  for (var i = 0; i < FILES.length; i++) {
+    var name = FILES[i]
+    var res = await fetch(SITE + "/calendar/widget/code/" + name)
     if (!res.ok) throw new Error("下载 " + name + " 失败（" + res.status + "）")
-    const text = await res.text()
+    var text = await res.text()
     await FileManager.writeAsString(Script.directory + "/" + name, text)
   }
   Storage.set("feedUrl", FEED_URL)
-  Widget.reloadAll()
   await Dialog.alert({
     title: "装好了 ✓",
     message:
@@ -29,10 +40,14 @@ async function install() {
 }
 
 install()
-  .catch(async (e) => {
-    await Dialog.alert({
-      title: "没装好",
-      message: String(e) + "\n\n检查网络后再按一次 ▶。网站第一次打开可能要等 1 分钟。",
-    })
+  .catch(async function (e) {
+    if (typeof Dialog !== "undefined") {
+      await Dialog.alert({
+        title: "没装好",
+        message: String(e) + "\n\n检查网络后再按一次 ▶。网站第一次打开可能要等 1 分钟。",
+      })
+    }
   })
-  .finally(() => Script.exit())
+  .finally(function () {
+    if (typeof Script !== "undefined" && Script.exit) Script.exit()
+  })
