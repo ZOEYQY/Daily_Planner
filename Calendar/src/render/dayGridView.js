@@ -1696,7 +1696,7 @@ function itemBlock({ event: item, col, cols, startMin, endMin }, todayISO, state
 // Shrinks el's font a step at a time until container fits within available
 // height (or bottoms out at minFont and gives up). Returns whether it fits.
 function shrinkFontToFit(el, container, available, maxFont, minFont) {
-  el.style.fontSize = "";
+  el.style.fontSize = `${maxFont}px`;
   let size = maxFont;
   while (container.scrollHeight > available && size > minFont) {
     size -= 1;
@@ -1735,17 +1735,28 @@ function hideClippedInfoPanels(root) {
 
 const EVENT_TITLE_MAX_FONT = 14; // matches .timegrid-event-header-panel .timegrid-event-title
 const EVENT_TITLE_MIN_FONT = 10;
+// A phone's Week columns are ~45px wide; there the title starts smaller and
+// may shrink further so a word fits across the card instead of one letter per line.
+const NARROW_CARD_PX = 70;
+const NARROW_TITLE_MAX_FONT = 11;
+const NARROW_TITLE_MIN_FONT = 8;
 function fitEventHeaderTitles(root) {
   root.querySelectorAll(".timegrid-event-header-panel").forEach((panel) => {
     const card = panel.closest(".timegrid-event");
     const title = panel.querySelector(".timegrid-event-title");
     if (!card || !title) return;
+    const narrow = card.clientWidth < NARROW_CARD_PX;
+    // Narrow cards drop the time line (the grid's hour rows already show it)
+    // so the title gets the room — see .is-narrow in styles/mobile.css.
+    card.classList.toggle("is-narrow", narrow);
+    const maxFont = narrow ? NARROW_TITLE_MAX_FONT : EVENT_TITLE_MAX_FONT;
+    const minFont = narrow ? NARROW_TITLE_MIN_FONT : EVENT_TITLE_MIN_FONT;
     const fullTitle = title.textContent;
     const available = card.clientHeight - 12; // card's own 6px top + 6px bottom padding
-    if (shrinkFontToFit(title, panel, available, EVENT_TITLE_MAX_FONT, EVENT_TITLE_MIN_FONT)) return;
+    if (shrinkFontToFit(title, panel, available, maxFont, minFont)) return;
     const words = fullTitle.trim().split(/\s+/);
     if (words.length <= 1) return; // nothing shorter to fall back to
     title.textContent = `${words[0]}…`;
-    shrinkFontToFit(title, panel, available, EVENT_TITLE_MAX_FONT, EVENT_TITLE_MIN_FONT);
+    shrinkFontToFit(title, panel, available, maxFont, minFont);
   });
 }

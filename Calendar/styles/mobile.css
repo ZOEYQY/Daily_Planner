@@ -172,8 +172,43 @@
   .timegrid-head-col { padding-left: 0; padding-right: 0; }
   .daygrid-head-weekday { font-size: 10px; letter-spacing: 0.02em; }
   .timegrid-event,
-  .timegrid-task-block {
+  .timegrid-task-block,
+  .timegrid-event.is-compact {
+    padding: 3px 2px;
+  }
+  /* A Week column on a phone is only ~45px wide. The desktop title panel's
+     8px margins + 8px padding left almost no room, so titles stacked one
+     letter per line. Drop the inset so the text gets the whole card width,
+     and let a long word break across a couple of lines instead. */
+  .timegrid-event-panel,
+  .timegrid-event > .timegrid-event-info {
+    margin: 0;
+    padding: 2px 1px;
+  }
+  .timegrid-event-header-panel .timegrid-event-title {
+    line-height: 1.15;
+    overflow-wrap: anywhere;
+  }
+  .timegrid-event-header-panel .timegrid-event-time {
+    font-size: 9px;
+    white-space: normal;
+  }
+  .timegrid-event-info { font-size: 9.5px; }
+  .timegrid-event.is-narrow:not(.is-selected) .timegrid-event-time { display: none; }
+  /* Tray chips (WEEK / DAY rows): same narrow-column problem — slimmer pill,
+     smaller text that can break inside a word rather than per letter. */
+  .day-tray-chip,
+  .unscheduled-chip {
     padding: 3px 4px;
+    gap: 3px;
+    font-size: 10px;
+    border-radius: 6px;
+  }
+  .day-tray-chip .unscheduled-chip-label,
+  .special-day-tray-chip .unscheduled-chip-label {
+    max-width: 100%;
+    line-height: 1.15;
+    overflow-wrap: anywhere;
   }
   .timegrid-with-panel {
     flex-direction: column;
