@@ -105,3 +105,14 @@ def test_token():
     assert not schedule_feed.token_ok("secret", "p2", tok)
     assert not schedule_feed.token_ok("other", "p1", tok)
     assert not schedule_feed.token_ok("secret", "p1", "")
+
+
+def test_widget_zip_is_public_and_has_the_script():
+    import io
+    import zipfile
+    import app as webapp
+
+    resp = webapp.app.test_client().get("/calendar/widget/DailyPlanner.zip")
+    assert resp.status_code == 200
+    names = zipfile.ZipFile(io.BytesIO(resp.data)).namelist()
+    assert {"script.json", "index.tsx", "widget.tsx", "app_intents.tsx"} <= set(names)

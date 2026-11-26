@@ -13,7 +13,9 @@ Each module can also be run on its own:
 
 Tuition is a separate project and is intentionally not part of this app.
 """
+import io
 import json
+import zipfile
 from urllib.parse import quote
 import os
 from html import escape as html_escape
@@ -396,7 +398,7 @@ def pwa_apple_icon():
 
 _PWA_PUBLIC_ENDPOINTS = {"pwa_manifest", "pwa_service_worker", "pwa_offline", "pwa_icon", "pwa_apple_icon",
                          # the home-screen widget can't log in — the URL's secret token is the key
-                         "calendar_widget_data"}
+                         "calendar_widget_data", "calendar_widget_zip"}
 
 
 def _with_pwa_head(html):
@@ -437,11 +439,29 @@ def _inject_pwa(resp):
 # /calendar/widget/<profile>/<token>.json, where the token is tied to the
 # profile and the server's secret key. /calendar/widget (logged in) shows the
 # owner that link to paste into the app once — it is never stored in the repo.
-SCRIPTING_INSTALL_URL = (
-    "https://scripting.fun/import_scripts?urls="
-    + quote(json.dumps(["https://github.com/ZOEYQY/Daily_Planner/tree/main/scripting/DailyPlanner"],
-                       separators=(",", ":")), safe="")
-)
+SCRIPTING_DIR = os.path.join(BASE_DIR, "scripting", "DailyPlanner")
+
+
+def _scripting_install_url(base):
+    # Scripting's own import link (Script.createImportScriptsURLScheme):
+    # scripting://import_scripts?urls=<JSON list>, pointing at the zip below.
+    urls = json.dumps([f"{base}/calendar/widget/DailyPlanner.zip"], separators=(",", ":"))
+    return "scripting://import_scripts?urls=" + quote(urls, safe="")
+
+
+@app.route("/calendar/widget/DailyPlanner.zip")
+def calendar_widget_zip():
+    # The widget's code (no personal data in it) as a zip the Scripting app can import.
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for name in sorted(os.listdir(SCRIPTING_DIR)):
+            path = os.path.join(SCRIPTING_DIR, name)
+            if os.path.isfile(path):
+                zf.write(path, name)
+    resp = app.response_class(buf.getvalue(), mimetype="application/zip")
+    resp.headers["Content-Disposition"] = "attachment; filename=DailyPlanner.zip"
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
 
 
 def _site_base():
@@ -496,7 +516,10 @@ WIDGET_PAGE_HTML = """<!doctype html>
   <div class="card">
     <h2>2. 把 Daily Planner 加进 Scripting</h2>
     <a class="btn" href="__INSTALL__">一键加入 Scripting</a>
-    <p class="note">会打开 Scripting，按「Import / 导入」。</p>
+    <p class="note">会打开 Scripting，按「Import / 导入」。要先装好 Scripting 并打开过一次。</p>
+    <p class="note">按了没反应？复制下面的链接，在 Scripting 里用「从链接导入 / Import from URL」贴上：</p>
+    <button class="btn light" id="copyzip">复制安装链接</button>
+    <input class="link" id="zip" readonly value="__ZIP_URL__">
   </div>
 
   <div class="card">
@@ -536,14 +559,18 @@ WIDGET_PAGE_HTML = """<!doctype html>
   &#8226; 这个链接等于看你时间表的钥匙，不要发给别人。</p>
 </main>
 <script>
-document.getElementById("copy").addEventListener("click", function () {
-  var inp = document.getElementById("link"), btn = this;
-  function done() { btn.textContent = "已复制 ✓  现在去 Scripting 运行 Daily Planner"; }
-  function fallback() { inp.select(); inp.setSelectionRange(0, 9999); document.execCommand("copy"); done(); }
-  if (navigator.clipboard && navigator.clipboard.writeText) {
-    navigator.clipboard.writeText(inp.value).then(done, fallback);
-  } else { fallback(); }
-});
+function copyButton(btnId, inputId, doneText) {
+  document.getElementById(btnId).addEventListener("click", function () {
+    var inp = document.getElementById(inputId), btn = this;
+    function done() { btn.textContent = doneText; }
+    function fallback() { inp.select(); inp.setSelectionRange(0, 9999); document.execCommand("copy"); done(); }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(inp.value).then(done, fallback);
+    } else { fallback(); }
+  });
+}
+copyButton("copy", "link", "已复制 ✓  现在去 Scripting 运行 Daily Planner");
+copyButton("copyzip", "zip", "已复制 ✓  去 Scripting 贴上");
 </script></body></html>"""
 
 
@@ -551,9 +578,11 @@ document.getElementById("copy").addEventListener("click", function () {
 def calendar_widget_page():
     profile = authed_profile()
     token = schedule_feed.feed_token(app.secret_key, profile["id"])
-    feed_url = f"{_site_base()}/calendar/widget/{profile['id']}/{token}.json"
+    base = _site_base()
+    feed_url = f"{base}/calendar/widget/{profile['id']}/{token}.json"
     html = (WIDGET_PAGE_HTML.replace("__FEED_URL__", html_escape(feed_url))
-                            .replace("__INSTALL__", html_escape(SCRIPTING_INSTALL_URL)))
+                            .replace("__INSTALL__", html_escape(_scripting_install_url(base)))
+                            .replace("__ZIP_URL__", html_escape(f"{base}/calendar/widget/DailyPlanner.zip")))
     return _with_switcher(html, "calendar")
 
 
