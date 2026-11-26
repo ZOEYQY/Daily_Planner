@@ -477,7 +477,7 @@ WIDGET_PAGE_HTML = """<!doctype html>
   .note { font-size:.88rem; color:#6b7180; }
 </style></head><body><main>
   <h1>&#128242; 主屏幕小组件</h1>
-  <p class="lead">不用打开 app，在 iPhone 主屏幕（和锁屏）直接看到今天还剩下的安排，用你自己的分类颜色。点小组件就打开 Daily Planner。</p>
+  <p class="lead">不用打开 app，在 iPhone 主屏幕直接看到今天的 Day 视图——跟 Calendar 里的一样：小时格子、分类颜色的活动方块。点小组件就打开 Daily Planner。</p>
 
   <div class="card">
     <h2>1. 安装 Scriptable（免费）</h2>
@@ -500,7 +500,7 @@ WIDGET_PAGE_HTML = """<!doctype html>
     <h2>3. 放到主屏幕</h2>
     <ol>
       <li>主屏幕空白处 <b>长按</b> → 左上角 <b>编辑</b> →「添加小组件」</li>
-      <li>找 <b>Scriptable</b> → 选大小（中号最好看）→ 添加小组件</li>
+      <li>找 <b>Scriptable</b> → 选 <b>大号</b>（最像 Day 视图，中号只看得到几个小时）→ 添加小组件</li>
       <li>长按刚加的小组件 →「编辑小组件」→ Script 选 <b>Daily Planner</b></li>
     </ol>
     <p class="note">锁屏也可以：长按锁屏 →「自定」→ 锁定屏幕 → 加 Scriptable 小组件，同样选 Daily Planner。</p>
