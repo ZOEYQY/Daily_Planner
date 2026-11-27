@@ -534,7 +534,7 @@ WIDGET_PAGE_HTML = """<!doctype html>
     <ol>
       <li>打开 Scripting，点右上角 <b>＋</b> 新建脚本，名字打 <b>Daily Planner</b></li>
       <li>打开它，把里面原本的字<b>全部删掉</b>，长按 → <b>粘贴</b></li>
-      <li>按 <b>▶</b> 运行，看到「装好了 ✓」就完成</li>
+      <li>按 <b>▶</b> 运行，几秒后它会自己结束（不会跳出讯息）</li>
     </ol>
     <p class="note">只要贴这段代码，不用另外贴链接。</p>
   </div>
