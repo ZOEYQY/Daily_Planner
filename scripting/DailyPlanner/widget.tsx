@@ -431,17 +431,26 @@ async function main() {
   const dayUrl = siteLink(feedUrl, `date=${iso}`)
   const addUrl = siteLink(feedUrl, `date=${iso}&add=1`)
 
-  if (family === "systemLarge" || family === "systemExtraLarge") {
+  // Pick the layout from the widget's real size as well as its family name,
+  // so tall sizes (e.g. extra-large portrait) also get the Day view.
+  const isMedium = family === "systemMedium" || (family !== "systemLarge" && W > 250 && H < 250)
+  const isBig = !isMedium && (family === "systemLarge" || family === "systemExtraLarge" || H >= 250)
+
+  if (isBig) {
     const trayH = untimed.length ? 24 : 0
     const headH = 40
     const timelineH = H - headH - trayH - (trayH ? 0.75 : 0) - 0.75 - 6
+    // The large widget shows 6 hours (the medium one under it shows the next
+    // 3); a taller widget shows as many hours as fit at the app's spacing.
+    const hours = family === "systemLarge" ? LARGE_HOURS : Math.max(3, Math.min(18, Math.round(timelineH / 56)))
+    const bigStart = Math.max(0, Math.min(24 - hours, startHour))
     Widget.present(
       <VStack spacing={0} frame={{ width: W, height: H, alignment: "top" }} widgetBackground={C.surface}>
         <Heading date={date} isToday={isToday} addUrl={addUrl} />
         <Divider_ />
         {trayH ? <Tray items={untimed} /> : null}
         {trayH ? <Divider_ /> : null}
-        <Timeline W={W} H={timelineH} startHour={startHour} hours={LARGE_HOURS} timed={timed} dayUrl={dayUrl} topLine={false} />
+        <Timeline W={W} H={timelineH} startHour={bigStart} hours={hours} timed={timed} dayUrl={dayUrl} topLine={false} />
         <Spacer />
         {offline ? (
           <Text font={7} foregroundStyle={C.muted} frame={{ maxWidth: "infinity", alignment: "trailing" }} padding={{ trailing: 8 }}>
@@ -454,7 +463,7 @@ async function main() {
     return
   }
 
-  if (family === "systemMedium") {
+  if (isMedium) {
     // Carries on under the large widget: the next 3 hours of the same day.
     Widget.present(
       <VStack spacing={0} frame={{ width: W, height: H, alignment: "top" }} widgetBackground={C.surface}>
