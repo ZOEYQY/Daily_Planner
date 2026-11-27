@@ -35,6 +35,7 @@ import { HOURS_TOTAL, ResetViewIntent, ShiftDayIntent, ShiftHoursIntent } from "
 const LARGE_HOURS = 6
 const MEDIUM_HOURS = HOURS_TOTAL - LARGE_HOURS // 3
 const MANUAL_KEEP_MS = 30 * 60 * 1000
+const EMBEDDED_FEED_URL = "__FEED_URL__"
 
 // ── the app's look (Calendar/styles/tokens.css) ─────────────────────
 const C = {
@@ -383,7 +384,10 @@ function Message({ title, text }: { title: string; text: string }) {
 
 // ── main ────────────────────────────────────────────────────────────
 async function main() {
-  const feedUrl = Storage.get<string>("feedUrl")
+  // The copy on the website's widget page has the owner's link filled in here;
+  // the copy in the repo keeps the placeholder and uses the saved link instead.
+  const embedded = EMBEDDED_FEED_URL.startsWith("http") ? EMBEDDED_FEED_URL : null
+  const feedUrl = Storage.get<string>("feedUrl") || embedded
   const size = Widget.displaySize
   const W = size.width, H = size.height
   const family = Widget.family

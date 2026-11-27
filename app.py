@@ -442,7 +442,6 @@ def _inject_pwa(resp):
 SCRIPTING_DIR = os.path.join(BASE_DIR, "scripting", "DailyPlanner")
 
 
-INSTALLER_PATH = os.path.join(BASE_DIR, "scripting", "installer.tsx")
 WIDGET_CODE_FILES = ("widget.tsx", "app_intents.tsx", "index.tsx", "script.json")
 
 
@@ -524,19 +523,30 @@ WIDGET_PAGE_HTML = """<!doctype html>
   </div>
 
   <div class="card">
-    <h2>2. 复制安装代码</h2>
-    <button class="btn" id="copy">复制安装代码</button>
-    <textarea id="code" readonly>__INSTALLER__</textarea>
+    <h2>2. 在 Scripting 新建脚本</h2>
+    <ol>
+      <li>打开 Scripting，按右上角 <b>＋</b>，名字打 <b>Daily Planner</b>（已经建过就用原本那个）</li>
+      <li>打开它，按左下角 <b>📁 文件夹</b> 按钮</li>
+    </ol>
   </div>
 
   <div class="card">
-    <h2>3. 在 Scripting 里贴上、运行一次</h2>
+    <h2>3. 加两个文件（各贴一次）</h2>
+    <p><b>第一个：widget.tsx</b></p>
+    <button class="btn" id="copyw">复制第一段</button>
     <ol>
-      <li>打开 Scripting，点右上角 <b>＋</b> 新建脚本，名字打 <b>Daily Planner</b></li>
-      <li>打开它，把里面原本的字<b>全部删掉</b>，长按 → <b>粘贴</b></li>
-      <li>按 <b>▶</b> 运行，几秒后它会自己结束（不会跳出讯息）</li>
+      <li>在文件夹画面按左下角 <b>📄＋ 新建文件</b>，名字打 <b>widget.tsx</b></li>
+      <li>打开它，里面有字就全部删掉，长按 → <b>粘贴</b> → 关掉</li>
     </ol>
-    <p class="note">只要贴这段代码，不用另外贴链接。</p>
+    <p style="margin-top:14px"><b>第二个：app_intents.tsx</b></p>
+    <button class="btn" id="copya">复制第二段</button>
+    <ol>
+      <li>再按 <b>📄＋ 新建文件</b>，名字打 <b>app_intents.tsx</b></li>
+      <li>打开它，里面有字就全部删掉，长按 → <b>粘贴</b> → 关掉</li>
+    </ol>
+    <p class="note">名字要一模一样（小写、有 .tsx）。做完文件夹里会有 widget.tsx 和 app_intents.tsx。</p>
+    <textarea id="codew" readonly style="display:none">__WIDGET_CODE__</textarea>
+    <textarea id="codea" readonly style="display:none">__INTENTS_CODE__</textarea>
   </div>
 
   <div class="card">
@@ -562,20 +572,21 @@ WIDGET_PAGE_HTML = """<!doctype html>
   </div>
 
   <p class="note">&#8226; 小组件大约每 15 分钟自己更新一次（iPhone 决定准确时间），按按钮会马上更新。<br>
-  &#8226; 安装代码里有你专属的链接，等于看你时间表的钥匙，不要发给别人。</p>
+  &#8226; 第一段代码里有你专属的链接，等于看你时间表的钥匙，不要发给别人。</p>
 </main>
 <script>
 function copyButton(btnId, inputId, doneText) {
   document.getElementById(btnId).addEventListener("click", function () {
     var inp = document.getElementById(inputId), btn = this;
     function done() { btn.textContent = doneText; }
-    function fallback() { inp.select(); inp.setSelectionRange(0, 9999); document.execCommand("copy"); done(); }
+    function fallback() { inp.style.display = "block"; inp.select(); inp.setSelectionRange(0, 999999); document.execCommand("copy"); inp.style.display = "none"; done(); }
     if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(inp.value).then(done, fallback);
     } else { fallback(); }
   });
 }
-copyButton("copy", "code", "已复制 ✓  现在去 Scripting 贴上");
+copyButton("copyw", "codew", "已复制第一段 ✓  去贴进 widget.tsx");
+copyButton("copya", "codea", "已复制第二段 ✓  去贴进 app_intents.tsx");
 </script></body></html>"""
 
 
@@ -585,9 +596,12 @@ def calendar_widget_page():
     token = schedule_feed.feed_token(app.secret_key, profile["id"])
     base = _site_base()
     feed_url = f"{base}/calendar/widget/{profile['id']}/{token}.json"
-    with open(INSTALLER_PATH, "r", encoding="utf-8") as fh:
-        installer = fh.read().replace("__SITE__", base).replace("__FEED_URL__", feed_url)
-    html = WIDGET_PAGE_HTML.replace("__INSTALLER__", html_escape(installer))
+    with open(os.path.join(SCRIPTING_DIR, "widget.tsx"), "r", encoding="utf-8") as fh:
+        widget_code = fh.read().replace("__FEED_URL__", feed_url)
+    with open(os.path.join(SCRIPTING_DIR, "app_intents.tsx"), "r", encoding="utf-8") as fh:
+        intents_code = fh.read()
+    html = (WIDGET_PAGE_HTML.replace("__WIDGET_CODE__", html_escape(widget_code))
+                            .replace("__INTENTS_CODE__", html_escape(intents_code)))
     return _with_switcher(html, "calendar")
 
 
