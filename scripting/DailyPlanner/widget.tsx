@@ -388,9 +388,13 @@ async function main() {
   // the copy in the repo keeps the placeholder and uses the saved link instead.
   const embedded = EMBEDDED_FEED_URL.startsWith("http") ? EMBEDDED_FEED_URL : null
   const feedUrl = Storage.get<string>("feedUrl") || embedded
-  const size = Widget.displaySize
-  const W = size.width, H = size.height
   const family = Widget.family
+  const fam = String(family ?? "").toLowerCase()
+  // Fall back to typical iPhone sizes if the app doesn't report one.
+  const size = Widget.displaySize as any
+  const guess = fam.includes("medium") ? [364, 170] : fam.includes("large") ? [364, 382] : [170, 170]
+  const W: number = size && size.width > 0 ? size.width : guess[0]
+  const H: number = size && size.height > 0 ? size.height : guess[1]
   const refresh = { policy: "after" as const, date: new Date(Date.now() + 15 * 60 * 1000) }
 
   if (!feedUrl) {
@@ -433,8 +437,9 @@ async function main() {
 
   // Pick the layout from the widget's real size as well as its family name,
   // so tall sizes (e.g. extra-large portrait) also get the Day view.
-  const isMedium = family === "systemMedium" || (family !== "systemLarge" && W > 250 && H < 250)
-  const isBig = !isMedium && (family === "systemLarge" || family === "systemExtraLarge" || H >= 250)
+  const isPlainLarge = fam === "systemlarge" || fam === "large"
+  const isMedium = fam.includes("medium") || (!fam.includes("large") && W > 250 && H < 250)
+  const isBig = !isMedium && (fam.includes("large") || H >= 250)
 
   if (isBig) {
     const trayH = untimed.length ? 24 : 0
@@ -442,7 +447,7 @@ async function main() {
     const timelineH = H - headH - trayH - (trayH ? 0.75 : 0) - 0.75 - 6
     // The large widget shows 6 hours (the medium one under it shows the next
     // 3); a taller widget shows as many hours as fit at the app's spacing.
-    const hours = family === "systemLarge" ? LARGE_HOURS : Math.max(3, Math.min(18, Math.round(timelineH / 56)))
+    const hours = isPlainLarge ? LARGE_HOURS : Math.max(3, Math.min(18, Math.round(timelineH / 56)))
     const bigStart = Math.max(0, Math.min(24 - hours, startHour))
     Widget.present(
       <VStack spacing={0} frame={{ width: W, height: H, alignment: "top" }} widgetBackground={C.surface}>
@@ -493,6 +498,7 @@ async function main() {
           <Text font={13} foregroundStyle={C.muted}>Nothing coming up</Text>
         )}
         <Spacer />
+        <Text font={7} foregroundStyle={C.muted}>{`${String(family)} · ${Math.round(W)}×${Math.round(H)}`}</Text>
       </VStack>
     </Link>,
     refresh
